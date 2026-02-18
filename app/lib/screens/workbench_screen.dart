@@ -4,6 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
+import '../accessibility/a11y_announcer.dart';
+import '../accessibility/a11y_focus.dart';
+import '../accessibility/a11y_shortcuts.dart';
+import '../accessibility/skip_links.dart';
 import '../app_keys.dart';
 import '../engine/engine_client.dart';
 import '../logging.dart';
@@ -11,6 +15,7 @@ import '../models/models.dart';
 import '../state/workbench_state.dart';
 import '../theme.dart';
 import '../widgets/clutter_bar.dart';
+import '../widgets/dialog_keyboard_shortcuts.dart';
 import 'review_screen.dart';
 import 'settings_screen.dart';
 import 'checkpoints_screen.dart';
@@ -58,6 +63,16 @@ class _WorkbenchView extends StatefulWidget {
 class _WorkbenchViewState extends State<_WorkbenchView> {
   final _composerController = TextEditingController();
   final _messageScrollController = ScrollController();
+  final _mainContentFocusNode = FocusNode(debugLabel: 'workbench_main_content');
+  final _fileListFocusNode = FocusNode(debugLabel: 'workbench_file_list');
+  final _composerFocusNode = FocusNode(debugLabel: 'workbench_composer');
+  final _modelSelectorFocusNode = FocusNode(
+    debugLabel: 'workbench_model_selector',
+  );
+  final _errorSummaryFocusNode = FocusNode(
+    debugLabel: 'workbench_error_summary',
+  );
+
   String _lastScrollTrigger = '';
   bool _reviewRouteOpen = false;
   bool _autoReviewScheduled = false;
@@ -65,23 +80,43 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
   String? _lastDraftToken;
   String? _dismissedDraftToken;
   String? _restoringCheckpointId;
+  String? _errorSummary;
+
+  String? _lastAnnouncedPhaseLabel;
+  bool _lastToolExecutingAnnounced = false;
+  String _lastToolName = '';
+  bool _lastConversationBusy = false;
+  String? _lastAnnouncedModelId;
+  String _lastClutterLevel = '';
+  String? _lastAnnouncedDraftReadyToken;
 
   @override
   void dispose() {
     _composerController.dispose();
     _messageScrollController.dispose();
+    _mainContentFocusNode.dispose();
+    _fileListFocusNode.dispose();
+    _composerFocusNode.dispose();
+    _modelSelectorFocusNode.dispose();
+    _errorSummaryFocusNode.dispose();
     super.dispose();
   }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_messageScrollController.hasClients) {
-        _messageScrollController.animateTo(
-          _messageScrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-        );
+      if (!mounted || !_messageScrollController.hasClients) {
+        return;
       }
+      final maxScroll = _messageScrollController.position.maxScrollExtent;
+      if (MediaQuery.maybeOf(context)?.disableAnimations == true) {
+        _messageScrollController.jumpTo(maxScroll);
+        return;
+      }
+      _messageScrollController.animateTo(
+        maxScroll,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+      );
     });
   }
 
@@ -91,6 +126,122 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       return draftId;
     }
     return state.hasDraft ? '__draft__' : '';
+  }
+
+  void _announce(String message, {bool force = false}) {
+    if (!mounted) {
+      return;
+    }
+    A11yAnnouncer.instance.announce(context, message, force: force);
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+    if (isError) {
+      _setErrorSummary(message, announce: true);
+      return;
+    }
+    _announce(message);
+  }
+
+  void _setErrorSummary(String message, {bool announce = true}) {
+    final normalized = message.trim();
+    if (normalized.isEmpty || !mounted) {
+      return;
+    }
+    setState(() {
+      _errorSummary = normalized;
+    });
+    requestFocusSafely(_errorSummaryFocusNode);
+    if (announce) {
+      _announce('Error: $normalized');
+    }
+  }
+
+  void _clearErrorSummary() {
+    if (_errorSummary == null) {
+      return;
+    }
+    setState(() {
+      _errorSummary = null;
+    });
+  }
+
+  String _modelDisplayNameFor(String modelId, List<ModelInfo> models) {
+    for (final model in models) {
+      if (model.id == modelId) {
+        return model.displayName;
+      }
+    }
+    return modelId;
+  }
+
+  void _announceStateTransitions(
+    WorkbenchState state,
+    List<ModelInfo> availableModels,
+  ) {
+    final phaseLabel = _phaseStatusLabel(state);
+    if (phaseLabel != null && phaseLabel != _lastAnnouncedPhaseLabel) {
+      _announce(phaseLabel);
+    }
+    if (phaseLabel == null && _lastAnnouncedPhaseLabel != null) {
+      _announce('Phase complete.');
+    }
+    _lastAnnouncedPhaseLabel = phaseLabel;
+
+    if (state.isToolExecuting) {
+      final toolName = state.currentToolName ?? '';
+      if (!_lastToolExecutingAnnounced || toolName != _lastToolName) {
+        _announce(_toolStatusLabel(toolName));
+      }
+      _lastToolExecutingAnnounced = true;
+      _lastToolName = toolName;
+    } else if (_lastToolExecutingAnnounced) {
+      _announce('Tool run complete.');
+      _lastToolExecutingAnnounced = false;
+      _lastToolName = '';
+    }
+
+    if (state.isConversationBusy && !_lastConversationBusy) {
+      _announce('Generating response.');
+    } else if (!state.isConversationBusy && _lastConversationBusy) {
+      _announce('Response complete.');
+    }
+    _lastConversationBusy = state.isConversationBusy;
+
+    final modelId = state.activeModelId?.trim() ?? '';
+    if (_lastAnnouncedModelId != null &&
+        _lastAnnouncedModelId!.isNotEmpty &&
+        modelId.isNotEmpty &&
+        _lastAnnouncedModelId != modelId) {
+      final label = _modelDisplayNameFor(modelId, availableModels);
+      _announce('Model changed to $label.');
+    }
+    if (modelId.isNotEmpty) {
+      _lastAnnouncedModelId = modelId;
+    }
+
+    final draftToken = _draftToken(state);
+    if (state.hasDraft &&
+        draftToken.isNotEmpty &&
+        draftToken != _lastAnnouncedDraftReadyToken) {
+      _announce('Review ready. Draft changes available.');
+      _lastAnnouncedDraftReadyToken = draftToken;
+    }
+    if (!state.hasDraft) {
+      _lastAnnouncedDraftReadyToken = null;
+    }
+
+    final clutterLevel = state.clutter?.level.trim().toLowerCase() ?? '';
+    if (clutterLevel == 'heavy' && _lastClutterLevel != 'heavy') {
+      _announce('Clutter level heavy.');
+    }
+    _lastClutterLevel = clutterLevel;
   }
 
   void _scheduleAutoOpenReviewIfNeeded(WorkbenchState state) {
@@ -166,22 +317,26 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     final confirm = await showDialog<bool>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        title: const Text('Restore checkpoint'),
-        content: Text(
-          'Restore publish checkpoint $checkpointId? This reverts Published files and Workbench history.',
-        ),
-        actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            title: const Text('Restore checkpoint'),
+            content: Text(
+              'Restore publish checkpoint $checkpointId? This reverts Published files and Workbench history.',
+            ),
+            actions: [
+              OutlinedButton(onPressed: cancel, child: const Text('Cancel')),
+              ElevatedButton(onPressed: submit, child: const Text('Restore')),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Restore'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (confirm != true) {
       return;
@@ -194,9 +349,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Checkpoint restored.')));
+      _showMessage('Checkpoint restored.');
     } on EngineError catch (err) {
       await _handleEngineError(
         err,
@@ -223,6 +376,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     if (text.isEmpty) {
       return;
     }
+    _clearErrorSummary();
     final providerReady = await _ensureProviderReady();
     if (!providerReady) {
       return;
@@ -251,22 +405,26 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     final confirm = await showDialog<bool>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        title: const Text('Rewind conversation'),
-        content: const Text(
-          'Rewinding will discard all messages after this point and revert Draft changes. If publish checkpoints are crossed, Published files are also restored.',
-        ),
-        actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            title: const Text('Rewind conversation'),
+            content: const Text(
+              'Rewinding will discard all messages after this point and revert Draft changes. If publish checkpoints are crossed, Published files are also restored.',
+            ),
+            actions: [
+              OutlinedButton(onPressed: cancel, child: const Text('Cancel')),
+              ElevatedButton(onPressed: submit, child: const Text('Rewind')),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Rewind'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (confirm != true) {
       return;
@@ -437,28 +595,40 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     final content = isOAuth
         ? 'Connect $label in Settings before continuing.'
         : 'Configure a valid $label API key before continuing.';
+    _setErrorSummary(content, announce: true);
     final open = await showDialog<bool>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        key: AppKeys.providerRequiredDialog,
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          OutlinedButton(
-            key: AppKeys.providerRequiredCancel,
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.providerRequiredDialog,
+            title: Text(title),
+            content: Text(content),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.providerRequiredCancel,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.providerRequiredOpenSettings,
+                onPressed: submit,
+                child: const Text('Open Settings'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            key: AppKeys.providerRequiredOpenSettings,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Open Settings'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (open == true && mounted) {
+      _clearErrorSummary();
       await _openSettings();
     }
   }
@@ -513,9 +683,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       'error_code': err.errorCode,
       'message': err.message,
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(err.message)));
+    _showMessage(err.message, isError: true);
   }
 
   Future<void> _openSettings() async {
@@ -536,9 +704,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(retryErr.toString())));
+      _showMessage(retryErr.toString(), isError: true);
     }
   }
 
@@ -556,47 +722,67 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     if (!hasKnownActions) {
       return false;
     }
+    _setErrorSummary(err.message, announce: true);
+    final defaultChoice = canRetry
+        ? _ErrorActionChoice.retry
+        : actions.contains('review_draft')
+        ? _ErrorActionChoice.reviewDraft
+        : actions.contains('discard_draft')
+        ? _ErrorActionChoice.discardDraft
+        : actions.contains('open_settings')
+        ? _ErrorActionChoice.openSettings
+        : _ErrorActionChoice.dismiss;
     final choice = await showDialog<_ErrorActionChoice>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        title: const Text('Action required'),
-        content: Text(err.message),
-        actions: [
-          OutlinedButton(
-            onPressed: () =>
-                Navigator.of(context).pop(_ErrorActionChoice.dismiss),
-            child: const Text('Dismiss'),
+      builder: (dialogContext) {
+        void cancel() =>
+            Navigator.of(dialogContext).pop(_ErrorActionChoice.dismiss);
+
+        void submit() => Navigator.of(dialogContext).pop(defaultChoice);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            title: const Text('Action required'),
+            content: Text(err.message),
+            actions: [
+              OutlinedButton(onPressed: cancel, child: const Text('Dismiss')),
+              if (canRetry)
+                ElevatedButton(
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop(_ErrorActionChoice.retry),
+                  child: const Text('Retry'),
+                ),
+              if (actions.contains('review_draft'))
+                TextButton(
+                  onPressed: () => Navigator.of(
+                    dialogContext,
+                  ).pop(_ErrorActionChoice.reviewDraft),
+                  child: const Text('Open review'),
+                ),
+              if (actions.contains('discard_draft'))
+                TextButton(
+                  onPressed: () => Navigator.of(
+                    dialogContext,
+                  ).pop(_ErrorActionChoice.discardDraft),
+                  style: TextButton.styleFrom(
+                    foregroundColor: KeenBenchTheme.colorErrorText,
+                  ),
+                  child: const Text('Discard Draft'),
+                ),
+              if (actions.contains('open_settings'))
+                TextButton(
+                  onPressed: () => Navigator.of(
+                    dialogContext,
+                  ).pop(_ErrorActionChoice.openSettings),
+                  child: const Text('Open Settings'),
+                ),
+            ],
           ),
-          if (canRetry)
-            ElevatedButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_ErrorActionChoice.retry),
-              child: const Text('Retry'),
-            ),
-          if (actions.contains('review_draft'))
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_ErrorActionChoice.reviewDraft),
-              child: const Text('Open review'),
-            ),
-          if (actions.contains('discard_draft'))
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_ErrorActionChoice.discardDraft),
-              style: TextButton.styleFrom(
-                foregroundColor: KeenBenchTheme.colorErrorText,
-              ),
-              child: const Text('Discard Draft'),
-            ),
-          if (actions.contains('open_settings'))
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_ErrorActionChoice.openSettings),
-              child: const Text('Open Settings'),
-            ),
-        ],
-      ),
+        );
+      },
     );
     switch (choice ?? _ErrorActionChoice.dismiss) {
       case _ErrorActionChoice.retry:
@@ -629,25 +815,32 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     final confirm = await showDialog<bool>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        title: const Text('Discard Draft'),
-        content: const Text(
-          'Discarding removes all unpublished changes in this Draft. Published files remain unchanged.',
-        ),
-        actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: KeenBenchTheme.colorErrorText,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            title: const Text('Discard Draft'),
+            content: const Text(
+              'Discarding removes all unpublished changes in this Draft. Published files remain unchanged.',
             ),
-            child: const Text('Discard'),
+            actions: [
+              OutlinedButton(onPressed: cancel, child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: KeenBenchTheme.colorErrorText,
+                ),
+                child: const Text('Discard'),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
     return confirm == true;
   }
@@ -660,28 +853,38 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     final confirm = await showDialog<bool>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        key: AppKeys.workbenchRemoveFileDialog,
-        title: const Text('Remove file'),
-        content: Text(
-          'Remove "${file.path}" from this Workbench? Originals remain untouched.',
-        ),
-        actions: [
-          OutlinedButton(
-            key: AppKeys.workbenchRemoveFileCancel,
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            key: AppKeys.workbenchRemoveFileConfirm,
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: KeenBenchTheme.colorErrorText,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.workbenchRemoveFileDialog,
+            title: const Text('Remove file'),
+            content: Text(
+              'Remove "${file.path}" from this Workbench? Originals remain untouched.',
             ),
-            child: const Text('Remove'),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.workbenchRemoveFileCancel,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.workbenchRemoveFileConfirm,
+                onPressed: submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: KeenBenchTheme.colorErrorText,
+                ),
+                child: const Text('Remove'),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
     if (confirm != true) {
       return;
@@ -690,9 +893,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       await state.removeFiles([file.path]);
     } on EngineError catch (err) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(err.message)));
+      _showMessage(err.message, isError: true);
     }
   }
 
@@ -744,16 +945,12 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
           message = 'Failed to extract "${file.path}" (${result.reason}).';
         }
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      _showMessage(message);
     } on EngineError catch (err) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(err.message)));
+      _showMessage(err.message, isError: true);
     }
   }
 
@@ -794,75 +991,88 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          key: AppKeys.consentDialog,
-          title: const Text('Consent required'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'KeenBench will send Workbench content to $providerName ($modelName) to generate responses.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+        builder: (dialogContext, setState) {
+          void cancel() => Navigator.of(
+            dialogContext,
+          ).pop(const _ConsentDecision(granted: false, persist: false));
+
+          void submit() => Navigator.of(
+            dialogContext,
+          ).pop(_ConsentDecision(granted: true, persist: persist));
+
+          return DialogKeyboardShortcuts(
+            onCancel: cancel,
+            onSubmit: submit,
+            child: AlertDialog(
+              key: AppKeys.consentDialog,
+              title: const Text('Consent required'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'KeenBench will send Workbench content to $providerName ($modelName) to generate responses.',
+                      style: Theme.of(dialogContext).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Files in scope',
+                      style: Theme.of(dialogContext).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 180,
+                      child: ListView.builder(
+                        key: AppKeys.consentFileList,
+                        itemCount: files.length,
+                        itemBuilder: (context, index) {
+                          final file = files[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              '${file.path} (${file.size} bytes)',
+                              style: Theme.of(
+                                dialogContext,
+                              ).textTheme.bodySmall,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      key: AppKeys.consentScopeHash,
+                      'Scope hash: $scopeHash',
+                      style: Theme.of(dialogContext).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    CheckboxListTile(
+                      value: persist,
+                      onChanged: (value) =>
+                          setState(() => persist = value ?? true),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text("Don't ask again for this Workbench"),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  'Files in scope',
-                  style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              actions: [
+                OutlinedButton(
+                  key: AppKeys.consentCancelButton,
+                  onPressed: cancel,
+                  child: const Text('Cancel'),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 180,
-                  child: ListView.builder(
-                    key: AppKeys.consentFileList,
-                    itemCount: files.length,
-                    itemBuilder: (context, index) {
-                      final file = files[index];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Text(
-                          '${file.path} (${file.size} bytes)',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  key: AppKeys.consentScopeHash,
-                  'Scope hash: $scopeHash',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                CheckboxListTile(
-                  value: persist,
-                  onChanged: (value) => setState(() => persist = value ?? true),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text("Don't ask again for this Workbench"),
+                ElevatedButton(
+                  key: AppKeys.consentContinueButton,
+                  onPressed: submit,
+                  child: const Text('Continue'),
                 ),
               ],
             ),
-          ),
-          actions: [
-            OutlinedButton(
-              key: AppKeys.consentCancelButton,
-              onPressed: () => Navigator.of(
-                context,
-              ).pop(const _ConsentDecision(granted: false, persist: false)),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              key: AppKeys.consentContinueButton,
-              onPressed: () => Navigator.of(
-                context,
-              ).pop(_ConsentDecision(granted: true, persist: persist)),
-              child: const Text('Continue'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -909,637 +1119,935 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
         final draftMetadataText = _buildDraftMetadataText(state);
         final canRunConversationAction =
             !state.isApplyingDraft && !state.isConversationBusy;
-        return Scaffold(
-          key: AppKeys.workbenchScreen,
-          appBar: KeenBenchAppBar(
-            title: workbench?.name ?? 'Workbench',
-            showBack: true,
-            useCenteredContent: false,
-            actions: [
-              if (availableModels.isNotEmpty)
-                Container(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: KeenBenchTheme.colorSurfaceSubtle,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: selectedModelId,
-                      isExpanded: true,
-                      items: availableModels
-                          .map(
-                            (model) => DropdownMenuItem<String>(
-                              value: model.id,
-                              child: Text(
-                                model.displayName,
-                                overflow: TextOverflow.ellipsis,
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          _announceStateTransitions(state, availableModels);
+        });
+
+        return Shortcuts(
+          shortcuts: workbenchShortcutMap(),
+          child: Actions(
+            actions: <Type, Action<Intent>>{
+              FocusComposerIntent: CallbackAction<Intent>(
+                onInvoke: (_) {
+                  requestFocusSafely(_composerFocusNode);
+                  return null;
+                },
+              ),
+              SendComposerIntent: CallbackAction<Intent>(
+                onInvoke: (_) {
+                  _submitComposer();
+                  return null;
+                },
+              ),
+              OpenReviewIntent: CallbackAction<Intent>(
+                onInvoke: (_) {
+                  if (state.hasDraft) {
+                    _openReview(autoOpened: false);
+                  }
+                  return null;
+                },
+              ),
+              PublishDraftIntent: CallbackAction<Intent>(
+                onInvoke: (_) {
+                  if (state.hasDraft) {
+                    _openReview(autoOpened: false);
+                  }
+                  return null;
+                },
+              ),
+              DiscardDraftIntent: CallbackAction<Intent>(
+                onInvoke: (_) {
+                  if (!state.hasDraft) {
+                    return null;
+                  }
+                  _confirmDiscardDraft().then((confirm) async {
+                    if (!confirm) {
+                      return;
+                    }
+                    try {
+                      await state.discardDraft();
+                    } on EngineError catch (err) {
+                      await _handleEngineError(err);
+                    }
+                  });
+                  return null;
+                },
+              ),
+            },
+            child: FocusTraversalGroup(
+              policy: OrderedTraversalPolicy(),
+              child: Scaffold(
+                key: AppKeys.workbenchScreen,
+                appBar: KeenBenchAppBar(
+                  title: workbench?.name ?? 'Workbench',
+                  showBack: true,
+                  useCenteredContent: false,
+                  actions: [
+                    if (availableModels.isNotEmpty)
+                      Semantics(
+                        key: AppKeys.workbenchModelSelectorSemantics,
+                        label:
+                            'Current model: ${_modelDisplayNameFor(selectedModelId ?? '', availableModels)}',
+                        hint: 'Dropdown',
+                        child: Focus(
+                          focusNode: _modelSelectorFocusNode,
+                          child: Container(
+                            constraints: const BoxConstraints(maxWidth: 220),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: KeenBenchTheme.colorSurfaceSubtle,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: KeenBenchTheme.colorBorderSubtle,
                               ),
                             ),
-                          )
-                          .toList(),
-                      onChanged: state.isConversationBusy
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                state.setActiveModel(value);
-                              }
-                            },
-                    ),
-                  ),
-                )
-              else
-                Text(
-                  'No models configured',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: KeenBenchTheme.colorTextSecondary,
-                  ),
-                ),
-              const SizedBox(width: 16),
-              if (state.clutter != null)
-                ClutterBar(
-                  key: AppKeys.workbenchClutterBar,
-                  score: state.clutter!.score,
-                  level: state.clutter!.level,
-                ),
-              const SizedBox(width: 16),
-              Tooltip(
-                message: 'Checkpoints',
-                child: IconButton(
-                  key: AppKeys.workbenchCheckpointsButton,
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          CheckpointsScreen(workbenchId: state.workbenchId),
-                    ),
-                  ),
-                  icon: const Icon(
-                    Icons.history,
-                    size: 20,
-                    color: KeenBenchTheme.colorTextSecondary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          body: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              children: [
-                Container(
-                  width: 320,
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      right: BorderSide(
-                        color: KeenBenchTheme.colorBorderDefault,
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: selectedModelId,
+                                isExpanded: true,
+                                items: availableModels
+                                    .map(
+                                      (model) => DropdownMenuItem<String>(
+                                        value: model.id,
+                                        child: Text(
+                                          '${model.displayName} (${providerMap[model.providerId]?.displayName ?? model.providerId})',
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: state.isConversationBusy
+                                    ? null
+                                    : (value) {
+                                        if (value != null) {
+                                          _clearErrorSummary();
+                                          state.setActiveModel(value);
+                                        }
+                                      },
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Text(
+                        'No models configured',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: KeenBenchTheme.colorTextSecondary,
+                        ),
+                      ),
+                    const SizedBox(width: 16),
+                    if (state.clutter != null)
+                      ClutterBar(
+                        key: AppKeys.workbenchClutterBar,
+                        score: state.clutter!.score,
+                        level: state.clutter!.level,
+                      ),
+                    const SizedBox(width: 16),
+                    Tooltip(
+                      message: 'Checkpoints',
+                      child: IconButton(
+                        key: AppKeys.workbenchCheckpointsButton,
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => CheckpointsScreen(
+                              workbenchId: state.workbenchId,
+                            ),
+                          ),
+                        ),
+                        icon: const Icon(
+                          Icons.history,
+                          size: 20,
+                          color: KeenBenchTheme.colorTextSecondary,
+                        ),
                       ),
                     ),
-                    color: KeenBenchTheme.colorBackgroundSecondary,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Wrap(
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                Text(
-                                  'Workbench Files',
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.headlineSmall,
-                                ),
-                                if (scope != null)
-                                  Container(
-                                    key: AppKeys.workbenchScopeBadge,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: KeenBenchTheme.colorInfoBackground,
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(
-                                        color: KeenBenchTheme.colorInfoBorder,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'Scoped',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: KeenBenchTheme.colorInfoText,
-                                            fontWeight: FontWeight.w600,
-                                            letterSpacing: 0.4,
-                                          ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Files are copied into the Workbench. Originals stay untouched.',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: KeenBenchTheme.colorTextSecondary,
-                                  ),
-                            ),
-                            if (scopeLimitsText.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                scopeLimitsText,
-                                key: AppKeys.workbenchScopeLimits,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: KeenBenchTheme.colorTextSecondary,
-                                    ),
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            Row(
+                  ],
+                ),
+                body: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    A11ySkipLinks(
+                      links: [
+                        A11ySkipLink(
+                          key: AppKeys.workbenchSkipToMainLink,
+                          label: 'Skip to main content',
+                          targetFocusNode: _mainContentFocusNode,
+                        ),
+                        A11ySkipLink(
+                          key: AppKeys.workbenchSkipToComposerLink,
+                          label: 'Skip to composer',
+                          targetFocusNode: _composerFocusNode,
+                        ),
+                      ],
+                    ),
+                    if (_errorSummary != null)
+                      Container(
+                        key: AppKeys.workbenchErrorSummary,
+                        margin: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: KeenBenchTheme.colorErrorBackground,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: KeenBenchTheme.colorErrorText,
+                          ),
+                        ),
+                        child: Semantics(
+                          liveRegion: true,
+                          focused: true,
+                          label: 'Error summary',
+                          child: Focus(
+                            focusNode: _errorSummaryFocusNode,
+                            child: Row(
                               children: [
                                 Expanded(
-                                  child: Tooltip(
-                                    message: state.hasDraft
-                                        ? 'Publish or discard the Draft to add files.'
-                                        : 'Add files to the Workbench.',
-                                    child: SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        key: AppKeys.workbenchAddFilesButton,
-                                        onPressed: state.hasDraft
-                                            ? null
-                                            : () async {
-                                                final files = await openFiles();
-                                                final paths = files
-                                                    .map((file) => file.path)
-                                                    .toList();
-                                                if (paths.isNotEmpty) {
-                                                  try {
-                                                    await state.addFiles(paths);
-                                                  } catch (err) {
-                                                    if (!context.mounted)
-                                                      return;
-                                                    ScaffoldMessenger.of(
+                                  child: Text(
+                                    _errorSummary!,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: KeenBenchTheme.colorErrorText,
+                                        ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    _clearErrorSummary();
+                                    requestFocusSafely(_composerFocusNode);
+                                  },
+                                  child: const Text('Dismiss'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 320,
+                              decoration: const BoxDecoration(
+                                border: Border(
+                                  right: BorderSide(
+                                    color: KeenBenchTheme.colorBorderDefault,
+                                  ),
+                                ),
+                                color: KeenBenchTheme.colorBackgroundSecondary,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Wrap(
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          spacing: 8,
+                                          runSpacing: 6,
+                                          children: [
+                                            Text(
+                                              'Workbench Files',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.headlineSmall,
+                                            ),
+                                            if (scope != null)
+                                              Container(
+                                                key:
+                                                    AppKeys.workbenchScopeBadge,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 2,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: KeenBenchTheme
+                                                      .colorInfoBackground,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        999,
+                                                      ),
+                                                  border: Border.all(
+                                                    color: KeenBenchTheme
+                                                        .colorInfoBorder,
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  'Scoped',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall
+                                                      ?.copyWith(
+                                                        color: KeenBenchTheme
+                                                            .colorInfoText,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        letterSpacing: 0.4,
+                                                      ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Files are copied into the Workbench. Originals stay untouched.',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: KeenBenchTheme
+                                                    .colorTextSecondary,
+                                              ),
+                                        ),
+                                        if (scopeLimitsText.isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            scopeLimitsText,
+                                            key: AppKeys.workbenchScopeLimits,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: KeenBenchTheme
+                                                      .colorTextSecondary,
+                                                ),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Tooltip(
+                                                message: state.hasDraft
+                                                    ? 'Publish or discard the Draft to add files.'
+                                                    : 'Add files to the Workbench.',
+                                                child: SizedBox(
+                                                  width: double.infinity,
+                                                  child: ElevatedButton.icon(
+                                                    key: AppKeys
+                                                        .workbenchAddFilesButton,
+                                                    onPressed: state.hasDraft
+                                                        ? null
+                                                        : () async {
+                                                            final files =
+                                                                await openFiles();
+                                                            final paths = files
+                                                                .map(
+                                                                  (file) =>
+                                                                      file.path,
+                                                                )
+                                                                .toList();
+                                                            if (paths
+                                                                .isNotEmpty) {
+                                                              try {
+                                                                await state
+                                                                    .addFiles(
+                                                                      paths,
+                                                                    );
+                                                              } catch (err) {
+                                                                if (!context
+                                                                    .mounted) {
+                                                                  return;
+                                                                }
+                                                                _showMessage(
+                                                                  err.toString(),
+                                                                  isError: true,
+                                                                );
+                                                              }
+                                                            }
+                                                          },
+                                                    icon: const Icon(Icons.add),
+                                                    label: const Text(
+                                                      'Add files',
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Tooltip(
+                                                message: state.hasDraft
+                                                    ? 'View context. Add/edit/delete are blocked while a Draft exists.'
+                                                    : 'Add or edit workbench context.',
+                                                child: SizedBox(
+                                                  width: double.infinity,
+                                                  child: OutlinedButton.icon(
+                                                    key: AppKeys
+                                                        .workbenchAddContextButton,
+                                                    onPressed:
+                                                        _openContextOverview,
+                                                    icon: const Icon(
+                                                      Icons.auto_awesome,
+                                                    ),
+                                                    label: const Text(
+                                                      'Add Context',
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        if (state.clutter?.contextWarning ==
+                                            true) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'Context is using a large share of the prompt window. Consider shortening context items.',
+                                            key:
+                                                AppKeys.workbenchContextWarning,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: KeenBenchTheme
+                                                      .colorWarningText,
+                                                ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Focus(
+                                      focusNode: _fileListFocusNode,
+                                      child: Semantics(
+                                        label: 'Workbench file list',
+                                        child: ListView.builder(
+                                          key: AppKeys.workbenchFileList,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                          ),
+                                          itemCount: state.files.length,
+                                          itemBuilder: (context, index) {
+                                            final file = state.files[index];
+                                            return Padding(
+                                              padding: const EdgeInsets.only(
+                                                bottom: 8,
+                                              ),
+                                              child: _WorkbenchFileRow(
+                                                file: file,
+                                                canExtract: !state.hasDraft,
+                                                onExtract: () =>
+                                                    _extractFile(file),
+                                                canRemove: !state.hasDraft,
+                                                onRemove: () =>
+                                                    _confirmRemoveFile(file),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      8,
+                                      0,
+                                      8,
+                                      8,
+                                    ),
+                                    child: Align(
+                                      alignment: Alignment.bottomLeft,
+                                      child: Tooltip(
+                                        message: 'Settings',
+                                        child: IconButton(
+                                          key: AppKeys.workbenchSettingsButton,
+                                          onPressed: () =>
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const SettingsScreen(),
+                                                ),
+                                              ),
+                                          icon: const Icon(
+                                            Icons.settings_outlined,
+                                          ),
+                                          iconSize: 40,
+                                          constraints:
+                                              const BoxConstraints.tightFor(
+                                                width: 72,
+                                                height: 72,
+                                              ),
+                                          color:
+                                              KeenBenchTheme.colorTextSecondary,
+                                          hoverColor: KeenBenchTheme
+                                              .colorBackgroundHover,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: Focus(
+                                key: AppKeys.workbenchMainContentRegion,
+                                focusNode: _mainContentFocusNode,
+                                child: Column(
+                                  children: [
+                                    if (state.hasDraft)
+                                      Container(
+                                        key: AppKeys.workbenchDraftBanner,
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 10,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              KeenBenchTheme.colorSurfaceMuted,
+                                          border: const Border(
+                                            bottom: BorderSide(
+                                              color: KeenBenchTheme
+                                                  .colorBorderDefault,
+                                            ),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const _StatusChip(
+                                              label: 'Draft',
+                                              backgroundColor: KeenBenchTheme
+                                                  .colorDraftIndicator,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Draft in progress. Review changes before publishing.',
+                                                    style: Theme.of(
                                                       context,
-                                                    ).showSnackBar(
-                                                      SnackBar(
-                                                        content: Text(
-                                                          err.toString(),
+                                                    ).textTheme.bodyMedium,
+                                                  ),
+                                                  if (draftMetadataText !=
+                                                      null) ...[
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      draftMetadataText,
+                                                      key: AppKeys
+                                                          .workbenchDraftMetadata,
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.copyWith(
+                                                            color: KeenBenchTheme
+                                                                .colorTextSecondary,
+                                                          ),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(24),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            Expanded(
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  color: KeenBenchTheme
+                                                      .colorBackgroundElevated,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  border: Border.all(
+                                                    color: KeenBenchTheme
+                                                        .colorBorderSubtle,
+                                                  ),
+                                                ),
+                                                child: ListView.builder(
+                                                  key: AppKeys
+                                                      .workbenchMessageList,
+                                                  controller:
+                                                      _messageScrollController,
+                                                  padding: const EdgeInsets.all(
+                                                    16,
+                                                  ),
+                                                  itemCount:
+                                                      state.messages.length,
+                                                  itemBuilder: (context, index) {
+                                                    final message =
+                                                        state.messages[index];
+                                                    final checkpointId =
+                                                        message.checkpointId ??
+                                                        '';
+                                                    final isRestoring =
+                                                        checkpointId
+                                                            .isNotEmpty &&
+                                                        _restoringCheckpointId ==
+                                                            checkpointId;
+                                                    if (message
+                                                        .isPublishCheckpointEvent) {
+                                                      final canRestore =
+                                                          !state.hasDraft &&
+                                                          !isRestoring &&
+                                                          checkpointId
+                                                              .isNotEmpty &&
+                                                          _restoringCheckpointId ==
+                                                              null;
+                                                      final disabledReason =
+                                                          state.hasDraft
+                                                          ? 'Publish or discard Draft to restore.'
+                                                          : checkpointId.isEmpty
+                                                          ? 'Checkpoint metadata unavailable.'
+                                                          : _restoringCheckpointId !=
+                                                                null
+                                                          ? 'Restore in progress.'
+                                                          : 'Restore this checkpoint.';
+                                                      return _CheckpointEventCard(
+                                                        message: message,
+                                                        canRestore: canRestore,
+                                                        isRestoring:
+                                                            isRestoring,
+                                                        disabledReason:
+                                                            disabledReason,
+                                                        onRestore: () =>
+                                                            _restorePublishCheckpoint(
+                                                              message,
+                                                            ),
+                                                      );
+                                                    }
+                                                    if (message.isSystemEvent) {
+                                                      return _SystemEventItem(
+                                                        message: message,
+                                                      );
+                                                    }
+                                                    final isUser =
+                                                        message.role == 'user';
+                                                    final hasMessageId = message
+                                                        .id
+                                                        .trim()
+                                                        .isNotEmpty;
+                                                    return _ChatMessageBubble(
+                                                      message: message,
+                                                      isUser: isUser,
+                                                      canRewind:
+                                                          canRunConversationAction &&
+                                                          hasMessageId,
+                                                      canRegenerate:
+                                                          canRunConversationAction &&
+                                                          hasMessageId,
+                                                      onRewind: () =>
+                                                          _rewindToMessage(
+                                                            message,
+                                                          ),
+                                                      onRegenerate: () =>
+                                                          _regenerateFromMessage(
+                                                            message,
+                                                          ),
+                                                    );
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            if (_phaseStatusLabel(state) !=
+                                                null)
+                                              Semantics(
+                                                liveRegion: true,
+                                                label: _phaseStatusLabel(state),
+                                                child: Padding(
+                                                  key: AppKeys
+                                                      .workbenchPhaseStatus,
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        bottom: 8,
+                                                      ),
+                                                  child: Row(
+                                                    children: [
+                                                      const SizedBox(
+                                                        width: 14,
+                                                        height: 14,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                            ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Text(
+                                                          _phaseStatusLabel(
+                                                            state,
+                                                          )!,
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .bodySmall
+                                                              ?.copyWith(
+                                                                color: KeenBenchTheme
+                                                                    .colorTextSecondary,
+                                                              ),
                                                         ),
                                                       ),
-                                                    );
-                                                  }
-                                                }
-                                              },
-                                        icon: const Icon(Icons.add),
-                                        label: const Text('Add files'),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            if (state.isToolExecuting)
+                                              Semantics(
+                                                liveRegion: true,
+                                                label: _toolStatusLabel(
+                                                  state.currentToolName ?? '',
+                                                ),
+                                                child: Padding(
+                                                  key: AppKeys
+                                                      .workbenchToolStatus,
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        bottom: 8,
+                                                      ),
+                                                  child: Row(
+                                                    children: [
+                                                      const SizedBox(
+                                                        width: 14,
+                                                        height: 14,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                            ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Text(
+                                                          _toolStatusLabel(
+                                                            state.currentToolName ??
+                                                                '',
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .bodySmall
+                                                              ?.copyWith(
+                                                                color: KeenBenchTheme
+                                                                    .colorTextSecondary,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            if (!state.hasDraft)
+                                              Container(
+                                                padding: const EdgeInsets.all(
+                                                  12,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: KeenBenchTheme
+                                                      .colorBackgroundElevated,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  border: Border.all(
+                                                    color: KeenBenchTheme
+                                                        .colorBorderSubtle,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Focus(
+                                                        onKeyEvent: (node, event) {
+                                                          if (event
+                                                                  is KeyDownEvent &&
+                                                              event.logicalKey ==
+                                                                  LogicalKeyboardKey
+                                                                      .enter) {
+                                                            if (HardwareKeyboard
+                                                                .instance
+                                                                .isShiftPressed) {
+                                                              return KeyEventResult
+                                                                  .ignored;
+                                                            }
+                                                            _submitComposer();
+                                                            return KeyEventResult
+                                                                .handled;
+                                                          }
+                                                          return KeyEventResult
+                                                              .ignored;
+                                                        },
+                                                        child: TextField(
+                                                          key: AppKeys
+                                                              .workbenchComposerField,
+                                                          focusNode:
+                                                              _composerFocusNode,
+                                                          controller:
+                                                              _composerController,
+                                                          minLines: 1,
+                                                          maxLines: 3,
+                                                          decoration: InputDecoration.collapsed(
+                                                            hintText:
+                                                                state.chatMode ==
+                                                                    ChatMode
+                                                                        .agent
+                                                                ? 'Describe a task...'
+                                                                : 'Ask a question...',
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 12),
+                                                    _ChatModeToggle(
+                                                      mode: state.chatMode,
+                                                      onChanged:
+                                                          state
+                                                              .isConversationBusy
+                                                          ? null
+                                                          : state.setChatMode,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    ElevatedButton(
+                                                      key: AppKeys
+                                                          .workbenchSendButton,
+                                                      onPressed:
+                                                          state.isConversationBusy ||
+                                                              state
+                                                                  .isApplyingDraft
+                                                          ? null
+                                                          : _submitComposer,
+                                                      child:
+                                                          state
+                                                              .isConversationBusy
+                                                          ? const SizedBox(
+                                                              width: 16,
+                                                              height: 16,
+                                                              child:
+                                                                  CircularProgressIndicator(
+                                                                    strokeWidth:
+                                                                        2,
+                                                                  ),
+                                                            )
+                                                          : const Text('Send'),
+                                                    ),
+                                                  ],
+                                                ),
+                                              )
+                                            else
+                                              Container(
+                                                padding: const EdgeInsets.all(
+                                                  12,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: KeenBenchTheme
+                                                      .colorBackgroundElevated,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  border: Border.all(
+                                                    color: KeenBenchTheme
+                                                        .colorBorderSubtle,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        'Draft in progress. Review opens automatically. Publish or discard to continue.',
+                                                        style: Theme.of(
+                                                          context,
+                                                        ).textTheme.bodyMedium,
+                                                      ),
+                                                    ),
+                                                    TextButton(
+                                                      key: AppKeys
+                                                          .workbenchReviewButton,
+                                                      onPressed: () =>
+                                                          _openReview(
+                                                            autoOpened: false,
+                                                          ),
+                                                      child: const Text(
+                                                        'Open review',
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    TextButton(
+                                                      key: AppKeys
+                                                          .workbenchDiscardButton,
+                                                      onPressed: () async {
+                                                        final confirm =
+                                                            await _confirmDiscardDraft();
+                                                        if (!confirm) {
+                                                          return;
+                                                        }
+                                                        try {
+                                                          await state
+                                                              .discardDraft();
+                                                        } on EngineError catch (
+                                                          err
+                                                        ) {
+                                                          await _handleEngineError(
+                                                            err,
+                                                            onRetry: () => state
+                                                                .discardDraft(),
+                                                          );
+                                                        }
+                                                      },
+                                                      style: TextButton.styleFrom(
+                                                        foregroundColor:
+                                                            KeenBenchTheme
+                                                                .colorErrorText,
+                                                      ),
+                                                      child: const Text(
+                                                        'Discard',
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            const SizedBox(height: 12),
+                                            if (state.isApplyingDraft)
+                                              Row(
+                                                children: const [
+                                                  SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                        ),
+                                                  ),
+                                                  SizedBox(width: 8),
+                                                  Text(
+                                                    'Applying draft changes...',
+                                                  ),
+                                                ],
+                                              ),
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Tooltip(
-                                    message: state.hasDraft
-                                        ? 'View context. Add/edit/delete are blocked while a Draft exists.'
-                                        : 'Add or edit workbench context.',
-                                    child: SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        key: AppKeys.workbenchAddContextButton,
-                                        onPressed: _openContextOverview,
-                                        icon: const Icon(Icons.auto_awesome),
-                                        label: const Text('Add Context'),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (state.clutter?.contextWarning == true) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                'Context is using a large share of the prompt window. Consider shortening context items.',
-                                key: AppKeys.workbenchContextWarning,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: KeenBenchTheme.colorWarningText,
-                                    ),
                               ),
-                            ],
+                            ),
                           ],
                         ),
                       ),
-                      Expanded(
-                        child: ListView.builder(
-                          key: AppKeys.workbenchFileList,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: state.files.length,
-                          itemBuilder: (context, index) {
-                            final file = state.files[index];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _WorkbenchFileRow(
-                                file: file,
-                                canExtract: !state.hasDraft,
-                                onExtract: () => _extractFile(file),
-                                canRemove: !state.hasDraft,
-                                onRemove: () => _confirmRemoveFile(file),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                        child: Align(
-                          alignment: Alignment.bottomLeft,
-                          child: Tooltip(
-                            message: 'Settings',
-                            child: IconButton(
-                              key: AppKeys.workbenchSettingsButton,
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const SettingsScreen(),
-                                ),
-                              ),
-                              icon: const Icon(Icons.settings_outlined),
-                              iconSize: 40,
-                              constraints: const BoxConstraints.tightFor(
-                                width: 72,
-                                height: 72,
-                              ),
-                              color: KeenBenchTheme.colorTextSecondary,
-                              hoverColor: KeenBenchTheme.colorBackgroundHover,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      if (state.hasDraft)
-                        Container(
-                          key: AppKeys.workbenchDraftBanner,
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: KeenBenchTheme.colorSurfaceMuted,
-                            border: const Border(
-                              bottom: BorderSide(
-                                color: KeenBenchTheme.colorBorderDefault,
-                              ),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              const _StatusChip(
-                                label: 'Draft',
-                                backgroundColor:
-                                    KeenBenchTheme.colorDraftIndicator,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Draft in progress. Review changes before publishing.',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodyMedium,
-                                    ),
-                                    if (draftMetadataText != null) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        draftMetadataText,
-                                        key: AppKeys.workbenchDraftMetadata,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: KeenBenchTheme
-                                                  .colorTextSecondary,
-                                            ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color:
-                                        KeenBenchTheme.colorBackgroundElevated,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: KeenBenchTheme.colorBorderSubtle,
-                                    ),
-                                  ),
-                                  child: ListView.builder(
-                                    key: AppKeys.workbenchMessageList,
-                                    controller: _messageScrollController,
-                                    padding: const EdgeInsets.all(16),
-                                    itemCount: state.messages.length,
-                                    itemBuilder: (context, index) {
-                                      final message = state.messages[index];
-                                      final checkpointId =
-                                          message.checkpointId ?? '';
-                                      final isRestoring =
-                                          checkpointId.isNotEmpty &&
-                                          _restoringCheckpointId ==
-                                              checkpointId;
-                                      if (message.isPublishCheckpointEvent) {
-                                        final canRestore =
-                                            !state.hasDraft &&
-                                            !isRestoring &&
-                                            checkpointId.isNotEmpty &&
-                                            _restoringCheckpointId == null;
-                                        final disabledReason = state.hasDraft
-                                            ? 'Publish or discard Draft to restore.'
-                                            : checkpointId.isEmpty
-                                            ? 'Checkpoint metadata unavailable.'
-                                            : _restoringCheckpointId != null
-                                            ? 'Restore in progress.'
-                                            : 'Restore this checkpoint.';
-                                        return _CheckpointEventCard(
-                                          message: message,
-                                          canRestore: canRestore,
-                                          isRestoring: isRestoring,
-                                          disabledReason: disabledReason,
-                                          onRestore: () =>
-                                              _restorePublishCheckpoint(
-                                                message,
-                                              ),
-                                        );
-                                      }
-                                      if (message.isSystemEvent) {
-                                        return _SystemEventItem(
-                                          message: message,
-                                        );
-                                      }
-                                      final isUser = message.role == 'user';
-                                      final hasMessageId = message.id
-                                          .trim()
-                                          .isNotEmpty;
-                                      return _ChatMessageBubble(
-                                        message: message,
-                                        isUser: isUser,
-                                        canRewind:
-                                            canRunConversationAction &&
-                                            hasMessageId,
-                                        canRegenerate:
-                                            canRunConversationAction &&
-                                            hasMessageId,
-                                        onRewind: () =>
-                                            _rewindToMessage(message),
-                                        onRegenerate: () =>
-                                            _regenerateFromMessage(message),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              if (_phaseStatusLabel(state) != null)
-                                Padding(
-                                  key: AppKeys.workbenchPhaseStatus,
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    children: [
-                                      const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _phaseStatusLabel(state)!,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: KeenBenchTheme
-                                                    .colorTextSecondary,
-                                              ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              if (state.isToolExecuting)
-                                Padding(
-                                  key: AppKeys.workbenchToolStatus,
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    children: [
-                                      const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _toolStatusLabel(
-                                            state.currentToolName ?? '',
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: KeenBenchTheme
-                                                    .colorTextSecondary,
-                                              ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              if (!state.hasDraft)
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color:
-                                        KeenBenchTheme.colorBackgroundElevated,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: KeenBenchTheme.colorBorderSubtle,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Focus(
-                                          onKey: (node, event) {
-                                            if (event is RawKeyDownEvent &&
-                                                event.logicalKey ==
-                                                    LogicalKeyboardKey.enter) {
-                                              if (event.isShiftPressed) {
-                                                return KeyEventResult.ignored;
-                                              }
-                                              _submitComposer();
-                                              return KeyEventResult.handled;
-                                            }
-                                            return KeyEventResult.ignored;
-                                          },
-                                          child: TextField(
-                                            key: AppKeys.workbenchComposerField,
-                                            controller: _composerController,
-                                            minLines: 1,
-                                            maxLines: 3,
-                                            decoration:
-                                                InputDecoration.collapsed(
-                                                  hintText:
-                                                      state.chatMode ==
-                                                          ChatMode.agent
-                                                      ? 'Describe a task...'
-                                                      : 'Ask a question...',
-                                                ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      _ChatModeToggle(
-                                        mode: state.chatMode,
-                                        onChanged: state.isConversationBusy
-                                            ? null
-                                            : state.setChatMode,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      ElevatedButton(
-                                        key: AppKeys.workbenchSendButton,
-                                        onPressed:
-                                            state.isConversationBusy ||
-                                                state.isApplyingDraft
-                                            ? null
-                                            : _submitComposer,
-                                        child: state.isConversationBusy
-                                            ? const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                    ),
-                                              )
-                                            : const Text('Send'),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              else
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color:
-                                        KeenBenchTheme.colorBackgroundElevated,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: KeenBenchTheme.colorBorderSubtle,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          'Draft in progress. Review opens automatically. Publish or discard to continue.',
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.bodyMedium,
-                                        ),
-                                      ),
-                                      TextButton(
-                                        key: AppKeys.workbenchReviewButton,
-                                        onPressed: () =>
-                                            _openReview(autoOpened: false),
-                                        child: const Text('Open review'),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      TextButton(
-                                        key: AppKeys.workbenchDiscardButton,
-                                        onPressed: () async {
-                                          final confirm =
-                                              await _confirmDiscardDraft();
-                                          if (!confirm) {
-                                            return;
-                                          }
-                                          try {
-                                            await state.discardDraft();
-                                          } on EngineError catch (err) {
-                                            await _handleEngineError(
-                                              err,
-                                              onRetry: () =>
-                                                  state.discardDraft(),
-                                            );
-                                          }
-                                        },
-                                        style: TextButton.styleFrom(
-                                          foregroundColor:
-                                              KeenBenchTheme.colorErrorText,
-                                        ),
-                                        child: const Text('Discard'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              const SizedBox(height: 12),
-                              if (state.isApplyingDraft)
-                                Row(
-                                  children: const [
-                                    SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Text('Applying draft changes...'),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         );
@@ -1563,6 +2071,18 @@ class _WorkbenchFileRow extends StatelessWidget {
   final bool canRemove;
   final VoidCallback onRemove;
 
+  String _semanticLabel(String extension, bool readOnly) {
+    final parts = <String>[file.path, '${extension.toUpperCase()} file'];
+    if (readOnly) {
+      parts.add('read only');
+    }
+    if (file.isOpaque) {
+      parts.add('opaque');
+    }
+    parts.add('${file.size} bytes');
+    return parts.join(', ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final extension = _extensionLabel(file.path);
@@ -1571,121 +2091,132 @@ class _WorkbenchFileRow extends StatelessWidget {
         file.fileKind == 'pdf' ||
         file.fileKind == 'image' ||
         file.fileKind == 'odt';
-    return Container(
-      key: AppKeys.workbenchFileRow(file.path),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: KeenBenchTheme.colorSurfaceSubtle,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: KeenBenchTheme.colorSurfaceMuted,
-              borderRadius: BorderRadius.circular(6),
+    return Semantics(
+      container: true,
+      label: _semanticLabel(extension, readOnly),
+      child: Container(
+        key: AppKeys.workbenchFileRow(file.path),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: KeenBenchTheme.colorSurfaceSubtle,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: KeenBenchTheme.colorSurfaceMuted,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(
+                icon,
+                size: 16,
+                color: KeenBenchTheme.colorTextSecondary,
+              ),
             ),
-            child: Icon(
-              icon,
-              size: 16,
-              color: KeenBenchTheme.colorTextSecondary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Tooltip(
-                  message: file.path,
-                  waitDuration: const Duration(milliseconds: 250),
-                  child: Text(
-                    file.path,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Tooltip(
+                    message: file.path,
+                    waitDuration: const Duration(milliseconds: 250),
+                    child: Text(
+                      file.path,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: KeenBenchTheme.colorBackgroundSelected,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        extension.toUpperCase(),
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: KeenBenchTheme.colorTextSecondary,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.6,
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: KeenBenchTheme.colorBackgroundSelected,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          extension.toUpperCase(),
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: KeenBenchTheme.colorTextSecondary,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.6,
+                              ),
                         ),
                       ),
-                    ),
-                    if (readOnly)
-                      const _TagChip(
-                        label: 'Read-only',
-                        backgroundColor: KeenBenchTheme.colorInfoBackground,
-                        textColor: KeenBenchTheme.colorInfoText,
-                      ),
-                    if (file.isOpaque)
-                      const _TagChip(
-                        label: 'Opaque',
-                        backgroundColor: KeenBenchTheme.colorSurfaceMuted,
-                        textColor: KeenBenchTheme.colorTextSecondary,
-                      ),
-                  ],
+                      if (readOnly)
+                        const _TagChip(
+                          label: 'Read-only',
+                          backgroundColor: KeenBenchTheme.colorInfoBackground,
+                          textColor: KeenBenchTheme.colorInfoText,
+                        ),
+                      if (file.isOpaque)
+                        const _TagChip(
+                          label: 'Opaque',
+                          backgroundColor: KeenBenchTheme.colorSurfaceMuted,
+                          textColor: KeenBenchTheme.colorTextSecondary,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Tooltip(
+              message: canExtract
+                  ? 'Extract this file'
+                  : 'Publish or discard the Draft to extract files.',
+              child: IconButton(
+                key: AppKeys.workbenchFileExtractButton(file.path),
+                onPressed: canExtract ? onExtract : null,
+                icon: const Icon(Icons.download_outlined),
+                iconSize: 16,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 28,
+                  height: 28,
                 ),
-              ],
+                color: KeenBenchTheme.colorTextSecondary,
+                disabledColor: KeenBenchTheme.colorTextTertiary,
+                hoverColor: KeenBenchTheme.colorBackgroundHover,
+                splashRadius: 18,
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Tooltip(
-            message: canExtract
-                ? 'Extract this file'
-                : 'Publish or discard the Draft to extract files.',
-            child: IconButton(
-              key: AppKeys.workbenchFileExtractButton(file.path),
-              onPressed: canExtract ? onExtract : null,
-              icon: const Icon(Icons.download_outlined),
-              iconSize: 16,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-              color: KeenBenchTheme.colorTextSecondary,
-              disabledColor: KeenBenchTheme.colorTextTertiary,
-              hoverColor: KeenBenchTheme.colorBackgroundHover,
-              splashRadius: 18,
+            const SizedBox(width: 2),
+            Tooltip(
+              message: canRemove
+                  ? 'Remove file'
+                  : 'Publish or discard the Draft to remove files.',
+              child: IconButton(
+                key: AppKeys.workbenchFileRemoveButton(file.path),
+                onPressed: canRemove ? onRemove : null,
+                icon: const Icon(Icons.delete_outline),
+                iconSize: 16,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 28,
+                  height: 28,
+                ),
+                color: KeenBenchTheme.colorTextSecondary,
+                disabledColor: KeenBenchTheme.colorTextTertiary,
+                hoverColor: KeenBenchTheme.colorBackgroundHover,
+                splashRadius: 18,
+              ),
             ),
-          ),
-          const SizedBox(width: 2),
-          Tooltip(
-            message: canRemove
-                ? 'Remove file'
-                : 'Publish or discard the Draft to remove files.',
-            child: IconButton(
-              key: AppKeys.workbenchFileRemoveButton(file.path),
-              onPressed: canRemove ? onRemove : null,
-              icon: const Icon(Icons.delete_outline),
-              iconSize: 16,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-              color: KeenBenchTheme.colorTextSecondary,
-              disabledColor: KeenBenchTheme.colorTextTertiary,
-              hoverColor: KeenBenchTheme.colorBackgroundHover,
-              splashRadius: 18,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1727,6 +2258,7 @@ class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
       return;
     }
     Clipboard.setData(ClipboardData(text: widget.message.text));
+    A11yAnnouncer.instance.announce(context, 'Copied to clipboard.');
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
@@ -1792,7 +2324,7 @@ class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
                           data: widget.message.text,
                           selectable: false,
                           styleSheet: _markdownStyle(context),
-                          onTapLink: (_, __, ___) {},
+                          onTapLink: (text, href, title) {},
                         ),
                 ),
               ),
@@ -1813,7 +2345,10 @@ class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
                 child: IgnorePointer(
                   ignoring: !_hovered,
                   child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 120),
+                    duration:
+                        MediaQuery.maybeOf(context)?.disableAnimations == true
+                        ? Duration.zero
+                        : const Duration(milliseconds: 120),
                     opacity: _hovered ? 1 : 0,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,

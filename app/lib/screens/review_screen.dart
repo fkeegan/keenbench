@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -6,6 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../accessibility/a11y_announcer.dart';
+import '../accessibility/a11y_shortcuts.dart';
+import '../accessibility/skip_links.dart';
 import '../app_keys.dart';
 import '../engine/engine_client.dart';
 import '../models/models.dart';
@@ -82,8 +86,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
   String? _sheet;
   int _rowStart = 0;
   int _colStart = 0;
-  int _rowCount = 20;
-  int _colCount = 10;
+  final int _rowCount = 20;
+  final int _colCount = 10;
   List<List<dynamic>> _draftGrid = [];
   List<List<dynamic>> _publishedGrid = [];
   bool _gridLoading = false;
@@ -91,11 +95,27 @@ class _ReviewScreenState extends State<ReviewScreen> {
   Map<String, dynamic>? _imageDraft;
   Map<String, dynamic>? _imagePublished;
   bool _hasPublishedImage = false;
+  final FocusNode _fileListFocusNode = FocusNode(
+    debugLabel: 'review_file_list_target',
+  );
+  final FocusNode _detailPaneFocusNode = FocusNode(
+    debugLabel: 'review_detail_target',
+  );
+  final List<String> _accessibilityErrors = <String>[];
+
+  static const int _maxAccessibilityErrors = 6;
 
   @override
   void initState() {
     super.initState();
     _loadChanges();
+  }
+
+  @override
+  void dispose() {
+    _fileListFocusNode.dispose();
+    _detailPaneFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _loadChanges() async {
@@ -123,14 +143,17 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _loading = false;
       });
       if (mounted) {
+        final errorMessage = 'Load error: ${_formatPreviewError(err)}';
+        _recordAccessibilityError(errorMessage);
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(err.toString())));
+        ).showSnackBar(SnackBar(content: Text(errorMessage)));
       }
     }
   }
 
   Future<void> _selectChange(ChangeItem change) async {
+    final didChangeSelection = _selected?.path != change.path;
     setState(() {
       _selected = change;
       _hunks = [];
@@ -190,6 +213,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
         }
       }
     });
+    if (didChangeSelection) {
+      _announceForAccessibility('Showing diff for ${change.path}');
+    }
 
     if (_shouldLoadDiff(change)) {
       await _loadDiff(change.path);
@@ -219,19 +245,36 @@ class _ReviewScreenState extends State<ReviewScreen> {
     setState(() {
       _diffLoading = true;
     });
-    final response = await engine.call('ReviewGetTextDiff', {
-      'workbench_id': widget.workbenchId,
-      'path': path,
-    });
-    final hunkList = (response['hunks'] as List<dynamic>? ?? [])
-        .cast<Map<String, dynamic>>();
-    setState(() {
-      _hunks = hunkList.map(DiffHunk.fromJson).toList();
-      _diffTooLarge = response['too_large'] == true;
-      _baselineMissing = response['baseline_missing'] == true;
-      _diffReferenceWarning = response['reference_warning']?.toString();
-      _diffLoading = false;
-    });
+    try {
+      final response = await engine.call('ReviewGetTextDiff', {
+        'workbench_id': widget.workbenchId,
+        'path': path,
+      });
+      final hunkList = (response['hunks'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _hunks = hunkList.map(DiffHunk.fromJson).toList();
+        _diffTooLarge = response['too_large'] == true;
+        _baselineMissing = response['baseline_missing'] == true;
+        _diffReferenceWarning = response['reference_warning']?.toString();
+        _diffLoading = false;
+      });
+    } catch (err) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _hunks = [];
+        _diffTooLarge = false;
+        _baselineMissing = false;
+        _diffReferenceWarning = null;
+        _diffLoading = false;
+      });
+      _recordAccessibilityError('Load error: ${_formatPreviewError(err)}');
+    }
   }
 
   Future<void> _loadPreview(ChangeItem change) async {
@@ -326,6 +369,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _previewLoading = false;
         _previewError = _formatPreviewError(err);
       });
+      _recordAccessibilityError('Preview error: ${_formatPreviewError(err)}');
     }
   }
 
@@ -393,6 +437,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _previewLoading = false;
         _previewError = _formatPreviewError(err);
       });
+      _recordAccessibilityError('Preview error: ${_formatPreviewError(err)}');
     }
   }
 
@@ -448,6 +493,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _structuredLoading = false;
         _structuredError = _formatPreviewError(err);
       });
+      _recordAccessibilityError('Preview error: ${_formatPreviewError(err)}');
       return false;
     }
   }
@@ -522,6 +568,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _gridLoading = false;
         _previewError = _formatPreviewError(err);
       });
+      _recordAccessibilityError('Preview error: ${_formatPreviewError(err)}');
     }
   }
 
@@ -577,6 +624,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _previewLoading = false;
         _previewError = _formatPreviewError(err);
       });
+      _recordAccessibilityError('Preview error: ${_formatPreviewError(err)}');
     }
   }
 
@@ -655,7 +703,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           MarkdownBody(
             data: summary,
             selectable: false,
-            onTapLink: (_, __, ___) {},
+            onTapLink: (text, href, title) {},
             styleSheet: MarkdownStyleSheet.fromTheme(
               Theme.of(context),
             ).copyWith(p: Theme.of(context).textTheme.bodySmall),
@@ -697,64 +745,30 @@ class _ReviewScreenState extends State<ReviewScreen> {
     if (_hunks.isEmpty) {
       return const Center(child: Text('No diff available for this file.'));
     }
+    final hunkCount = _hunks.length;
     final diffList = ListView(
       key: AppKeys.reviewDiffList,
-      children: _hunks.expand((hunk) => hunk.lines).map((line) {
-        Color? background;
-        Color? accent;
-        if (line.type == 'added') {
-          background = KeenBenchTheme.colorDiffAdded;
-          accent = KeenBenchTheme.colorPublishedIndicator;
-        } else if (line.type == 'removed') {
-          background = KeenBenchTheme.colorDiffRemoved;
-          accent = KeenBenchTheme.colorErrorText;
-        }
-        return Container(
-          color: background,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(width: 4, color: accent ?? Colors.transparent),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 2,
-                    horizontal: 8,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 48,
-                        child: Text(
-                          line.oldLine?.toString() ?? '',
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                color: KeenBenchTheme.colorTextTertiary,
-                              ),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 48,
-                        child: Text(
-                          line.newLine?.toString() ?? '',
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                color: KeenBenchTheme.colorTextTertiary,
-                              ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(line.text, style: KeenBenchTheme.mono),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+      children: [
+        for (var hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) ...[
+          Semantics(
+            container: true,
+            label: 'Hunk ${hunkIndex + 1} of $hunkCount',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: _hunks[hunkIndex].lines
+                  .map(
+                    (line) => Semantics(
+                      readOnly: true,
+                      label: _diffLineSemanticsLabel(line),
+                      child: ExcludeSemantics(child: _buildDiffLineRow(line)),
+                    ),
+                  )
+                  .toList(),
+            ),
           ),
-        );
-      }).toList(),
+          if (hunkIndex < hunkCount - 1) const SizedBox(height: 4),
+        ],
+      ],
     );
     final warning = _diffReferenceWarning?.trim();
     if (warning == null || warning.isEmpty) {
@@ -780,6 +794,80 @@ class _ReviewScreenState extends State<ReviewScreen> {
         ),
         Expanded(child: diffList),
       ],
+    );
+  }
+
+  String _diffLineSemanticsLabel(DiffLine line) {
+    final normalizedType = line.type.toLowerCase();
+    final typeLabel = switch (normalizedType) {
+      'added' => 'Added line',
+      'removed' => 'Removed line',
+      _ => 'Context line',
+    };
+    final refs = <String>[
+      if (line.oldLine != null) 'old ${line.oldLine}',
+      if (line.newLine != null) 'new ${line.newLine}',
+    ].join(', ');
+    final text = line.text.trim();
+    if (refs.isEmpty && text.isEmpty) {
+      return typeLabel;
+    }
+    if (refs.isEmpty) {
+      return '$typeLabel: $text';
+    }
+    if (text.isEmpty) {
+      return '$typeLabel, $refs';
+    }
+    return '$typeLabel, $refs: $text';
+  }
+
+  Widget _buildDiffLineRow(DiffLine line) {
+    Color? background;
+    Color? accent;
+    if (line.type == 'added') {
+      background = KeenBenchTheme.colorDiffAdded;
+      accent = KeenBenchTheme.colorPublishedIndicator;
+    } else if (line.type == 'removed') {
+      background = KeenBenchTheme.colorDiffRemoved;
+      accent = KeenBenchTheme.colorErrorText;
+    }
+    return Container(
+      color: background,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(width: 4, color: accent ?? Colors.transparent),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 48,
+                    child: Text(
+                      line.oldLine?.toString() ?? '',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: KeenBenchTheme.colorTextTertiary,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 48,
+                    child: Text(
+                      line.newLine?.toString() ?? '',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: KeenBenchTheme.colorTextTertiary,
+                      ),
+                    ),
+                  ),
+                  Expanded(child: Text(line.text, style: KeenBenchTheme.mono)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -842,6 +930,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       children: [
         _buildPreviewToolbar(
           label: label,
+          navigationNoun: change.fileKind == 'pptx' ? 'slide' : 'page',
           count: _structuredCount,
           currentIndex: _structuredIndex,
           onPrev: _structuredIndex > 0
@@ -980,7 +1069,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
             final cols = (table['col_count'] as num?)?.toInt() ?? 0;
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: Text('Table ${table['index'] ?? 0}: ${rows} x ${cols}'),
+              child: Text('Table ${table['index'] ?? 0}: $rows x $cols'),
             );
           }),
         const SizedBox(height: 8),
@@ -1498,6 +1587,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       children: [
         _buildPreviewToolbar(
           label: change.fileKind == 'pptx' ? 'Slides' : 'Pages',
+          navigationNoun: change.fileKind == 'pptx' ? 'slide' : 'page',
           count: _pageCount,
           currentIndex: _pageIndex,
           onPrev: _pageIndex > 0
@@ -1691,12 +1781,15 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   Widget _buildPreviewToolbar({
     required String label,
+    required String navigationNoun,
     required int count,
     required int currentIndex,
     required VoidCallback? onPrev,
     required VoidCallback? onNext,
   }) {
     final displayCount = count == 0 ? '–' : '${currentIndex + 1} / $count';
+    final previousLabel = 'Previous $navigationNoun';
+    final nextLabel = 'Next $navigationNoun';
     return Row(
       children: [
         Text(
@@ -1704,8 +1797,16 @@ class _ReviewScreenState extends State<ReviewScreen> {
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const Spacer(),
-        IconButton(onPressed: onPrev, icon: const Icon(Icons.chevron_left)),
-        IconButton(onPressed: onNext, icon: const Icon(Icons.chevron_right)),
+        IconButton(
+          tooltip: previousLabel,
+          onPressed: onPrev,
+          icon: Icon(Icons.chevron_left, semanticLabel: previousLabel),
+        ),
+        IconButton(
+          tooltip: nextLabel,
+          onPressed: onNext,
+          icon: Icon(Icons.chevron_right, semanticLabel: nextLabel),
+        ),
       ],
     );
   }
@@ -1833,156 +1934,355 @@ class _ReviewScreenState extends State<ReviewScreen> {
         message.contains('out of range');
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      key: AppKeys.reviewScreen,
-      appBar: KeenBenchAppBar(
-        title: 'Review Draft',
-        showBack: true,
-        useCenteredContent: false,
-        actions: [
-          ElevatedButton(
-            key: AppKeys.reviewPublishButton,
-            onPressed: _loading
-                ? null
-                : () async {
-                    final engine = context.read<EngineApi>();
-                    await engine.call('DraftPublish', {
-                      'workbench_id': widget.workbenchId,
-                    });
-                    if (mounted) {
-                      Navigator.of(context).pop(true);
-                    }
-                  },
-            child: const Text('Publish'),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-            key: AppKeys.reviewDiscardButton,
-            onPressed: _loading
-                ? null
-                : () async {
-                    final engine = context.read<EngineApi>();
-                    await engine.call('DraftDiscard', {
-                      'workbench_id': widget.workbenchId,
-                    });
-                    if (mounted) {
-                      Navigator.of(context).pop(false);
-                    }
-                  },
-            style: TextButton.styleFrom(
-              foregroundColor: KeenBenchTheme.colorErrorText,
-            ),
-            child: const Text('Discard'),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  Container(
-                    width: 260,
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        right: BorderSide(
-                          color: KeenBenchTheme.colorBorderDefault,
-                        ),
-                      ),
-                      color: KeenBenchTheme.colorBackgroundSecondary,
-                    ),
-                    child: _changes.isEmpty
-                        ? const Center(child: Text('No changes'))
-                        : ListView.separated(
-                            key: AppKeys.reviewChangeList,
-                            padding: const EdgeInsets.all(12),
-                            itemBuilder: (context, index) {
-                              final change = _changes[index];
-                              final selected = change.path == _selected?.path;
-                              return InkWell(
-                                onTap: () => _selectChange(change),
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? KeenBenchTheme.colorBackgroundSelected
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        change.path,
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodyMedium,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 4,
-                                        children: [
-                                          _ChangeBadge(
-                                            changeType: change.changeType,
-                                          ),
-                                          if (change.fileKind.isNotEmpty)
-                                            _InlineBadge(
-                                              label: change.fileKind
-                                                  .toUpperCase(),
-                                              background: KeenBenchTheme
-                                                  .colorSurfaceMuted,
-                                              textColor: KeenBenchTheme
-                                                  .colorTextSecondary,
-                                            ),
-                                          if (change.fileKind == 'pdf' ||
-                                              change.fileKind == 'image' ||
-                                              change.fileKind == 'odt')
-                                            const _InlineBadge(
-                                              label: 'Read-only',
-                                              background: KeenBenchTheme
-                                                  .colorInfoBackground,
-                                              textColor:
-                                                  KeenBenchTheme.colorInfoText,
-                                            ),
-                                          if (change.isOpaque)
-                                            const _InlineBadge(
-                                              label: 'Opaque',
-                                              background: KeenBenchTheme
-                                                  .colorSurfaceMuted,
-                                              textColor: KeenBenchTheme
-                                                  .colorTextSecondary,
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemCount: _changes.length,
-                          ),
-                  ),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      color: KeenBenchTheme.colorBackgroundPrimary,
-                      child: _selected == null
-                          ? const Center(
-                              child: Text('Select a file to view details.'),
-                            )
-                          : _buildDetailPane(context),
-                    ),
-                  ),
-                ],
+  VoidCallback? get _publishActionCallback =>
+      _loading ? null : _triggerPublishAction;
+
+  VoidCallback? get _discardActionCallback =>
+      _loading ? null : _triggerDiscardAction;
+
+  void _triggerPublishAction() {
+    unawaited(_runPublishAction());
+  }
+
+  void _triggerDiscardAction() {
+    unawaited(_runDiscardAction());
+  }
+
+  Future<void> _runPublishAction() async {
+    final engine = context.read<EngineApi>();
+    try {
+      await engine.call('DraftPublish', {'workbench_id': widget.workbenchId});
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (err) {
+      if (!mounted) {
+        return;
+      }
+      final message = 'Publish error: ${_formatPreviewError(err)}';
+      _recordAccessibilityError(message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _runDiscardAction() async {
+    final engine = context.read<EngineApi>();
+    try {
+      await engine.call('DraftDiscard', {'workbench_id': widget.workbenchId});
+      if (mounted) {
+        Navigator.of(context).pop(false);
+      }
+    } catch (err) {
+      if (!mounted) {
+        return;
+      }
+      final message = 'Discard error: ${_formatPreviewError(err)}';
+      _recordAccessibilityError(message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  void _announceForAccessibility(String message) {
+    final normalized = message.trim();
+    if (normalized.isEmpty || !mounted) {
+      return;
+    }
+    A11yAnnouncer.instance.announce(context, normalized);
+  }
+
+  void _recordAccessibilityError(String? message) {
+    final normalized = (message ?? '').trim();
+    if (normalized.isEmpty || !mounted) {
+      return;
+    }
+    final isDuplicateLast =
+        _accessibilityErrors.isNotEmpty &&
+        _accessibilityErrors.last == normalized;
+    if (isDuplicateLast) {
+      return;
+    }
+    setState(() {
+      _accessibilityErrors.add(normalized);
+      if (_accessibilityErrors.length > _maxAccessibilityErrors) {
+        _accessibilityErrors.removeAt(0);
+      }
+    });
+    _announceForAccessibility(normalized);
+  }
+
+  Widget _buildSkipLinks() {
+    return A11ySkipLinks(
+      padding: EdgeInsets.zero,
+      links: [
+        A11ySkipLink(
+          key: AppKeys.reviewSkipToFileList,
+          label: 'Skip to file list',
+          targetFocusNode: _fileListFocusNode,
+        ),
+        A11ySkipLink(
+          key: AppKeys.reviewSkipToMainContent,
+          label: 'Skip to main content',
+          targetFocusNode: _detailPaneFocusNode,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAccessibilityErrorSummary() {
+    if (_accessibilityErrors.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Semantics(
+      key: AppKeys.reviewErrorSummary,
+      container: true,
+      liveRegion: true,
+      label: 'Review errors',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: KeenBenchTheme.colorErrorBackground,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Errors',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: KeenBenchTheme.colorErrorText,
+                fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: 4),
+            for (final error in _accessibilityErrors)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  error,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: KeenBenchTheme.colorErrorText,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChangeList() {
+    return ListView.separated(
+      key: AppKeys.reviewChangeList,
+      padding: const EdgeInsets.all(12),
+      itemBuilder: (context, index) {
+        final change = _changes[index];
+        final selected = change.path == _selected?.path;
+        return Semantics(
+          container: true,
+          button: true,
+          selected: selected,
+          label: _changeItemSemanticsLabel(change, selected: selected),
+          onTap: () {
+            unawaited(_selectChange(change));
+          },
+          child: ExcludeSemantics(
+            child: InkWell(
+              onTap: () => _selectChange(change),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? KeenBenchTheme.colorBackgroundSelected
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      change.path,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _ChangeBadge(changeType: change.changeType),
+                        if (change.fileKind.isNotEmpty)
+                          _InlineBadge(
+                            label: change.fileKind.toUpperCase(),
+                            background: KeenBenchTheme.colorSurfaceMuted,
+                            textColor: KeenBenchTheme.colorTextSecondary,
+                          ),
+                        if (change.fileKind == 'pdf' ||
+                            change.fileKind == 'image' ||
+                            change.fileKind == 'odt')
+                          const _InlineBadge(
+                            label: 'Read-only',
+                            background: KeenBenchTheme.colorInfoBackground,
+                            textColor: KeenBenchTheme.colorInfoText,
+                          ),
+                        if (change.isOpaque)
+                          const _InlineBadge(
+                            label: 'Opaque',
+                            background: KeenBenchTheme.colorSurfaceMuted,
+                            textColor: KeenBenchTheme.colorTextSecondary,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      itemCount: _changes.length,
+    );
+  }
+
+  String _changeItemSemanticsLabel(
+    ChangeItem change, {
+    required bool selected,
+  }) {
+    final kind = change.fileKind.trim().isEmpty ? 'unknown' : change.fileKind;
+    final selectedState = selected ? 'selected' : 'not selected';
+    return '${change.path}, ${change.changeType} change, $kind file, $selectedState';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Shortcuts(
+      shortcuts: reviewShortcutMap(),
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          PublishDraftIntent: CallbackAction<Intent>(
+            onInvoke: (_) {
+              final callback = _publishActionCallback;
+              if (callback != null) {
+                callback();
+              }
+              return null;
+            },
+          ),
+          DiscardDraftIntent: CallbackAction<Intent>(
+            onInvoke: (_) {
+              final callback = _discardActionCallback;
+              if (callback != null) {
+                callback();
+              }
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            key: AppKeys.reviewScreen,
+            appBar: KeenBenchAppBar(
+              title: 'Review Draft',
+              showBack: true,
+              useCenteredContent: false,
+              actions: [
+                ElevatedButton(
+                  key: AppKeys.reviewPublishButton,
+                  onPressed: _publishActionCallback,
+                  child: const Text('Publish'),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  key: AppKeys.reviewDiscardButton,
+                  onPressed: _discardActionCallback,
+                  style: TextButton.styleFrom(
+                    foregroundColor: KeenBenchTheme.colorErrorText,
+                  ),
+                  child: const Text('Discard'),
+                ),
+              ],
+            ),
+            body: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 8),
+                          _buildSkipLinks(),
+                          if (_accessibilityErrors.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _buildAccessibilityErrorSummary(),
+                          ],
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                FocusTraversalOrder(
+                                  order: const NumericFocusOrder(3),
+                                  child: Focus(
+                                    key: AppKeys.reviewFileListFocusTarget,
+                                    focusNode: _fileListFocusNode,
+                                    child: Container(
+                                      width: 260,
+                                      decoration: const BoxDecoration(
+                                        border: Border(
+                                          right: BorderSide(
+                                            color: KeenBenchTheme
+                                                .colorBorderDefault,
+                                          ),
+                                        ),
+                                        color: KeenBenchTheme
+                                            .colorBackgroundSecondary,
+                                      ),
+                                      child: _changes.isEmpty
+                                          ? const Center(
+                                              child: Text('No changes'),
+                                            )
+                                          : _buildChangeList(),
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: FocusTraversalOrder(
+                                    order: const NumericFocusOrder(4),
+                                    child: Focus(
+                                      key: AppKeys.reviewDetailFocusTarget,
+                                      focusNode: _detailPaneFocusNode,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(16),
+                                        color: KeenBenchTheme
+                                            .colorBackgroundPrimary,
+                                        child: _selected == null
+                                            ? const Center(
+                                                child: Text(
+                                                  'Select a file to view details.',
+                                                ),
+                                              )
+                                            : _buildDetailPane(context),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+      ),
     );
   }
 }

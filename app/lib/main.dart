@@ -50,6 +50,23 @@ class KeenBenchApp extends StatelessWidget {
       title: 'KeenBench',
       debugShowCheckedModeBanner: false,
       theme: KeenBenchTheme.theme(),
+      builder: (context, child) {
+        final mediaQuery = MediaQuery.of(context);
+        final scopedMediaQuery = mediaQuery.copyWith(
+          textScaler: mediaQuery.textScaler.clamp(
+            minScaleFactor: 1.0,
+            maxScaleFactor: 2.0,
+          ),
+        );
+        final appChild = child ?? const SizedBox.shrink();
+        return MediaQuery(
+          data: scopedMediaQuery,
+          child: TickerMode(
+            enabled: !scopedMediaQuery.disableAnimations,
+            child: appChild,
+          ),
+        );
+      },
       home: const HomeScreen(),
     );
   }

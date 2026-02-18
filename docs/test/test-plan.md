@@ -1306,6 +1306,52 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
 
 ---
 
+## Accessibility Smoke Matrix (Core v1)
+
+#### TC-A11Y-01: Workbench keyboard-only flow
+- Priority: P0
+- Preconditions: Workbench has at least one file and no draft.
+- Steps:
+  1. Navigate to Workbench and use skip links to jump to main content and composer.
+     Expected: Skip links are reachable via keyboard and move focus to target regions.
+  2. Use keyboard only to compose and send a message.
+     Expected: Message sends without mouse interaction.
+  3. Trigger review/discard actions when draft is present.
+     Expected: Review and discard controls are keyboard reachable and visible when focused.
+
+#### TC-A11Y-02: Screen reader status announcements
+- Priority: P0
+- Preconditions: VoiceOver (macOS) or NVDA (Windows) enabled.
+- Steps:
+  1. Start an assistant run from Workbench.
+     Expected: Screen reader announces generation/status transitions (start/complete, tool activity, draft ready).
+  2. Change model from the Workbench selector.
+     Expected: Current model and model-change announcement are spoken.
+  3. Trigger an actionable error (e.g. provider disabled).
+     Expected: Error summary region is announced and focusable.
+
+#### TC-A11Y-03: Review keyboard + semantics smoke
+- Priority: P0
+- Preconditions: A draft exists with at least one changed file.
+- Steps:
+  1. Open Review and use skip links to jump between file list and detail pane.
+     Expected: Focus moves to the requested regions.
+  2. Navigate changed files with keyboard and select a file.
+     Expected: File selection updates the pane and announces “Showing diff for …”.
+  3. Navigate diff/preview controls (previous/next page or slide) using keyboard.
+     Expected: Controls are reachable and labeled for assistive tech.
+
+#### TC-A11Y-04: Primary screen-reader platform check
+- Priority: P1
+- Preconditions: Run once per release on primary matrix.
+- Steps:
+  1. Execute TC-A11Y-01 through TC-A11Y-03 on:
+     Expected: VoiceOver on macOS and NVDA on Windows pass with no keyboard traps and no missing primary labels.
+  2. Spot-check on Narrator (Windows) and Orca (Linux).
+     Expected: Core navigation and announcements remain usable; document any gaps for v1.5 audit.
+
+---
+
 ## Traceability Matrix
 
 | Requirement | Source | Test cases |
@@ -1331,6 +1377,7 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
 | Draft gating on workbench mutations | M3 plan | TC-016 |
 | Workbench context (fixed categories, process/reprocess, direct edit, runtime injection) | Workbench Context PRD/Design (FR1.5) | TC-160 through TC-171 |
 | RPI phased Workshop workflow (Research/Plan/Implement/Summary) | RPI workflow design/plan | TC-RPI-01 through TC-RPI-08 |
+| Accessibility baseline (keyboard-only, semantics, announcements, contrast/non-color indicators) | Accessibility PRD/Design | TC-A11Y-01 through TC-A11Y-04 |
 | Agent Skills compliance for processed context artifacts | Workbench Context skill compliance rules | TC-161, TC-162, TC-164, TC-168 |
 | Bank statement real-world XLSX handling | Testing policy | TC-031, TC-041, TC-042, TC-100 through TC-102, TC-130 |
 
