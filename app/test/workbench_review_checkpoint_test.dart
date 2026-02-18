@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:keenbench/accessibility/a11y_shortcuts.dart';
 import 'package:keenbench/app_keys.dart';
 import 'package:keenbench/engine/engine_client.dart';
 import 'package:keenbench/screens/review_screen.dart';
@@ -42,17 +44,16 @@ class _FakeWorkbenchEngine implements EngineApi {
     required this.reviewChanges,
     this.draftSummary,
     this.files = const [],
-    this.contextItems = const [],
     this.failingMethods = const <String>{},
     this.failPublishedMethods = const <String>{},
     this.includePptxPositioned = true,
     this.xlsxDraftAvailableSheets,
     this.clutterContextWarning = false,
-    this.workbenchDefaultModelId = _defaultModelId,
     this.workshopActiveModelId = _defaultModelId,
     this.workshopDefaultModelId = _defaultModelId,
     this.providerStatuses = _defaultProviders,
     this.supportedModels = _defaultModels,
+    this.egressConsented = true,
   });
 
   final _notifications = StreamController<EngineNotification>.broadcast();
@@ -64,17 +65,18 @@ class _FakeWorkbenchEngine implements EngineApi {
   final List<Map<String, dynamic>> messages;
   final List<Map<String, dynamic>> reviewChanges;
   final List<Map<String, dynamic>> files;
-  final List<Map<String, dynamic>> contextItems;
+  final List<Map<String, dynamic>> contextItems = const [];
   final Set<String> failingMethods;
   final Set<String> failPublishedMethods;
   final bool includePptxPositioned;
   final List<String>? xlsxDraftAvailableSheets;
   final bool clutterContextWarning;
-  final String workbenchDefaultModelId;
+  final String workbenchDefaultModelId = _defaultModelId;
   final String workshopActiveModelId;
   final String workshopDefaultModelId;
   final List<Map<String, dynamic>> providerStatuses;
   final List<Map<String, dynamic>> supportedModels;
+  bool egressConsented;
   bool hasDraft;
   String draftId;
   String? draftSummary;
@@ -184,11 +186,14 @@ class _FakeWorkbenchEngine implements EngineApi {
         final modelId = effectiveActiveModelId;
         final providerId = modelId.split('/').first;
         return {
-          'consented': true,
+          'consented': egressConsented,
           'scope_hash': 'scope-1',
           'provider_id': providerId,
           'model_id': modelId,
         };
+      case 'EgressGrantWorkshopConsent':
+        egressConsented = true;
+        return {};
       case 'WorkshopSendUserMessage':
         return {'message_id': 'u-1'};
       case 'WorkshopRunAgent':
@@ -1130,7 +1135,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Preview unavailable:'), findsOneWidget);
-      expect(find.textContaining('TOOL_WORKER_UNAVAILABLE'), findsOneWidget);
+      expect(find.textContaining('TOOL_WORKER_UNAVAILABLE'), findsWidgets);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     },
   );
@@ -1278,6 +1283,70 @@ void main() {
 
     expect(engine.callCount('WorkshopUndoToMessage'), 1);
     expect(engine.lastParams['WorkshopUndoToMessage']?['message_id'], 'u-1');
+  });
+
+  testWidgets('consent dialog Escape cancels submission', (tester) async {
+    await useDesktopSurface(tester);
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      reviewChanges: const [],
+      messages: const [],
+      egressConsented: false,
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(AppKeys.workbenchComposerField),
+      'Need consent first',
+    );
+    await tester.tap(find.byKey(AppKeys.workbenchSendButton));
+    await tester.pumpAndSettle();
+    expect(find.byKey(AppKeys.consentDialog), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(AppKeys.consentDialog), findsNothing);
+    expect(engine.callCount('EgressGrantWorkshopConsent'), 0);
+    expect(engine.callCount('WorkshopSendUserMessage'), 0);
+    expect(engine.callCount('WorkshopRunAgent'), 0);
+  });
+
+  testWidgets('consent dialog Enter grants consent and sends message', (
+    tester,
+  ) async {
+    await useDesktopSurface(tester);
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      reviewChanges: const [],
+      messages: const [],
+      egressConsented: false,
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(AppKeys.workbenchComposerField),
+      'Need consent first',
+    );
+    await tester.tap(find.byKey(AppKeys.workbenchSendButton));
+    await tester.pumpAndSettle();
+    expect(find.byKey(AppKeys.consentDialog), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(AppKeys.consentDialog), findsNothing);
+    expect(engine.callCount('EgressGrantWorkshopConsent'), 1);
+    expect(engine.callCount('WorkshopSendUserMessage'), 1);
+    expect(engine.callCount('WorkshopRunAgent'), 1);
   });
 
   testWidgets(
@@ -1476,5 +1545,101 @@ void main() {
     final extract = find.byKey(AppKeys.workbenchFileExtractButton('notes.txt'));
     expect(extract, findsOneWidget);
     expect(tester.widget<IconButton>(extract).onPressed, isNull);
+  });
+
+  testWidgets('workbench skip links and model semantics are exposed', (
+    tester,
+  ) async {
+    await useDesktopSurface(tester);
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      messages: const [],
+      reviewChanges: const [],
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(AppKeys.workbenchSkipToMainLink), findsOneWidget);
+    expect(find.byKey(AppKeys.workbenchSkipToComposerLink), findsOneWidget);
+    expect(find.byKey(AppKeys.workbenchModelSelectorSemantics), findsOneWidget);
+  });
+
+  testWidgets('repeated tab traversal does not trigger layout exceptions', (
+    tester,
+  ) async {
+    await useDesktopSurface(tester);
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      messages: const [],
+      reviewChanges: const [],
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    for (var i = 0; i < 24; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(tester.takeException(), isNull);
+    }
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  test('workbench shortcut map includes core accessibility actions', () {
+    final shortcuts = workbenchShortcutMap();
+    expect(
+      shortcuts[const SingleActivator(LogicalKeyboardKey.keyL, control: true)],
+      isA<FocusComposerIntent>(),
+    );
+    expect(
+      shortcuts[const SingleActivator(LogicalKeyboardKey.keyR, control: true)],
+      isA<OpenReviewIntent>(),
+    );
+    expect(
+      shortcuts[const SingleActivator(
+        LogicalKeyboardKey.keyD,
+        control: true,
+        shift: true,
+      )],
+      isA<DiscardDraftIntent>(),
+    );
+  });
+
+  testWidgets('review exposes skip links and accessibility error summary', (
+    tester,
+  ) async {
+    await useDesktopSurface(tester);
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: true,
+      draftId: 'd-review-a11y',
+      messages: const [],
+      reviewChanges: const [
+        {
+          'path': 'report.pdf',
+          'change_type': 'modified',
+          'file_kind': 'pdf',
+          'preview_kind': 'page',
+          'mime_type': 'application/pdf',
+          'is_opaque': false,
+          'summary': 'Updated report.',
+          'size_bytes': 1024,
+        },
+      ],
+      failingMethods: const {'ReviewGetPdfPreviewPage'},
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const ReviewScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(AppKeys.reviewSkipToFileList), findsOneWidget);
+    expect(find.byKey(AppKeys.reviewSkipToMainContent), findsOneWidget);
+    expect(find.byKey(AppKeys.reviewErrorSummary), findsOneWidget);
   });
 }

@@ -5,6 +5,7 @@ import '../app_keys.dart';
 import '../engine/engine_client.dart';
 import '../models/models.dart';
 import '../theme.dart';
+import '../widgets/dialog_keyboard_shortcuts.dart';
 import '../widgets/keenbench_app_bar.dart';
 
 class CheckpointsScreen extends StatefulWidget {
@@ -63,25 +64,32 @@ class _CheckpointsScreenState extends State<CheckpointsScreen> {
     final controller = TextEditingController();
     final description = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Create checkpoint'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Description (optional)',
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(null);
+
+        void submit() =>
+            Navigator.of(dialogContext).pop(controller.text.trim());
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            title: const Text('Create checkpoint'),
+            content: TextField(
+              controller: controller,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(),
+              decoration: const InputDecoration(
+                labelText: 'Description (optional)',
+              ),
+            ),
+            actions: [
+              OutlinedButton(onPressed: cancel, child: const Text('Cancel')),
+              ElevatedButton(onPressed: submit, child: const Text('Create')),
+            ],
           ),
-        ),
-        actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pop(null),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (description == null) {
       return;
@@ -98,22 +106,26 @@ class _CheckpointsScreenState extends State<CheckpointsScreen> {
   Future<void> _restoreCheckpoint(CheckpointMetadata checkpoint) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Restore checkpoint'),
-        content: Text(
-          'Restoring will revert Published files and Workbench history to ${checkpoint.createdAt}.',
-        ),
-        actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            title: const Text('Restore checkpoint'),
+            content: Text(
+              'Restoring will revert Published files and Workbench history to ${checkpoint.createdAt}.',
+            ),
+            actions: [
+              OutlinedButton(onPressed: cancel, child: const Text('Cancel')),
+              ElevatedButton(onPressed: submit, child: const Text('Restore')),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Restore'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (confirm != true) {
       return;

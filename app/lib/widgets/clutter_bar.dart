@@ -22,40 +22,45 @@ class ClutterBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fillColor = _fillColor();
-    return SizedBox(
-      width: 180,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            level,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: KeenBenchTheme.colorTextSecondary,
+    final scorePercent = (score.clamp(0.0, 1.0) * 100).round();
+    return Semantics(
+      container: true,
+      label: 'Clutter level $level, $scorePercent percent',
+      child: SizedBox(
+        width: 180,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              level,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: KeenBenchTheme.colorTextSecondary,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            height: 6,
-            decoration: BoxDecoration(
-              color: KeenBenchTheme.colorSurfaceMuted,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
-            ),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: FractionallySizedBox(
-                widthFactor: score.clamp(0.0, 1.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: fillColor,
-                    borderRadius: BorderRadius.circular(6),
+            const SizedBox(height: 4),
+            Container(
+              height: 6,
+              decoration: BoxDecoration(
+                color: KeenBenchTheme.colorSurfaceMuted,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: score.clamp(0.0, 1.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: fillColor,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

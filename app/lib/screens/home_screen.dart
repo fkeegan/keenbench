@@ -7,6 +7,7 @@ import '../logging.dart';
 import '../models/models.dart';
 import '../theme.dart';
 import '../widgets/centered_content.dart';
+import '../widgets/dialog_keyboard_shortcuts.dart';
 import '../widgets/keenbench_app_bar.dart';
 import 'settings_screen.dart';
 import 'workbench_screen.dart';
@@ -45,27 +46,40 @@ class _HomeScreenState extends State<HomeScreen> {
     final name = await showDialog<String>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        key: AppKeys.newWorkbenchDialog,
-        title: const Text('New Workbench'),
-        content: TextField(
-          key: AppKeys.newWorkbenchNameField,
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Workbench name'),
-        ),
-        actions: [
-          OutlinedButton(
-            key: AppKeys.newWorkbenchCancelButton,
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        void submit() =>
+            Navigator.of(dialogContext).pop(controller.text.trim());
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.newWorkbenchDialog,
+            title: const Text('New Workbench'),
+            content: TextField(
+              key: AppKeys.newWorkbenchNameField,
+              controller: controller,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(),
+              decoration: const InputDecoration(labelText: 'Workbench name'),
+            ),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.newWorkbenchCancelButton,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.newWorkbenchCreateButton,
+                onPressed: submit,
+                child: const Text('Create'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            key: AppKeys.newWorkbenchCreateButton,
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (name == null) {
       return;
@@ -89,28 +103,38 @@ class _HomeScreenState extends State<HomeScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => AlertDialog(
-        key: AppKeys.homeDeleteWorkbenchDialog,
-        title: const Text('Delete Workbench'),
-        content: Text(
-          'Delete "${wb.name}"? This removes the Workbench and its files. Originals remain untouched.',
-        ),
-        actions: [
-          OutlinedButton(
-            key: AppKeys.homeDeleteWorkbenchCancel,
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            key: AppKeys.homeDeleteWorkbenchConfirm,
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: KeenBenchTheme.colorErrorText,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.homeDeleteWorkbenchDialog,
+            title: const Text('Delete Workbench'),
+            content: Text(
+              'Delete "${wb.name}"? This removes the Workbench and its files. Originals remain untouched.',
             ),
-            child: const Text('Delete'),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.homeDeleteWorkbenchCancel,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.homeDeleteWorkbenchConfirm,
+                onPressed: submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: KeenBenchTheme.colorErrorText,
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
     if (confirm != true) {
       return;

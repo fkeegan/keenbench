@@ -9,6 +9,7 @@ import '../logging.dart';
 import '../models/models.dart';
 import '../theme.dart';
 import '../widgets/centered_content.dart';
+import '../widgets/dialog_keyboard_shortcuts.dart';
 import '../widgets/keenbench_app_bar.dart';
 
 typedef ExternalUrlLauncher = Future<void> Function(String url);
@@ -294,52 +295,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final controller = TextEditingController();
     final redirectUrl = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Connect ${provider.displayName}'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Authorize in your browser, then paste the full redirect URL.',
-                ),
-                if (authorizeUrl.trim().isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    authorizeUrl,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: KeenBenchTheme.colorTextSecondary,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        void submit() =>
+            Navigator.of(dialogContext).pop(controller.text.trim());
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            title: Text('Connect ${provider.displayName}'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Authorize in your browser, then paste the full redirect URL.',
                     ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                TextField(
-                  key: AppKeys.settingsOAuthRedirectField(provider.id),
-                  controller: controller,
-                  decoration: const InputDecoration(labelText: 'Redirect URL'),
+                    if (authorizeUrl.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        authorizeUrl,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: KeenBenchTheme.colorTextSecondary,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: AppKeys.settingsOAuthRedirectField(provider.id),
+                      controller: controller,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => submit(),
+                      decoration: const InputDecoration(
+                        labelText: 'Redirect URL',
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
+            actions: [
+              TextButton(onPressed: cancel, child: const Text('Cancel')),
+              ElevatedButton(
+                key: AppKeys.settingsOAuthCompleteButton(provider.id),
+                onPressed: submit,
+                child: const Text('Complete'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            key: AppKeys.settingsOAuthCompleteButton(provider.id),
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Complete'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     return redirectUrl;
   }

@@ -6,6 +6,7 @@ import '../app_keys.dart';
 import '../models/models.dart';
 import '../state/workbench_state.dart';
 import '../theme.dart';
+import '../widgets/dialog_keyboard_shortcuts.dart';
 import '../widgets/keenbench_app_bar.dart';
 
 class WorkbenchContextScreen extends StatefulWidget {
@@ -156,14 +157,22 @@ class _WorkbenchContextScreenState extends State<WorkbenchContextScreen> {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => _ContextProcessDialog(
-        category: category,
-        title:
-            '${existing?.status == 'active' ? 'Reprocess' : 'Add'} ${_titles[category] ?? category}',
-        existing: existing,
-        state: state,
-        hasDirectEdits: hasDirectEdits,
-      ),
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          submitOnEnter: false,
+          child: _ContextProcessDialog(
+            category: category,
+            title:
+                '${existing?.status == 'active' ? 'Reprocess' : 'Add'} ${_titles[category] ?? category}',
+            existing: existing,
+            state: state,
+            hasDirectEdits: hasDirectEdits,
+          ),
+        );
+      },
     );
   }
 
@@ -186,17 +195,25 @@ class _WorkbenchContextScreenState extends State<WorkbenchContextScreen> {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => _ContextInspectDialog(
-        category: category,
-        title: _titles[category] ?? category,
-        item: item,
-        state: state,
-        onReprocess: () => _openProcessDialog(
-          context,
-          category,
-          hasDirectEdits: item.hasDirectEdits,
-        ),
-      ),
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          submitOnEnter: false,
+          child: _ContextInspectDialog(
+            category: category,
+            title: _titles[category] ?? category,
+            item: item,
+            state: state,
+            onReprocess: () => _openProcessDialog(
+              context,
+              category,
+              hasDirectEdits: item.hasDirectEdits,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -266,24 +283,34 @@ class _ContextProcessDialogState extends State<_ContextProcessDialog> {
     if (widget.hasDirectEdits) {
       final proceed = await showDialog<bool>(
         context: context,
-        builder: (confirmContext) => AlertDialog(
-          title: const Text('Overwrite manual edits?'),
-          content: const Text(
-            'This context item was manually edited. Reprocessing will overwrite your manual changes.',
-          ),
-          actions: [
-            OutlinedButton(
-              key: AppKeys.contextManualOverwriteCancel,
-              onPressed: () => Navigator.of(confirmContext).pop(false),
-              child: const Text('Cancel'),
+        builder: (confirmContext) {
+          void cancel() => Navigator.of(confirmContext).pop(false);
+
+          void submit() => Navigator.of(confirmContext).pop(true);
+
+          return DialogKeyboardShortcuts(
+            onCancel: cancel,
+            onSubmit: submit,
+            child: AlertDialog(
+              title: const Text('Overwrite manual edits?'),
+              content: const Text(
+                'This context item was manually edited. Reprocessing will overwrite your manual changes.',
+              ),
+              actions: [
+                OutlinedButton(
+                  key: AppKeys.contextManualOverwriteCancel,
+                  onPressed: cancel,
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  key: AppKeys.contextManualOverwriteConfirm,
+                  onPressed: submit,
+                  child: const Text('Proceed'),
+                ),
+              ],
             ),
-            ElevatedButton(
-              key: AppKeys.contextManualOverwriteConfirm,
-              onPressed: () => Navigator.of(confirmContext).pop(true),
-              child: const Text('Proceed'),
-            ),
-          ],
-        ),
+          );
+        },
       );
       if (proceed != true || !mounted) {
         return;
@@ -322,20 +349,27 @@ class _ContextProcessDialogState extends State<_ContextProcessDialog> {
         }
         final retry = await showDialog<bool>(
           context: context,
-          builder: (retryContext) => AlertDialog(
-            title: const Text('Processing failed'),
-            content: Text(err.toString()),
-            actions: [
-              OutlinedButton(
-                onPressed: () => Navigator.of(retryContext).pop(false),
-                child: const Text('Cancel'),
+          builder: (retryContext) {
+            void cancel() => Navigator.of(retryContext).pop(false);
+
+            void submit() => Navigator.of(retryContext).pop(true);
+
+            return DialogKeyboardShortcuts(
+              onCancel: cancel,
+              onSubmit: submit,
+              child: AlertDialog(
+                title: const Text('Processing failed'),
+                content: Text(err.toString()),
+                actions: [
+                  OutlinedButton(
+                    onPressed: cancel,
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(onPressed: submit, child: const Text('Retry')),
+                ],
               ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(retryContext).pop(true),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
+            );
+          },
         );
         if (retry != true) {
           return false;

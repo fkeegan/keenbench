@@ -34,6 +34,15 @@ class AppKeys {
   static const workbenchDiscardButton = Key('workbench_discard_button');
   static const workbenchCheckpointsButton = Key('workbench_checkpoints_button');
   static const workbenchClutterBar = Key('workbench_clutter_bar');
+  static const workbenchSkipToMainLink = Key('workbench_skip_to_main_content');
+  static const workbenchSkipToComposerLink = Key('workbench_skip_to_composer');
+  static const workbenchMainContentRegion = Key(
+    'workbench_main_content_region',
+  );
+  static const workbenchModelSelectorSemantics = Key(
+    'workbench_model_selector_semantics',
+  );
+  static const workbenchErrorSummary = Key('workbench_error_summary');
   static const workbenchScopeBadge = Key('workbench_scope_badge');
   static const workbenchScopeLimits = Key('workbench_scope_limits');
   static const workbenchContextWarning = Key('workbench_context_warning');
@@ -96,6 +105,11 @@ class AppKeys {
   static const reviewDiscardButton = Key('review_discard_button');
   static const reviewChangeList = Key('review_change_list');
   static const reviewDiffList = Key('review_diff_list');
+  static const reviewSkipToFileList = Key('review_skip_to_file_list');
+  static const reviewSkipToMainContent = Key('review_skip_to_main_content');
+  static const reviewFileListFocusTarget = Key('review_file_list_focus_target');
+  static const reviewDetailFocusTarget = Key('review_detail_focus_target');
+  static const reviewErrorSummary = Key('review_error_summary');
 
   static const checkpointsScreen = Key('checkpoints_screen');
   static const checkpointsCreateButton = Key('checkpoints_create_button');
