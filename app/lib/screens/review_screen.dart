@@ -729,7 +729,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
                         child: Text(
                           line.oldLine?.toString() ?? '',
                           style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: KeenBenchTheme.colorTextTertiary),
+                              ?.copyWith(
+                                color: KeenBenchTheme.colorTextTertiary,
+                              ),
                         ),
                       ),
                       SizedBox(
@@ -737,10 +739,14 @@ class _ReviewScreenState extends State<ReviewScreen> {
                         child: Text(
                           line.newLine?.toString() ?? '',
                           style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: KeenBenchTheme.colorTextTertiary),
+                              ?.copyWith(
+                                color: KeenBenchTheme.colorTextTertiary,
+                              ),
                         ),
                       ),
-                      Expanded(child: Text(line.text, style: KeenBenchTheme.mono)),
+                      Expanded(
+                        child: Text(line.text, style: KeenBenchTheme.mono),
+                      ),
                     ],
                   ),
                 ),
@@ -767,9 +773,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
           ),
           child: Text(
             warning,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: KeenBenchTheme.colorInfoText),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: KeenBenchTheme.colorInfoText,
+            ),
           ),
         ),
         Expanded(child: diffList),
@@ -1275,7 +1281,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
                           _parsePptxColor(shape.fillColor) ??
                           Colors.transparent,
                       borderRadius: BorderRadius.circular(2),
-                      border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+                      border: Border.all(
+                        color: KeenBenchTheme.colorBorderSubtle,
+                      ),
                     ),
                     child: _buildPptxShapeText(shape: shape, metrics: metrics),
                   ),
@@ -1289,9 +1297,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final preface = <Widget>[
       Text(
         'Font resolution: bundled -> OS-known -> fallback',
-        style: Theme.of(
-          context,
-        ).textTheme.labelSmall?.copyWith(color: KeenBenchTheme.colorTextSecondary),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: KeenBenchTheme.colorTextSecondary,
+        ),
       ),
       if (missingFonts.isNotEmpty) ...[
         const SizedBox(height: 4),
@@ -1304,9 +1312,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
           ),
           child: Text(
             'Missing fonts (${missingFonts.length}): ${missingFonts.join(', ')}. Using $_pptxFallbackFontFamily.',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: KeenBenchTheme.colorInfoText),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: KeenBenchTheme.colorInfoText,
+            ),
           ),
         ),
       ],
@@ -1371,7 +1379,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
               decoration: run.underline == true
                   ? TextDecoration.underline
                   : TextDecoration.none,
-              color: _parsePptxColor(run.color) ?? KeenBenchTheme.colorTextPrimary,
+              color:
+                  _parsePptxColor(run.color) ?? KeenBenchTheme.colorTextPrimary,
               height: 1.2,
             ),
           );
@@ -1925,8 +1934,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                             _InlineBadge(
                                               label: change.fileKind
                                                   .toUpperCase(),
-                                              background:
-                                                  KeenBenchTheme.colorSurfaceMuted,
+                                              background: KeenBenchTheme
+                                                  .colorSurfaceMuted,
                                               textColor: KeenBenchTheme
                                                   .colorTextSecondary,
                                             ),
@@ -1943,8 +1952,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                           if (change.isOpaque)
                                             const _InlineBadge(
                                               label: 'Opaque',
-                                              background:
-                                                  KeenBenchTheme.colorSurfaceMuted,
+                                              background: KeenBenchTheme
+                                                  .colorSurfaceMuted,
                                               textColor: KeenBenchTheme
                                                   .colorTextSecondary,
                                             ),

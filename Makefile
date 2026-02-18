@@ -48,13 +48,21 @@ linux-desktop-dev: ## Install local Linux desktop metadata/icons so GNOME maps a
 		-e 's|@APPLICATION_ID@|$(LINUX_APP_ID)|g' \
 		app/linux/keenbench.desktop.in > "$(HOME)/.local/share/applications/$(LINUX_APP_ID).desktop"
 	@for size in 16 32 48 64 128 256 512; do \
-		install -Dm644 "app/linux/runner/resources/$(LINUX_APP_ICON_NAME)_$${size}.png" "$(HOME)/.local/share/icons/hicolor/$${size}x$${size}/apps/$(LINUX_APP_ICON_NAME).png"; \
+		mkdir -p "$(HOME)/.local/share/icons/hicolor/$${size}x$${size}/apps"; \
+		install -m644 "app/linux/runner/resources/$(LINUX_APP_ICON_NAME)_$${size}.png" "$(HOME)/.local/share/icons/hicolor/$${size}x$${size}/apps/$(LINUX_APP_ICON_NAME).png"; \
 	done
 	@update-desktop-database "$(HOME)/.local/share/applications" >/dev/null 2>&1 || true
 	@gtk-update-icon-cache -f -t "$(HOME)/.local/share/icons/hicolor" >/dev/null 2>&1 || true
 
-run: deps engine package-worker linux-desktop-dev ## Run the Flutter desktop app (builds engine, sets up worker, fetches deps)
-	cd app && KEENBENCH_ENV_PATH=$(ROOT_DIR)/.env KEENBENCH_ENGINE_PATH=$(ENGINE_BIN_ABS) KEENBENCH_TOOL_WORKER_PATH=$(TOOL_WORKER_BIN_ABS) $(FLUTTER_BIN) run -d linux
+RUN_DEVICE := linux
+RUN_PLATFORM_SETUP := linux-desktop-dev
+ifeq ($(shell uname -s),Darwin)
+RUN_DEVICE := macos
+RUN_PLATFORM_SETUP :=
+endif
+
+run: deps engine package-worker $(RUN_PLATFORM_SETUP) ## Run the Flutter desktop app (builds engine, sets up worker, fetches deps)
+	cd app && KEENBENCH_ENV_PATH=$(ROOT_DIR)/.env KEENBENCH_ENGINE_PATH=$(ENGINE_BIN_ABS) KEENBENCH_TOOL_WORKER_PATH=$(TOOL_WORKER_BIN_ABS) $(FLUTTER_BIN) run -d $(RUN_DEVICE)
 
 run-macos: deps engine package-worker ## Run the Flutter desktop app on macOS (builds engine, sets up worker, fetches deps)
 	cd app && KEENBENCH_ENV_PATH=$(ROOT_DIR)/.env KEENBENCH_ENGINE_PATH=$(ENGINE_BIN_ABS) KEENBENCH_TOOL_WORKER_PATH=$(TOOL_WORKER_BIN_ABS) $(FLUTTER_BIN) run -d macos

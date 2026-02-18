@@ -7,13 +7,13 @@ import (
 )
 
 var secretKeys = map[string]bool{
-	"api_key":               true,
-	"apikey":                true,
-	"authorization":         true,
-	"openai_api_key":        true,
+	"api_key":                  true,
+	"apikey":                   true,
+	"authorization":            true,
+	"openai_api_key":           true,
 	"keenbench_openai_api_key": true,
-	"token":                 true,
-	"secret":                true,
+	"token":                    true,
+	"secret":                   true,
 }
 
 func RedactValue(value string) string {
