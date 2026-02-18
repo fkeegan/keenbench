@@ -1001,7 +1001,9 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                   width: 320,
                   decoration: const BoxDecoration(
                     border: Border(
-                      right: BorderSide(color: KeenBenchTheme.colorBorderDefault),
+                      right: BorderSide(
+                        color: KeenBenchTheme.colorBorderDefault,
+                      ),
                     ),
                     color: KeenBenchTheme.colorBackgroundSecondary,
                   ),
@@ -1261,7 +1263,8 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                               Expanded(
                                 child: Container(
                                   decoration: BoxDecoration(
-                                    color: KeenBenchTheme.colorBackgroundElevated,
+                                    color:
+                                        KeenBenchTheme.colorBackgroundElevated,
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
                                       color: KeenBenchTheme.colorBorderSubtle,
@@ -1400,7 +1403,8 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                 Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: KeenBenchTheme.colorBackgroundElevated,
+                                    color:
+                                        KeenBenchTheme.colorBackgroundElevated,
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
                                       color: KeenBenchTheme.colorBorderSubtle,
@@ -1471,7 +1475,8 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                 Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: KeenBenchTheme.colorBackgroundElevated,
+                                    color:
+                                        KeenBenchTheme.colorBackgroundElevated,
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
                                       color: KeenBenchTheme.colorBorderSubtle,
@@ -1592,7 +1597,11 @@ class _WorkbenchFileRow extends StatelessWidget {
               color: KeenBenchTheme.colorSurfaceMuted,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: Icon(icon, size: 16, color: KeenBenchTheme.colorTextSecondary),
+            child: Icon(
+              icon,
+              size: 16,
+              color: KeenBenchTheme.colorTextSecondary,
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1904,7 +1913,9 @@ class _SystemEventItem extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          const Expanded(child: Divider(color: KeenBenchTheme.colorBorderSubtle)),
+          const Expanded(
+            child: Divider(color: KeenBenchTheme.colorBorderSubtle),
+          ),
           const SizedBox(width: 10),
           Flexible(
             child: Text(
@@ -1916,7 +1927,9 @@ class _SystemEventItem extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          const Expanded(child: Divider(color: KeenBenchTheme.colorBorderSubtle)),
+          const Expanded(
+            child: Divider(color: KeenBenchTheme.colorBorderSubtle),
+          ),
         ],
       ),
     );

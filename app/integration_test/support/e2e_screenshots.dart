@@ -19,7 +19,8 @@ class E2eScreenshooter {
 
   bool get screenshotsEnabled => AppEnv.get('KEENBENCH_E2E_SCREENSHOTS') != '0';
 
-  bool get pauseOnFailure => AppEnv.get('KEENBENCH_E2E_PAUSE_ON_FAILURE') == '1';
+  bool get pauseOnFailure =>
+      AppEnv.get('KEENBENCH_E2E_PAUSE_ON_FAILURE') == '1';
 
   String get pauseFile =>
       AppEnv.get('KEENBENCH_E2E_PAUSE_FILE') ??

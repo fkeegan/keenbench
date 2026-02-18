@@ -173,7 +173,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           key: AppKeys.homeEmptyState,
                           'Create a Workbench to begin.',
                           style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: KeenBenchTheme.colorTextSecondary),
+                              ?.copyWith(
+                                color: KeenBenchTheme.colorTextSecondary,
+                              ),
                         ),
                       ),
                     )
@@ -234,7 +236,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                         icon: const Icon(
                                           Icons.more_horiz,
                                           size: 18,
-                                          color: KeenBenchTheme.colorTextSecondary,
+                                          color:
+                                              KeenBenchTheme.colorTextSecondary,
                                         ),
                                         onSelected: (value) {
                                           if (value == 'delete') {
@@ -267,7 +270,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     'Updated ${wb.updatedAt.isEmpty ? 'just now' : wb.updatedAt}',
                                     style: Theme.of(context).textTheme.bodySmall
                                         ?.copyWith(
-                                          color: KeenBenchTheme.colorTextSecondary,
+                                          color:
+                                              KeenBenchTheme.colorTextSecondary,
                                         ),
                                   ),
                                 ],

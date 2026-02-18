@@ -57,7 +57,9 @@ class EngineClient implements EngineApi {
     final env = Map<String, String>.from(Platform.environment);
     AppEnv.applyTo(env);
 
-    final bundledToolWorker = await _resolveBundledBinary('keenbench-tool-worker');
+    final bundledToolWorker = await _resolveBundledBinary(
+      'keenbench-tool-worker',
+    );
     if ((env['KEENBENCH_TOOL_WORKER_PATH'] ?? '').isEmpty &&
         bundledToolWorker != null) {
       env['KEENBENCH_TOOL_WORKER_PATH'] = bundledToolWorker;
