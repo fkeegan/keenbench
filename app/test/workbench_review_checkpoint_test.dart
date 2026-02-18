@@ -12,6 +12,29 @@ import 'package:keenbench/screens/workbench_screen.dart';
 import 'package:keenbench/theme.dart';
 
 class _FakeWorkbenchEngine implements EngineApi {
+  static const String _defaultModelId = 'openai/gpt-4o-mini';
+  static const List<Map<String, dynamic>> _defaultProviders =
+      <Map<String, dynamic>>[
+        {
+          'provider_id': 'openai',
+          'display_name': 'OpenAI',
+          'enabled': true,
+          'configured': true,
+          'models': ['openai/gpt-4o-mini'],
+        },
+      ];
+  static const List<Map<String, dynamic>> _defaultModels =
+      <Map<String, dynamic>>[
+        {
+          'model_id': 'openai/gpt-4o-mini',
+          'provider_id': 'openai',
+          'display_name': 'GPT-4o mini',
+          'context_tokens_estimate': 128000,
+          'supports_file_read': true,
+          'supports_file_write': true,
+        },
+      ];
+
   _FakeWorkbenchEngine({
     required this.hasDraft,
     required this.draftId,
@@ -25,6 +48,11 @@ class _FakeWorkbenchEngine implements EngineApi {
     this.includePptxPositioned = true,
     this.xlsxDraftAvailableSheets,
     this.clutterContextWarning = false,
+    this.workbenchDefaultModelId = _defaultModelId,
+    this.workshopActiveModelId = _defaultModelId,
+    this.workshopDefaultModelId = _defaultModelId,
+    this.providerStatuses = _defaultProviders,
+    this.supportedModels = _defaultModels,
   });
 
   final _notifications = StreamController<EngineNotification>.broadcast();
@@ -42,6 +70,11 @@ class _FakeWorkbenchEngine implements EngineApi {
   final bool includePptxPositioned;
   final List<String>? xlsxDraftAvailableSheets;
   final bool clutterContextWarning;
+  final String workbenchDefaultModelId;
+  final String workshopActiveModelId;
+  final String workshopDefaultModelId;
+  final List<Map<String, dynamic>> providerStatuses;
+  final List<Map<String, dynamic>> supportedModels;
   bool hasDraft;
   String draftId;
   String? draftSummary;
@@ -78,41 +111,20 @@ class _FakeWorkbenchEngine implements EngineApi {
             'name': 'Workbench',
             'created_at': '2026-01-01T00:00:00Z',
             'updated_at': '2026-01-02T00:00:00Z',
-            'default_model_id': 'openai/gpt-4o-mini',
+            'default_model_id': workbenchDefaultModelId,
           },
         };
       case 'WorkshopGetState':
         return {
-          'active_model_id': 'openai/gpt-4o-mini',
-          'default_model_id': 'openai/gpt-4o-mini',
+          'active_model_id': workshopActiveModelId,
+          'default_model_id': workshopDefaultModelId,
           'has_draft': hasDraft,
           'pending_proposal_id': '',
         };
       case 'ProvidersGetStatus':
-        return {
-          'providers': [
-            {
-              'provider_id': 'openai',
-              'display_name': 'OpenAI',
-              'enabled': true,
-              'configured': true,
-              'models': ['openai/gpt-4o-mini'],
-            },
-          ],
-        };
+        return {'providers': providerStatuses};
       case 'ModelsListSupported':
-        return {
-          'models': [
-            {
-              'model_id': 'openai/gpt-4o-mini',
-              'provider_id': 'openai',
-              'display_name': 'GPT-4o mini',
-              'context_tokens_estimate': 128000,
-              'supports_file_read': true,
-              'supports_file_write': true,
-            },
-          ],
-        };
+        return {'models': supportedModels};
       case 'WorkbenchFilesList':
         return {'files': files};
       case 'WorkbenchGetScope':
@@ -136,7 +148,7 @@ class _FakeWorkbenchEngine implements EngineApi {
         return {
           'score': 0.1,
           'level': 'Light',
-          'model_id': 'openai/gpt-4o-mini',
+          'model_id': workshopActiveModelId,
           'context_items_weight': clutterContextWarning ? 90000.0 : 0.0,
           'context_share': clutterContextWarning ? 0.4 : 0.0,
           'context_warning': clutterContextWarning,
@@ -158,7 +170,7 @@ class _FakeWorkbenchEngine implements EngineApi {
           'consented': true,
           'scope_hash': 'scope-1',
           'provider_id': 'openai',
-          'model_id': 'openai/gpt-4o-mini',
+          'model_id': workshopActiveModelId,
         };
       case 'WorkshopSendUserMessage':
         return {'message_id': 'u-1'};
@@ -510,6 +522,66 @@ void main() {
 
     await pumpUntilFound(tester, find.byKey(AppKeys.reviewScreen));
   });
+
+  testWidgets(
+    'model dropdown falls back when active model is not in configured providers',
+    (tester) async {
+      await useDesktopSurface(tester);
+      final engine = _FakeWorkbenchEngine(
+        hasDraft: false,
+        draftId: '',
+        messages: const [],
+        reviewChanges: const [],
+        workshopActiveModelId: 'openai/gpt-4o-mini',
+        workshopDefaultModelId: 'openai/gpt-4o-mini',
+        providerStatuses: const [
+          {
+            'provider_id': 'openai',
+            'display_name': 'OpenAI',
+            'enabled': true,
+            'configured': false,
+            'models': ['openai/gpt-4o-mini'],
+          },
+          {
+            'provider_id': 'openai-codex',
+            'display_name': 'OpenAI Codex',
+            'enabled': true,
+            'configured': true,
+            'models': ['openai-codex/gpt-5-codex'],
+          },
+        ],
+        supportedModels: const [
+          {
+            'model_id': 'openai/gpt-4o-mini',
+            'provider_id': 'openai',
+            'display_name': 'GPT-4o mini',
+            'context_tokens_estimate': 128000,
+            'supports_file_read': true,
+            'supports_file_write': true,
+          },
+          {
+            'model_id': 'openai-codex/gpt-5-codex',
+            'provider_id': 'openai-codex',
+            'display_name': 'GPT-5 Codex',
+            'context_tokens_estimate': 200000,
+            'supports_file_read': true,
+            'supports_file_write': true,
+          },
+        ],
+      );
+
+      await tester.pumpWidget(
+        appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final dropdown = tester.widget<DropdownButton<String>>(
+        find.byType(DropdownButton<String>).first,
+      );
+      expect(dropdown.value, 'openai-codex/gpt-5-codex');
+    },
+  );
 
   testWidgets('workbench context action opens context overview', (
     tester,
