@@ -78,6 +78,14 @@ class _FakeWorkbenchEngine implements EngineApi {
   bool hasDraft;
   String draftId;
   String? draftSummary;
+  String? runtimeActiveModelId;
+  String? runtimeDefaultModelId;
+
+  String get effectiveActiveModelId =>
+      runtimeActiveModelId ?? workshopActiveModelId;
+
+  String get effectiveDefaultModelId =>
+      runtimeDefaultModelId ?? workshopDefaultModelId;
 
   @override
   Stream<EngineNotification> get notifications => _notifications.stream;
@@ -116,11 +124,18 @@ class _FakeWorkbenchEngine implements EngineApi {
         };
       case 'WorkshopGetState':
         return {
-          'active_model_id': workshopActiveModelId,
-          'default_model_id': workshopDefaultModelId,
+          'active_model_id': effectiveActiveModelId,
+          'default_model_id': effectiveDefaultModelId,
           'has_draft': hasDraft,
           'pending_proposal_id': '',
         };
+      case 'WorkshopSetActiveModel':
+        final nextModelId = params?['model_id'] as String? ?? '';
+        if (nextModelId.isNotEmpty) {
+          runtimeActiveModelId = nextModelId;
+          runtimeDefaultModelId = nextModelId;
+        }
+        return {};
       case 'ProvidersGetStatus':
         return {'providers': providerStatuses};
       case 'ModelsListSupported':
@@ -148,7 +163,7 @@ class _FakeWorkbenchEngine implements EngineApi {
         return {
           'score': 0.1,
           'level': 'Light',
-          'model_id': workshopActiveModelId,
+          'model_id': effectiveActiveModelId,
           'context_items_weight': clutterContextWarning ? 90000.0 : 0.0,
           'context_share': clutterContextWarning ? 0.4 : 0.0,
           'context_warning': clutterContextWarning,
@@ -166,11 +181,13 @@ class _FakeWorkbenchEngine implements EngineApi {
       case 'ContextGetArtifact':
         return {'files': const [], 'has_direct_edits': false};
       case 'EgressGetConsentStatus':
+        final modelId = effectiveActiveModelId;
+        final providerId = modelId.split('/').first;
         return {
           'consented': true,
           'scope_hash': 'scope-1',
-          'provider_id': 'openai',
-          'model_id': workshopActiveModelId,
+          'provider_id': providerId,
+          'model_id': modelId,
         };
       case 'WorkshopSendUserMessage':
         return {'message_id': 'u-1'};
@@ -524,7 +541,7 @@ void main() {
   });
 
   testWidgets(
-    'model dropdown falls back when active model is not in configured providers',
+    'load reconciles active model and avoids provider-required modal',
     (tester) async {
       await useDesktopSurface(tester);
       final engine = _FakeWorkbenchEngine(
@@ -580,6 +597,19 @@ void main() {
         find.byType(DropdownButton<String>).first,
       );
       expect(dropdown.value, 'openai-codex/gpt-5-codex');
+      expect(engine.callCount('WorkshopSetActiveModel'), 1);
+      expect(
+        engine.lastParams['WorkshopSetActiveModel']?['model_id'],
+        'openai-codex/gpt-5-codex',
+      );
+
+      await tester.enterText(
+        find.byKey(AppKeys.workbenchComposerField),
+        'Hello agent',
+      );
+      await tester.tap(find.byKey(AppKeys.workbenchSendButton));
+      await tester.pumpAndSettle();
+      expect(find.byKey(AppKeys.providerRequiredDialog), findsNothing);
     },
   );
 

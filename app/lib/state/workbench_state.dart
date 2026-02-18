@@ -79,6 +79,7 @@ class WorkbenchState extends ChangeNotifier {
     final modelList = (modelsResponse['models'] as List<dynamic>? ?? [])
         .cast<Map<String, dynamic>>();
     models = modelList.map(ModelInfo.fromJson).toList();
+    await _reconcileActiveModel();
 
     final filesResponse = await engine.call('WorkbenchFilesList', {
       'workbench_id': workbenchId,
@@ -184,6 +185,52 @@ class WorkbenchState extends ChangeNotifier {
       'workbench_id': workbenchId,
     });
     clutter = ClutterState.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<void> _reconcileActiveModel() async {
+    final providerMap = <String, ProviderStatus>{
+      for (final provider in providers) provider.id: provider,
+    };
+    final availableModelMap = <String, ModelInfo>{};
+    for (final model in models) {
+      final provider = providerMap[model.providerId];
+      if (provider == null) {
+        continue;
+      }
+      if (provider.enabled && provider.configured) {
+        availableModelMap.putIfAbsent(model.id, () => model);
+      }
+    }
+    final availableModels = availableModelMap.values.toList();
+    if (availableModels.isEmpty) {
+      return;
+    }
+    final currentActive = activeModelId?.trim() ?? '';
+    final activeStillAvailable = availableModels.any(
+      (model) => model.id == currentActive,
+    );
+    if (activeStillAvailable) {
+      return;
+    }
+    final fallbackModelId = availableModels.first.id;
+    try {
+      await engine.call('WorkshopSetActiveModel', {
+        'workbench_id': workbenchId,
+        'model_id': fallbackModelId,
+      });
+      activeModelId = fallbackModelId;
+      defaultModelId = fallbackModelId;
+      AppLog.info('workbench.active_model_reconciled', {
+        'workbench_id': workbenchId,
+        'model_id': fallbackModelId,
+      });
+    } on EngineError catch (err) {
+      AppLog.warn('workbench.active_model_reconcile_failed', {
+        'workbench_id': workbenchId,
+        'error_code': err.errorCode,
+        'message': err.message,
+      });
+    }
   }
 
   Future<void> loadContextItems({bool notify = true}) async {
