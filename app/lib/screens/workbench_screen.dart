@@ -883,33 +883,24 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
         final providerMap = {
           for (final provider in state.providers) provider.id: provider,
         };
-        final availableModels = state.models.where((model) {
+        final availableModelMap = <String, ModelInfo>{};
+        for (final model in state.models) {
           final provider = providerMap[model.providerId];
           if (provider == null) {
-            return false;
+            continue;
           }
-          return provider.enabled && provider.configured;
-        }).toList();
-        ModelInfo? activeModelInfo;
-        if (state.activeModelId != null) {
-          activeModelInfo = state.models.firstWhere(
-            (model) => model.id == state.activeModelId,
-            orElse: () => availableModels.isNotEmpty
-                ? availableModels.first
-                : state.models.isNotEmpty
-                ? state.models.first
-                : ModelInfo(
-                    id: state.activeModelId ?? '',
-                    providerId: '',
-                    displayName: state.activeModelId ?? '',
-                    contextTokensEstimate: 0,
-                    supportsFileRead: true,
-                    supportsFileWrite: true,
-                  ),
-          );
-        } else if (availableModels.isNotEmpty) {
-          activeModelInfo = availableModels.first;
+          if (provider.enabled && provider.configured) {
+            availableModelMap.putIfAbsent(model.id, () => model);
+          }
         }
+        final availableModels = availableModelMap.values.toList();
+        final selectedModelId =
+            state.activeModelId != null &&
+                availableModels.any((model) => model.id == state.activeModelId)
+            ? state.activeModelId
+            : availableModels.isNotEmpty
+            ? availableModels.first.id
+            : null;
         final scope = state.scope;
         final scopeLimitsText = _buildScopeLimitsText(
           scope,
@@ -936,7 +927,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
-                      value: activeModelInfo?.id ?? availableModels.first.id,
+                      value: selectedModelId,
                       isExpanded: true,
                       items: availableModels
                           .map(
