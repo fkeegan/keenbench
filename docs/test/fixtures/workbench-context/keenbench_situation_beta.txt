@@ -1,0 +1,22 @@
+KeenBench - Situation Context (Fictional QA Data)
+
+QA marker: KEENBENCH_SITUATION_TAG=HNDY-LAUNCH-BETA-9026
+
+You are helping the KeenBench team prepare a launch-ready set of documents.
+
+Situation tag (keep this line exact in the processed context): KEENBENCH_SITUATION_TAG=HNDY-LAUNCH-BETA-9026
+
+Current focus (updated)
+- Deliverable: "KeenBench v0.9 Launch Memo" (internal) plus a short customer-facing brief.
+- Audience: internal team + 3 design partners (adds one Ops-heavy partner that cares about auditability).
+- Deadline: 2026-02-28 (Friday). Still treat as hard.
+
+Constraints
+- Keep claims grounded. If a feature is not shipped, label it as "planned" or "in progress".
+- Emphasize auditability: review diffs, forward-only updates, and consent prompts.
+- Do not invent customer names. If an example customer is needed, use "Design Partner A", "Design Partner B", "Design Partner C".
+- Do not remove or paraphrase the Situation tag line.
+
+Success criteria
+- The memo is scannable (headings + bullets) and can be read in under 5 minutes.
+- The customer brief is 1 page (or equivalent length) and avoids marketing fluff.

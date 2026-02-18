@@ -1,0 +1,6 @@
+Milestone,Owner,Department,Due,Status,Notes
+Context UX polish,Ethan Park,Engineering,2026-02-18,In progress,Improve labels and failure states.
+Direct edit guardrails,Luis Alvarez,Engineering,2026-02-19,Planned,Ensure overwrite warning and draft blocking are clear.
+Design partner check-in,Priya Desai,Sales/Growth,2026-02-20,In progress,Collect feedback on review flow and consent dialog.
+Launch memo draft,Mira Kwon,Ops,2026-02-21,Planned,Write internal memo and customer brief outline.
+Release candidate cut,Ethan Park,Engineering,2026-02-21,Planned,Freeze features and focus on bugfixes.

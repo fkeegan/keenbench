@@ -1,0 +1,4 @@
+interface:
+  display_name: "KeenBench E2E"
+  short_description: "Automated KeenBench integration regression testing"
+  default_prompt: "Use $keenbench-e2e to create or run integration_test regression coverage for selected TC cases in docs/test/test-plan.md."

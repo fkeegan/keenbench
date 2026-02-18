@@ -1,0 +1,28 @@
+KeenBench - Document Style & Formatting (Fictional QA Data)
+
+QA marker: KEENBENCH_DOC_STYLE=V1
+
+These rules apply to KeenBench deliverables (memos, one-pagers, PRDs, customer briefs).
+
+Layout
+- First page: include the KeenBench logo at the top-right with a small margin (use `engine/testdata/office/logo.svg` as the source asset).
+- If the file format cannot embed the SVG, use the text "KEENBENCH" top-right instead.
+- Keep generous whitespace; prefer clean pages over dense walls of text.
+
+Typography
+- Body: Inter (or closest available sans-serif), 14px equivalent.
+- Headings: slightly heavier weight than body.
+- Monospace: JetBrains Mono for code blocks, file paths, and commands.
+
+Color (match the UI style guide)
+- Background: warm off-white (#FDFCFB) where applicable.
+- Text: near-black (#1F1F1F) for primary, warm gray (#6B6560) for secondary.
+- Accent: muted blue (#5B7FC2) for key callouts and link styling.
+- Avoid saturated colors and heavy gradients.
+
+Structure + writing
+- Prefer headings + bullets.
+- Use short paragraphs (2-4 sentences max).
+- Avoid exclamation points, emojis, and salesy language.
+- When giving instructions, use numbered steps.
+

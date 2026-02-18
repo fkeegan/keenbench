@@ -1,0 +1,11 @@
+Staffing meeting notes (Jan 30, 2026)
+Projects:
+- Atlas: customer onboarding revamp (needs PM, backend, design)
+- Beacon: usage analytics refresh (needs analyst, frontend, design)
+Decisions:
+- Alice Kim will lead Atlas as PM.
+- Chloe Nguyen will take backend for Atlas.
+- Bruno Silva will cover Beacon analytics.
+- Elena Rossi will handle Beacon frontend.
+- Diego Patel will support design across both projects (80/20 Beacon/Atlas).
+Open item: QA support is still unassigned.

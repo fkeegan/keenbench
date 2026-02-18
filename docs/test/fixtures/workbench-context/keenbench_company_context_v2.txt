@@ -1,0 +1,33 @@
+KeenBench - Company Context (Fictional QA Data)
+
+QA marker: KEENBENCH_COMPANY_CONTEXT=V2
+
+Company snapshot
+- Name: KeenBench
+- Stage: early-stage startup (4 people, customer discovery + rapid iteration)
+- What we build: KeenBench, a desktop app for assisted analysis and drafting with a strict review/publish workflow.
+- Primary users: people who produce documents from source inputs: operators, analysts, consultants, and product leads.
+
+Positioning update (what changed vs V1)
+- We explicitly target "high-stakes writing": policies, board updates, customer summaries, and internal runbooks.
+- We prioritize consistency: context items are used to keep tone and formatting stable across sessions.
+
+Non-negotiables
+- Edits must land in Draft first; users approve via Review before publishing.
+- Consent is required before sending any workbench content to a model provider.
+
+Values
+- Be precise. Prefer verifiable claims.
+- Be readable. Use simple formatting and avoid jargon.
+- Be honest about uncertainty and limitations.
+
+Preferred writing style for KeenBench deliverables
+- Short sentences. Avoid filler.
+- Use bullets for lists and checklists.
+- When referencing dates, use YYYY-MM-DD (example: 2026-02-13).
+
+Org + departments
+- Engineering: Ethan Park (CTO), Luis Alvarez (Lead Engineer)
+- Ops: Mira Kwon (CEO)
+- Sales/Growth: Mira Kwon (CEO), Priya Desai (Sales Rep)
+

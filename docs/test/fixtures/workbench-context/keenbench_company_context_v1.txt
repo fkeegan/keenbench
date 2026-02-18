@@ -1,0 +1,44 @@
+KeenBench - Company Context (Fictional QA Data)
+
+QA marker: KEENBENCH_COMPANY_CONTEXT=V1
+
+Company snapshot
+- Name: KeenBench
+- Stage: early-stage startup (small team, shipping weekly)
+- What we build: KeenBench, a desktop app that helps people turn messy source material (notes, spreadsheets, PDFs, slide decks) into clean, reviewable deliverables.
+- Primary users: founders, operators, and analysts who write briefs, memos, reports, and internal docs from real inputs.
+
+What "KeenBench" means (use these terms consistently)
+- Workbench: the workspace that holds the current file set, context items, and conversation.
+- Workshop: the chat interface used to request analysis or edits.
+- Draft: the proposed set of file changes produced by the model. It is not published yet.
+- Review: the offline diff/preview UI where the user decides what to publish.
+- Publish / Published: applying Draft changes to the published workspace state.
+
+Positioning (how we describe the product)
+- "Document work, with guardrails": model-assisted editing, but changes are always reviewable before publish.
+- Egress consent is explicit: users must consent before any workbench content is sent to a model provider.
+- We optimize for reliable workflows over flashy demos.
+
+Audience + constraints
+- Assume the user is busy and wants outcomes fast.
+- When writing guidance, be practical and step-by-step.
+- Avoid hype, vague claims, and marketing language.
+
+Values (how we communicate)
+- Accuracy over confidence. If something is unknown, say so and propose a way to verify.
+- Clarity over cleverness. Use plain language, short sections, and concrete examples.
+- Safety and consent by default. Never suggest bypassing review/publish guardrails.
+
+Preferred writing style for KeenBench deliverables
+- Tone: calm, direct, specific.
+- Structure: headings + short paragraphs + bullets.
+- Numbers: use concrete dates and measurable targets when available.
+- Formatting: use monospace for file paths, code, and commands.
+
+Known org details (for context)
+- CEO: Mira Kwon (Ops; also leads Sales/Growth)
+- CTO: Ethan Park (Engineering)
+- Sales Rep: Priya Desai (Sales/Growth)
+- Lead Engineer: Luis Alvarez (Engineering)
+

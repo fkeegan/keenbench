@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=@APP_DISPLAY_NAME@
+Comment=KeenBench desktop app
+Exec=@BINARY_NAME@
+Icon=@APP_ICON_NAME@
+Terminal=false
+Categories=Office;Productivity;
+StartupNotify=true
+StartupWMClass=@APPLICATION_ID@

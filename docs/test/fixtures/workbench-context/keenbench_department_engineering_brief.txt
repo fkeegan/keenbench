@@ -1,0 +1,27 @@
+KeenBench - Department Context: Engineering (Fictional QA Data)
+
+QA marker: KEENBENCH_DEPARTMENT=ENGINEERING
+
+Department mission
+- Ship KeenBench safely and predictably.
+- Prefer small, reviewable changes over big-bang rewrites.
+
+Team + roles
+- Ethan Park (CTO): technical direction, architecture, prioritization.
+- Luis Alvarez (Lead Engineer): implementation, code review, release readiness.
+
+Ways of working
+- Release cadence: weekly.
+- Definition of done: tests updated, docs updated, no regressions in Draft/Review/Publish flow.
+- Safety: consent required before any egress; review/diff must be offline.
+
+Tooling + terms
+- Primary languages: Go (engine), Flutter (app), Python (tool worker).
+- Key UI terms: Workbench, Workshop, Draft, Review, Publish.
+- Avoid ambiguous terms like "final" when Draft exists; say "Draft" vs "Published".
+
+Writing preferences (for engineering docs)
+- Be explicit about constraints, edge cases, and failure modes.
+- Use numbered steps for runbooks.
+- Use monospace for file paths and commands.
+

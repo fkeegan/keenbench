@@ -1,0 +1,4 @@
+interface:
+  display_name: "KeenBench AI Manual"
+  short_description: "AI-manual system tests via Flutter MCP Driver"
+  default_prompt: "Use $keenbench-ai-manual to execute selected TC cases from docs/test/test-plan.md with widget-tree, screenshot, and engine-log evidence."

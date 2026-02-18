@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  format-check:
+    name: format-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Check Go formatting
+        run: |
+          cd engine
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "These files need gofmt:" >&2
+            echo "$UNFORMATTED" >&2
+            exit 1
+          fi
+
+      - name: Check Dart formatting
+        run: |
+          cd app
+          dart format --set-exit-if-changed .
+
+  go-test:
+    name: go-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+
+      - name: Run Go tests with coverage
+        run: |
+          cd engine
+          go test ./... -coverprofile=coverage.out
+
+      - name: Enforce coverage floor (>=50%)
+        run: |
+          cd engine
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')
+          echo "Total coverage: ${COVERAGE}%"
+          awk -v c="$COVERAGE" 'BEGIN { if ((c + 0) < 50.0) { printf("Coverage %.2f%% is below required 50%%\n", c); exit 1 } }'
+
+  flutter-test:
+    name: flutter-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Flutter dependencies
+        run: |
+          cd app
+          flutter pub get
+
+      - name: Run Flutter tests
+        run: |
+          cd app
+          flutter test

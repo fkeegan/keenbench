@@ -1,0 +1,12 @@
+KeenBench - Weekly Ops Notes (Fictional QA Data)
+Week of 2026-02-10
+
+Updates
+- Engineering: context processing flow is stable in most runs; occasionally retries are needed.
+- Sales/Growth: 2 design partners are active; 1 more in pipeline.
+- Ops: tighten egress-consent messaging to reduce surprises for first-time users.
+
+Open questions
+- What is the shortest onboarding path that still teaches Draft -> Review -> Publish?
+- Which document style rules should be defaults vs user-provided context?
+

@@ -1,0 +1,9 @@
+KeenBench includes third-party font assets under the SIL Open Font License 1.1.
+
+- Inter (The Inter Project Authors)
+  License file: app/assets/fonts/Inter-LICENSE.txt
+  Upstream: https://github.com/rsms/inter
+
+- JetBrains Mono (The JetBrains Mono Project Authors)
+  License file: app/assets/fonts/JetBrainsMono-OFL.txt
+  Upstream: https://github.com/JetBrains/JetBrainsMono

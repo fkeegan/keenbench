@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g stroke="#0B0F19" stroke-width="56" stroke-linecap="round" stroke-linejoin="round">
+    <!-- File icons (cardinal points) -->
+    <!-- Base file points North; rotated copies point E/S/W -->
+    <g>
+      <path d="M402 112H562L622 172V392H402V112Z"/>
+      <path d="M562 112V172H622"/>
+    </g>
+    <g transform="rotate(90 512 512)">
+      <path d="M402 112H562L622 172V392H402V112Z"/>
+      <path d="M562 112V172H622"/>
+    </g>
+    <g transform="rotate(180 512 512)">
+      <path d="M402 112H562L622 172V392H402V112Z"/>
+      <path d="M562 112V172H622"/>
+    </g>
+    <g transform="rotate(270 512 512)">
+      <path d="M402 112H562L622 172V392H402V112Z"/>
+      <path d="M562 112V172H622"/>
+    </g>
+
+    <!-- 4-point "AI" star (sparkle) -->
+    <path d="M512 362L562 462L662 512L562 562L512 662L462 562L362 512L462 462Z"/>
+  </g>
+</svg>

@@ -1,0 +1,14 @@
+# Prompt doc
+docs/prompt.md
+.DS_Store
+.env
+artifacts/
+dist/
+engine/tools/pyworker/.venv/
+engine/tools/pyworker/__pycache__/
+engine/tools/pyworker/build/
+engine/tools/pyworker/dist/
+engine/tools/pyworker/.packaging/
+engine/tools/pyworker/*.spec
+engine/bin/*
+engine/coverage.out
