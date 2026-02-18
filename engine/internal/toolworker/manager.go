@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -435,13 +436,43 @@ func resolveWorkerCommand() (string, []string, error) {
 	}
 
 	if exe, err := os.Executable(); err == nil {
-		candidate := filepath.Clean(filepath.Join(filepath.Dir(exe), "..", "tools", "pyworker", "worker.py"))
+		dir := filepath.Dir(exe)
+		// Universal2 packages ship arch-specific binaries (e.g. keenbench-tool-worker-x86_64).
+		// lipo cannot be used for PyInstaller --onefile binaries because each slice embeds its
+		// own arch-specific Python runtime archive; merging the launchers leaves the wrong archive
+		// in each slice. Ship separate binaries and select via runtime.GOARCH instead.
+		if suffix := goarchToWorkerSuffix(runtime.GOARCH); suffix != "" {
+			candidate := filepath.Join(dir, "keenbench-tool-worker-"+suffix)
+			if _, err := os.Stat(candidate); err == nil {
+				return commandForPath(candidate)
+			}
+		}
+		// Native (non-universal) packages ship a plain keenbench-tool-worker binary.
+		candidate := filepath.Join(dir, "keenbench-tool-worker")
+		if _, err := os.Stat(candidate); err == nil {
+			return commandForPath(candidate)
+		}
+		// Dev-mode fallback: worker.py one directory up from the engine binary.
+		candidate = filepath.Clean(filepath.Join(dir, "..", "tools", "pyworker", "worker.py"))
 		if _, err := os.Stat(candidate); err == nil {
 			return commandForPath(candidate)
 		}
 	}
 
 	return "", nil, errors.New("tool worker not found")
+}
+
+// goarchToWorkerSuffix maps Go's GOARCH value to the suffix used when naming
+// arch-specific tool worker binaries (e.g. "keenbench-tool-worker-x86_64").
+func goarchToWorkerSuffix(arch string) string {
+	switch arch {
+	case "arm64":
+		return "arm64"
+	case "amd64":
+		return "x86_64"
+	default:
+		return ""
+	}
 }
 
 func commandForPath(path string) (string, []string, error) {

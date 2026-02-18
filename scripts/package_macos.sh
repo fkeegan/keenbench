@@ -121,6 +121,8 @@ if parse_bool "${KEENBENCH_MACOS_UNIVERSAL:-}"; then
 fi
 
 TOOL_WORKER_BIN_SRC="$DIST_ROOT/keenbench-tool-worker"
+TOOL_WORKER_ARM64_SRC="$DIST_ROOT/keenbench-tool-worker-arm64"
+TOOL_WORKER_X86_64_SRC="$DIST_ROOT/keenbench-tool-worker-x86_64"
 
 build_engine
 build_flutter_app
@@ -144,12 +146,19 @@ if [[ ! -x "$ENGINE_BIN_SRC" ]]; then
   echo "ERROR: engine binary not found or not executable: $ENGINE_BIN_SRC" >&2
   exit 1
 fi
-if [[ ! -x "$TOOL_WORKER_BIN_SRC" ]]; then
-  echo "ERROR: tool worker binary not found or not executable: $TOOL_WORKER_BIN_SRC" >&2
-  exit 1
-fi
 
 if parse_bool "${KEENBENCH_MACOS_UNIVERSAL:-}"; then
+  # Universal2 packages ship two arch-specific tool worker binaries.
+  # PyInstaller --onefile binaries cannot be lipo-merged: the embedded Python runtime
+  # archive is arch-specific and the wrong archive would be extracted on the other arch.
+  if [[ ! -x "$TOOL_WORKER_ARM64_SRC" ]]; then
+    echo "ERROR: arm64 tool worker not found or not executable: $TOOL_WORKER_ARM64_SRC" >&2
+    exit 1
+  fi
+  if [[ ! -x "$TOOL_WORKER_X86_64_SRC" ]]; then
+    echo "ERROR: x86_64 tool worker not found or not executable: $TOOL_WORKER_X86_64_SRC" >&2
+    exit 1
+  fi
   app_exec="$APP_DST/Contents/MacOS/app"
   if [[ ! -f "$app_exec" ]]; then
     app_exec="$(find "$APP_DST/Contents/MacOS" -maxdepth 1 -type f -print | head -n 1 || true)"
@@ -159,13 +168,22 @@ if parse_bool "${KEENBENCH_MACOS_UNIVERSAL:-}"; then
     exit 1
   fi
   assert_universal2 "$ENGINE_BIN_SRC"
-  assert_universal2 "$TOOL_WORKER_BIN_SRC"
   assert_universal2 "$app_exec"
-fi
 
-echo "Bundling engine + tool worker into .app..."
-install -m 0755 "$ENGINE_BIN_SRC" "$APP_DST/Contents/MacOS/keenbench-engine"
-install -m 0755 "$TOOL_WORKER_BIN_SRC" "$APP_DST/Contents/MacOS/keenbench-tool-worker"
+  echo "Bundling engine + tool worker (arm64 + x86_64) into .app..."
+  install -m 0755 "$ENGINE_BIN_SRC" "$APP_DST/Contents/MacOS/keenbench-engine"
+  install -m 0755 "$TOOL_WORKER_ARM64_SRC" "$APP_DST/Contents/MacOS/keenbench-tool-worker-arm64"
+  install -m 0755 "$TOOL_WORKER_X86_64_SRC" "$APP_DST/Contents/MacOS/keenbench-tool-worker-x86_64"
+else
+  if [[ ! -x "$TOOL_WORKER_BIN_SRC" ]]; then
+    echo "ERROR: tool worker binary not found or not executable: $TOOL_WORKER_BIN_SRC" >&2
+    exit 1
+  fi
+
+  echo "Bundling engine + tool worker into .app..."
+  install -m 0755 "$ENGINE_BIN_SRC" "$APP_DST/Contents/MacOS/keenbench-engine"
+  install -m 0755 "$TOOL_WORKER_BIN_SRC" "$APP_DST/Contents/MacOS/keenbench-tool-worker"
+fi
 
 if [[ -n "${KEENBENCH_CODESIGN_IDENTITY:-}" ]]; then
   IDENTITY="$KEENBENCH_CODESIGN_IDENTITY"

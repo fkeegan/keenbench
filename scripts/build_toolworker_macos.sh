@@ -103,19 +103,14 @@ case "$TARGET" in
     final_out="$OUT_DIR/keenbench-tool-worker-amd64"
     ;;
   universal2)
-    if ! command -v lipo >/dev/null 2>&1; then
-      echo "ERROR: lipo not found (required for universal2 tool worker)" >&2
-      exit 1
-    fi
+    # PyInstaller --onefile binaries cannot be merged with lipo: the outer launcher is a
+    # thin Mach-O wrapper but each slice embeds its own arch-specific Python runtime archive.
+    # After lipo the x86_64 launcher ends up extracting the arm64 archive and fails to load
+    # the Python shared library on Intel hardware.  Ship two separate arch-specific binaries
+    # and let the engine select the correct one via runtime.GOARCH at startup.
     build_one "arm64" "$OUT_DIR/keenbench-tool-worker-arm64"
-    build_one "x86_64" "$OUT_DIR/keenbench-tool-worker-amd64"
-    rm -f "$OUT_DIR/keenbench-tool-worker"
-    lipo -create \
-      -output "$OUT_DIR/keenbench-tool-worker" \
-      "$OUT_DIR/keenbench-tool-worker-arm64" \
-      "$OUT_DIR/keenbench-tool-worker-amd64"
-    chmod +x "$OUT_DIR/keenbench-tool-worker"
-    final_out="$OUT_DIR/keenbench-tool-worker"
+    build_one "x86_64" "$OUT_DIR/keenbench-tool-worker-x86_64"
+    final_out="$OUT_DIR/keenbench-tool-worker-arm64 $OUT_DIR/keenbench-tool-worker-x86_64"
     ;;
   *)
     echo "ERROR: unknown target '$TARGET' (expected native|arm64|x86_64|universal2)" >&2
