@@ -274,6 +274,20 @@ func TestRPIOrchestratorFullCycle(t *testing.T) {
 	if conversation[0].Role != "user" || conversation[1].Role != "assistant" {
 		t.Fatalf("unexpected conversation roles: %#v", conversation)
 	}
+	if conversation[1].Metadata == nil {
+		t.Fatalf("expected summary metadata")
+	}
+	elapsedRaw, ok := conversation[1].Metadata["job_elapsed_ms"]
+	if !ok {
+		t.Fatalf("expected job_elapsed_ms metadata, got %v", conversation[1].Metadata)
+	}
+	elapsedMS, ok := elapsedRaw.(float64)
+	if !ok {
+		t.Fatalf("expected numeric job_elapsed_ms, got %T", elapsedRaw)
+	}
+	if elapsedMS < 0 {
+		t.Fatalf("expected non-negative job_elapsed_ms, got %v", elapsedMS)
+	}
 
 	phaseStarts := map[string]bool{}
 	phaseCompletes := map[string]bool{}
@@ -536,11 +550,27 @@ func TestRPIOrchestratorNewMessageClearsState(t *testing.T) {
 	eng, workbenchID, messageID, _ := setupRPIWorkflowRun(t, client, "First run")
 	ctx := context.Background()
 
-	if _, errInfo := eng.WorkshopRunAgent(ctx, mustJSON(t, map[string]any{
+	runResp, errInfo := eng.WorkshopRunAgent(ctx, mustJSON(t, map[string]any{
 		"workbench_id": workbenchID,
 		"message_id":   messageID,
-	})); errInfo != nil {
+	}))
+	if errInfo != nil {
 		t.Fatalf("run agent: %v", errInfo)
+	}
+	if runResp.(map[string]any)["has_draft"] != false {
+		t.Fatalf("expected has_draft=false for no-op run, got %v", runResp.(map[string]any)["has_draft"])
+	}
+	conversation, err := eng.readConversation(workbenchID)
+	if err != nil {
+		t.Fatalf("read conversation: %v", err)
+	}
+	if len(conversation) != 2 || conversation[1].Role != "assistant" {
+		t.Fatalf("expected user + summary assistant, got %#v", conversation)
+	}
+	if conversation[1].Metadata != nil {
+		if _, ok := conversation[1].Metadata["job_elapsed_ms"]; ok {
+			t.Fatalf("did not expect job_elapsed_ms metadata for no-draft run")
+		}
 	}
 	state := eng.readRPIState(workbenchID)
 	if !state.HasResearch || !state.HasPlan {
@@ -558,7 +588,7 @@ func TestRPIOrchestratorNewMessageClearsState(t *testing.T) {
 		t.Fatalf("expected RPI state cleared after new user message, got %#v", state)
 	}
 
-	_, err := os.Stat(filepath.Join(eng.rpiDir(workbenchID), rpiPlanFile))
+	_, err = os.Stat(filepath.Join(eng.rpiDir(workbenchID), rpiPlanFile))
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected plan artifact cleared, stat err=%v", err)
 	}

@@ -2291,6 +2291,18 @@ class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
+    final footerMetadata = <String>[];
+    final timestampLabel = _formatEventTimestamp(widget.message.createdAt);
+    if (timestampLabel.isNotEmpty) {
+      footerMetadata.add(timestampLabel);
+    }
+    final elapsedLabel = _formatElapsedLabel(widget.message.jobElapsedMs);
+    if (elapsedLabel != null) {
+      footerMetadata.add(elapsedLabel);
+    }
+    final footerText = footerMetadata.isEmpty
+        ? null
+        : footerMetadata.join(' · ');
     final bubbleColor = widget.isUser
         ? KeenBenchTheme.colorInfoBackground
         : KeenBenchTheme.colorSurfaceSubtle;
@@ -2328,12 +2340,12 @@ class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
                         ),
                 ),
               ),
-              if (widget.message.createdAt.isNotEmpty)
+              if (footerText != null)
                 Positioned(
                   left: 8,
                   bottom: 6,
                   child: Text(
-                    _formatEventTimestamp(widget.message.createdAt),
+                    footerText,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: KeenBenchTheme.colorTextSecondary,
                     ),
@@ -2676,6 +2688,23 @@ String _formatEventTimestamp(String value) {
   final time =
       '${twoDigits(local.hour)}:${twoDigits(local.minute)}:${twoDigits(local.second)}';
   return '$date $time';
+}
+
+String? _formatElapsedLabel(int? elapsedMs) {
+  if (elapsedMs == null || elapsedMs < 0) {
+    return null;
+  }
+  final totalSeconds = elapsedMs ~/ 1000;
+  if (totalSeconds < 60) {
+    return 'Elapsed: ${totalSeconds}s';
+  }
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return 'Elapsed: ${hours}h ${minutes}m ${seconds}s';
+  }
+  return 'Elapsed: ${minutes}m ${seconds}s';
 }
 
 String? _phaseStatusLabel(WorkbenchState state) {

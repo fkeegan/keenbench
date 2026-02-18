@@ -407,6 +407,7 @@ class WorkbenchState extends ChangeNotifier {
           'workbench_id': workbenchId,
           'message_id': messageId,
         });
+        await refreshConversation();
         if (agentResponse['has_draft'] == true) {
           hasDraft = true;
           await refreshDraftState();

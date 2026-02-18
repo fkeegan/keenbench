@@ -1072,6 +1072,7 @@ class ChatMessage {
   String? get checkpointReason => _eventString('reason');
   String? get checkpointDescription => _eventString('description');
   String? get checkpointCreatedAt => _eventString('created_at') ?? createdAt;
+  int? get jobElapsedMs => _eventInt('job_elapsed_ms');
 
   bool get isPublishCheckpointEvent {
     final reason = checkpointReason?.toLowerCase();
@@ -1100,6 +1101,24 @@ class ChatMessage {
     }
     final text = value.toString().trim();
     return text.isEmpty ? null : text;
+  }
+
+  int? _eventInt(String key) {
+    final value = event?[key];
+    if (value == null) {
+      return null;
+    }
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    final text = value.toString().trim();
+    if (text.isEmpty) {
+      return null;
+    }
+    return int.tryParse(text);
   }
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {

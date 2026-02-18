@@ -1439,6 +1439,46 @@ void main() {
     },
   );
 
+  testWidgets('assistant message footer shows elapsed metadata label', (
+    tester,
+  ) async {
+    await useDesktopSurface(tester);
+    final createdAt = '2026-02-05T10:00:05Z';
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      reviewChanges: const [],
+      messages: [
+        {
+          'message_id': 'u-1',
+          'role': 'user',
+          'text': 'Please summarize this.',
+          'created_at': '2026-02-05T10:00:00Z',
+        },
+        {
+          'message_id': 'a-1',
+          'role': 'assistant',
+          'text': 'Here is a summary.',
+          'created_at': createdAt,
+          'metadata': {'job_elapsed_ms': 102000},
+        },
+      ],
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    final createdLocal = DateTime.parse(createdAt).toLocal();
+    final twoDigits = (int n) => n.toString().padLeft(2, '0');
+    final expectedTimestamp =
+        '${createdLocal.year}-${twoDigits(createdLocal.month)}-${twoDigits(createdLocal.day)} '
+        '${twoDigits(createdLocal.hour)}:${twoDigits(createdLocal.minute)}:${twoDigits(createdLocal.second)}';
+
+    expect(find.textContaining(expectedTimestamp), findsOneWidget);
+    expect(find.textContaining('Elapsed: 1m 42s'), findsOneWidget);
+  });
+
   testWidgets('message regenerate action calls WorkshopRegenerate', (
     tester,
   ) async {

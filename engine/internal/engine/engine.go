@@ -2266,6 +2266,10 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if err := e.ensureConsent(req.WorkbenchID); err != nil {
 		return nil, err
 	}
+	runStartedAt := time.Now()
+	if e.now != nil {
+		runStartedAt = e.now()
+	}
 
 	apiKey, errInfo := e.providerKey(ctx, model.ProviderID)
 	if errInfo != nil {
@@ -2354,6 +2358,19 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	hasDraft := false
 	if ds, _ := e.workbenches.DraftState(req.WorkbenchID); ds != nil {
 		hasDraft = true
+		now := time.Now()
+		if e.now != nil {
+			now = e.now()
+		}
+		elapsedMS := now.Sub(runStartedAt).Milliseconds()
+		if elapsedMS < 0 {
+			elapsedMS = 0
+		}
+		if err := e.updateConversationMetadata(req.WorkbenchID, assistantID, map[string]any{
+			"job_elapsed_ms": elapsedMS,
+		}); err != nil {
+			return nil, errinfo.FileWriteFailed(errinfo.PhaseWorkshop, err.Error())
+		}
 		e.notifyDraftState(req.WorkbenchID, ds)
 		if strings.TrimSpace(summaryText) != "" {
 			if err := e.writeDraftSummary(req.WorkbenchID, ds.DraftID, strings.TrimSpace(summaryText)); err != nil {
@@ -5832,6 +5849,28 @@ func (e *Engine) writeConversation(workbenchID string, entries []conversationMes
 	}
 	e.emitClutterChanged(workbenchID)
 	return nil
+}
+
+func (e *Engine) updateConversationMetadata(workbenchID, messageID string, metadata map[string]any) error {
+	msgID := strings.TrimSpace(messageID)
+	if msgID == "" || len(metadata) == 0 {
+		return nil
+	}
+	entries, err := e.readConversation(workbenchID)
+	if err != nil {
+		return err
+	}
+	idx := findConversationMessageIndex(entries, msgID)
+	if idx < 0 {
+		return fmt.Errorf("message %q not found in conversation", msgID)
+	}
+	if entries[idx].Metadata == nil {
+		entries[idx].Metadata = map[string]any{}
+	}
+	for key, value := range metadata {
+		entries[idx].Metadata[key] = value
+	}
+	return e.writeConversation(workbenchID, entries)
 }
 
 func (e *Engine) appendCheckpointConversationEvent(workbenchID string, entry conversationMessage) {
