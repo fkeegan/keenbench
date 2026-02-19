@@ -3,7 +3,7 @@
 ## Summary
 This plan adds OpenAI subscription authentication to KeenBench alongside existing API-key auth.
 
-The first implementation uses a separate provider namespace, `openai-codex`, and keeps API-key OpenAI (`openai`) unchanged. OAuth is surfaced in the Settings "Model Providers" area with browser-based PKCE auth and manual redirect paste fallback.
+The first implementation uses a separate provider namespace, `openai-codex`, and keeps API-key OpenAI (`openai`) unchanged. OAuth is surfaced in the Settings "Model Providers" area with browser-based PKCE auth and automatic localhost callback capture. Manual redirect paste remains as fallback when callback capture is unavailable or times out.
 
 ## Scope
 - Add engine support for `openai-codex` provider and model `openai-codex:gpt-5.3-codex`.
@@ -19,7 +19,7 @@ The first implementation uses a separate provider namespace, `openai-codex`, and
 ### Engine RPC
 - `ProvidersOAuthStart({provider_id}) -> {provider_id, flow_id, authorize_url, status, expires_at, callback_listening}`
 - `ProvidersOAuthStatus({provider_id, flow_id}) -> {provider_id, flow_id, status, expires_at, authorize_url, code_captured?, error?}`
-- `ProvidersOAuthComplete({provider_id, flow_id, redirect_url}) -> {provider_id, oauth_connected, oauth_account_label, oauth_expires_at}`
+- `ProvidersOAuthComplete({provider_id, flow_id, redirect_url?}) -> {provider_id, oauth_connected, oauth_account_label, oauth_expires_at}`
 - `ProvidersOAuthDisconnect({provider_id}) -> {}`
 
 ### Existing RPC Extension
@@ -72,7 +72,10 @@ Store OpenAI Codex OAuth credentials in encrypted secrets:
 - OAuth providers render:
   - connection status text
   - optional account/expiry hint
-  - connect button (`ProvidersOAuthStart` + browser launch + manual redirect dialog + `ProvidersOAuthComplete`)
+  - connect button:
+    - start flow (`ProvidersOAuthStart`) and open browser
+    - when `callback_listening=true`, poll `ProvidersOAuthStatus` and auto-complete with `ProvidersOAuthComplete` (no `redirect_url` required)
+    - when callback capture is unavailable, fails, or times out, show manual redirect dialog fallback and complete with `redirect_url`
   - disconnect button (`ProvidersOAuthDisconnect`)
 
 ## Test Plan
@@ -100,17 +103,19 @@ Store OpenAI Codex OAuth credentials in encrypted secrets:
 ### Flutter
 - `app/test/settings_screen_test.dart`
   - OAuth provider card disconnected render
-  - connect flow calls start then complete
+  - connect flow auto-completes from callback status polling
+  - callback-unavailable and timeout fallback paths call complete with manual `redirect_url`
+  - connect cancel path does not complete
   - disconnect flow calls disconnect RPC
   - OpenAI API-key controls still render and save/validate
 
 ## Acceptance Criteria
 - OpenAI API-key path still works with no behavior change.
-- OpenAI Codex OAuth provider can connect, report status, disconnect, and be treated as configured.
+- OpenAI Codex OAuth provider can connect without manual paste in the normal path, report status, disconnect, and be treated as configured.
 - Engine test suite passes with total coverage above 50%.
 - Flutter unit test suite passes, including new settings OAuth tests.
 
 ## Assumptions
 - OpenAI Codex OAuth endpoints and client id are stable.
-- Desktop runtime has a best-effort browser opener; manual redirect paste always remains available.
+- Desktop runtime has a best-effort browser opener; manual redirect paste remains fallback-only for callback failures.
 - OAuth account label may be absent; when present it is derived from token claims.
