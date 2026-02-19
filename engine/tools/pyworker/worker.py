@@ -1697,6 +1697,28 @@ def _xlsx_sanitize_value(value):
     return value
 
 
+def _xlsx_get_or_create_sheet(
+    wb: Any,
+    sheet_name: Any,
+    *,
+    reuse_single_empty_default: bool = False,
+) -> Any:
+    normalized = str(sheet_name or "").strip()
+    if not normalized:
+        raise WorkerError("VALIDATION_FAILED", "missing sheet")
+    if normalized in wb.sheetnames:
+        return wb[normalized]
+    if reuse_single_empty_default and len(wb.sheetnames) == 1:
+        default_ws = wb[wb.sheetnames[0]]
+        if not _xlsx_sheet_has_data(default_ws):
+            try:
+                default_ws.title = normalized
+                return default_ws
+            except Exception:
+                pass
+    return wb.create_sheet(normalized)
+
+
 def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
     openpyxl = import_module("openpyxl")
     from openpyxl.utils import get_column_letter
@@ -1707,6 +1729,7 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
     ops = params.get("ops") or []
     create_new = params.get("create_new", False)
     copy_from = params.get("copy_from")
+    reuse_single_empty_default = False
 
     if not isinstance(ops, list) or len(ops) == 0:
         raise WorkerError("VALIDATION_FAILED", "missing ops")
@@ -1724,11 +1747,13 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
             log_info("xlsx.copy_from", source=copy_from, target=path)
         else:
             wb = openpyxl.Workbook()
+            reuse_single_empty_default = True
             log_info("xlsx.create_new", target=path)
     elif os.path.exists(path):
         wb = openpyxl.load_workbook(path)
     else:
         wb = openpyxl.Workbook()
+        reuse_single_empty_default = True
 
     def find_merged_anchor(ws, row: int, col: int) -> Optional[Tuple[int, int, str]]:
         for cell_range in ws.merged_cells.ranges:
@@ -1778,17 +1803,18 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
         name = op.get("op")
         if name == "ensure_sheet":
             sheet_name = op.get("sheet")
-            if not sheet_name:
-                raise WorkerError("VALIDATION_FAILED", "missing sheet")
-            if sheet_name not in wb.sheetnames:
-                wb.create_sheet(sheet_name)
+            _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
         elif name == "set_cells":
             sheet_name = op.get("sheet")
-            if not sheet_name:
-                raise WorkerError("VALIDATION_FAILED", "missing sheet")
-            if sheet_name not in wb.sheetnames:
-                wb.create_sheet(sheet_name)
-            ws = wb[sheet_name]
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
             seen_merges: set = set()
             for cell in op.get("cells") or []:
                 ref = cell.get("cell") if isinstance(cell, dict) else None
@@ -1813,9 +1839,11 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
             style = op.get("style")
             if not sheet_name or not start:
                 raise WorkerError("VALIDATION_FAILED", "missing sheet/start")
-            if sheet_name not in wb.sheetnames:
-                wb.create_sheet(sheet_name)
-            ws = wb[sheet_name]
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
             col_letter, row_idx = coordinate_from_string(start)
             base_col = column_index_from_string(col_letter)
             base_row = row_idx
@@ -1838,9 +1866,11 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
                 raise WorkerError("VALIDATION_FAILED", "missing sheet")
             if not isinstance(columns, list):
                 raise WorkerError("VALIDATION_FAILED", "columns must be list")
-            if sheet_name not in wb.sheetnames:
-                wb.create_sheet(sheet_name)
-            ws = wb[sheet_name]
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
             for idx, entry in enumerate(columns):
                 if not isinstance(entry, dict):
                     _style_warn(
@@ -1886,9 +1916,11 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
                 raise WorkerError("VALIDATION_FAILED", "missing sheet")
             if not isinstance(rows, list):
                 raise WorkerError("VALIDATION_FAILED", "rows must be list")
-            if sheet_name not in wb.sheetnames:
-                wb.create_sheet(sheet_name)
-            ws = wb[sheet_name]
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
             for idx, entry in enumerate(rows):
                 if not isinstance(entry, dict):
                     _style_warn(
@@ -1929,11 +1961,11 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
                 ws.row_dimensions[row_index].height = height
         elif name == "freeze_panes":
             sheet_name = op.get("sheet")
-            if not sheet_name:
-                raise WorkerError("VALIDATION_FAILED", "missing sheet")
-            if sheet_name not in wb.sheetnames:
-                wb.create_sheet(sheet_name)
-            ws = wb[sheet_name]
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
             row = _coerce_int(op.get("row", 0), None)
             column = _coerce_int(op.get("column", 0), None)
             if row is None or row < 0:
@@ -1967,9 +1999,11 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
             amount_col_idx = parse_column_index(op.get("amount_col"), "C")
             category_header = str(op.get("category_header") or "Category")
 
-            if target_sheet_name not in wb.sheetnames:
-                wb.create_sheet(target_sheet_name)
-            ws = wb[target_sheet_name]
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                target_sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
             if ws.max_row > 0:
                 ws.delete_rows(1, ws.max_row)
 
@@ -2438,7 +2472,8 @@ def xlsx_copy_assets(params: Dict[str, Any]) -> Dict[str, Any]:
     assets = _parse_asset_list(params)
 
     src_wb = openpyxl.load_workbook(source_path)
-    dst_wb = openpyxl.load_workbook(target_path) if os.path.exists(target_path) else openpyxl.Workbook()
+    target_exists = os.path.exists(target_path)
+    dst_wb = openpyxl.load_workbook(target_path) if target_exists else openpyxl.Workbook()
 
     copied: List[Dict[str, Any]] = []
     normalized_assets = [_xlsx_parse_asset(asset) for asset in assets]
@@ -2451,7 +2486,12 @@ def xlsx_copy_assets(params: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if kind == "number_format":
             code = item["number_format"]
-            targets = _xlsx_resolve_target_cells(dst_wb, item, range_boundaries)
+            targets = _xlsx_resolve_target_cells(
+                dst_wb,
+                item,
+                range_boundaries,
+                reuse_single_empty_default=not target_exists,
+            )
             if len(targets) == 0:
                 raise WorkerError("VALIDATION_FAILED", "number_format asset requires target cell or range")
             for cell in targets:
@@ -2465,7 +2505,12 @@ def xlsx_copy_assets(params: Dict[str, Any]) -> Dict[str, Any]:
                 raise WorkerError("VALIDATION_FAILED", f"unknown source sheet: {src_sheet}")
             src_ws = src_wb[src_sheet]
             source_cell = src_ws[src_cell]
-            targets = _xlsx_resolve_target_cells(dst_wb, item, range_boundaries)
+            targets = _xlsx_resolve_target_cells(
+                dst_wb,
+                item,
+                range_boundaries,
+                reuse_single_empty_default=not target_exists,
+            )
             if len(targets) == 0:
                 raise WorkerError("VALIDATION_FAILED", "cell_style asset requires target cell or range")
             _xlsx_copy_style_to_cells(source_cell, targets, src_wb, dst_wb)
@@ -2618,13 +2663,21 @@ def _xlsx_copy_named_style(src_wb, dst_wb, style_name: str) -> None:
         pass
 
 
-def _xlsx_resolve_target_cells(dst_wb, item: Dict[str, Any], range_boundaries) -> List[Any]:
+def _xlsx_resolve_target_cells(
+    dst_wb,
+    item: Dict[str, Any],
+    range_boundaries,
+    *,
+    reuse_single_empty_default: bool = False,
+) -> List[Any]:
     target_sheet = str(item.get("target_sheet") or "").strip()
     if not target_sheet:
         raise WorkerError("VALIDATION_FAILED", "missing target_sheet")
-    if target_sheet not in dst_wb.sheetnames:
-        dst_wb.create_sheet(target_sheet)
-    ws = dst_wb[target_sheet]
+    ws = _xlsx_get_or_create_sheet(
+        dst_wb,
+        target_sheet,
+        reuse_single_empty_default=reuse_single_empty_default,
+    )
 
     target_range = str(item.get("target_range") or "").strip()
     target_cell = str(item.get("target_cell") or "").strip()

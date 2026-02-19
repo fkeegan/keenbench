@@ -316,6 +316,280 @@ wb.save(sys.argv[1])
 	}
 }
 
+func TestWorkerXlsxApplyOpsNewWorkbookReusesDefaultSheet(t *testing.T) {
+	python := requirePython(t)
+	if !hasPythonModule(python, "openpyxl") {
+		t.Skip("openpyxl not available")
+	}
+
+	root := t.TempDir()
+	workbenches := filepath.Join(root, "workbenches")
+	if err := os.MkdirAll(workbenches, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	wbID := "wb-xlsx-apply-reuse-default"
+	draftDir := filepath.Join(workbenches, wbID, "draft")
+	if err := os.MkdirAll(draftDir, 0o755); err != nil {
+		t.Fatalf("draft dir: %v", err)
+	}
+
+	workerWrapper := makeWorkerWrapper(t, root, python)
+	os.Setenv("KEENBENCH_TOOL_WORKER_PATH", workerWrapper)
+	os.Setenv("KEENBENCH_WORKBENCHES_DIR", workbenches)
+	defer os.Unsetenv("KEENBENCH_TOOL_WORKER_PATH")
+	defer os.Unsetenv("KEENBENCH_WORKBENCHES_DIR")
+
+	mgr := New(workbenches, nil)
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var applyResp map[string]any
+	if err := mgr.Call(ctx, "XlsxApplyOps", map[string]any{
+		"workbench_id": wbID,
+		"path":         "report.xlsx",
+		"root":         "draft",
+		"ops": []map[string]any{
+			{
+				"op":    "set_range",
+				"sheet": "Summary",
+				"start": "A1",
+				"values": []any{
+					[]any{"Metric", "Value"},
+				},
+			},
+		},
+	}, &applyResp); err != nil {
+		t.Fatalf("XlsxApplyOps: %v", err)
+	}
+
+	var stylesResp map[string]any
+	if err := mgr.Call(ctx, "XlsxGetStyles", map[string]any{
+		"workbench_id": wbID,
+		"path":         "report.xlsx",
+		"root":         "draft",
+	}, &stylesResp); err != nil {
+		t.Fatalf("XlsxGetStyles: %v", err)
+	}
+
+	sheetsRaw, ok := stylesResp["sheets"].([]any)
+	if !ok {
+		t.Fatalf("expected sheets array, got %T", stylesResp["sheets"])
+	}
+	if len(sheetsRaw) != 1 {
+		t.Fatalf("expected exactly one sheet after creation, got %v", sheetsRaw)
+	}
+	sheet, ok := sheetsRaw[0].(string)
+	if !ok {
+		t.Fatalf("expected sheet entry to be string, got %T", sheetsRaw[0])
+	}
+	if sheet != "Summary" {
+		t.Fatalf("expected single sheet Summary, got %q", sheet)
+	}
+}
+
+func TestWorkerXlsxCopyAssetsNewTargetReusesDefaultSheet(t *testing.T) {
+	python := requirePython(t)
+	if !hasPythonModule(python, "openpyxl") {
+		t.Skip("openpyxl not available")
+	}
+
+	root := t.TempDir()
+	workbenches := filepath.Join(root, "workbenches")
+	if err := os.MkdirAll(workbenches, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	wbID := "wb-xlsx-copy-reuse-default"
+	draftDir := filepath.Join(workbenches, wbID, "draft")
+	if err := os.MkdirAll(draftDir, 0o755); err != nil {
+		t.Fatalf("draft dir: %v", err)
+	}
+	srcPath := filepath.Join(draftDir, "source.xlsx")
+
+	makeScript := filepath.Join(root, "make_source_xlsx.py")
+	makeCode := `import sys
+import openpyxl
+
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Source"
+ws["A1"] = "Style Source"
+wb.save(sys.argv[1])
+`
+	makeCode = "#!/usr/bin/env " + filepath.Base(python) + "\n" + makeCode
+	if err := os.WriteFile(makeScript, []byte(makeCode), 0o700); err != nil {
+		t.Fatalf("write make script: %v", err)
+	}
+	if out, err := exec.Command(python, makeScript, srcPath).CombinedOutput(); err != nil {
+		t.Fatalf("make xlsx: %v (%s)", err, string(out))
+	}
+
+	workerWrapper := makeWorkerWrapper(t, root, python)
+	os.Setenv("KEENBENCH_TOOL_WORKER_PATH", workerWrapper)
+	os.Setenv("KEENBENCH_WORKBENCHES_DIR", workbenches)
+	defer os.Unsetenv("KEENBENCH_TOOL_WORKER_PATH")
+	defer os.Unsetenv("KEENBENCH_WORKBENCHES_DIR")
+
+	mgr := New(workbenches, nil)
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var copyResp map[string]any
+	if err := mgr.Call(ctx, "XlsxCopyAssets", map[string]any{
+		"workbench_id": wbID,
+		"source_path":  "source.xlsx",
+		"target_path":  "target.xlsx",
+		"root":         "draft",
+		"source_root":  "draft",
+		"target_root":  "draft",
+		"assets": []map[string]any{
+			{
+				"type":         "cell_style",
+				"source_sheet": "Source",
+				"source_cell":  "A1",
+				"target_sheet": "Report",
+				"target_cell":  "B2",
+			},
+		},
+	}, &copyResp); err != nil {
+		t.Fatalf("XlsxCopyAssets: %v", err)
+	}
+
+	var stylesResp map[string]any
+	if err := mgr.Call(ctx, "XlsxGetStyles", map[string]any{
+		"workbench_id": wbID,
+		"path":         "target.xlsx",
+		"root":         "draft",
+	}, &stylesResp); err != nil {
+		t.Fatalf("XlsxGetStyles: %v", err)
+	}
+
+	sheetsRaw, ok := stylesResp["sheets"].([]any)
+	if !ok {
+		t.Fatalf("expected sheets array, got %T", stylesResp["sheets"])
+	}
+	if len(sheetsRaw) != 1 {
+		t.Fatalf("expected exactly one sheet after target creation, got %v", sheetsRaw)
+	}
+	sheet, ok := sheetsRaw[0].(string)
+	if !ok {
+		t.Fatalf("expected sheet entry to be string, got %T", sheetsRaw[0])
+	}
+	if sheet != "Report" {
+		t.Fatalf("expected single sheet Report, got %q", sheet)
+	}
+}
+
+func TestWorkerXlsxApplyOpsExistingWorkbookKeepsNonEmptyDefaultSheet(t *testing.T) {
+	python := requirePython(t)
+	if !hasPythonModule(python, "openpyxl") {
+		t.Skip("openpyxl not available")
+	}
+
+	root := t.TempDir()
+	workbenches := filepath.Join(root, "workbenches")
+	if err := os.MkdirAll(workbenches, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	wbID := "wb-xlsx-keep-default"
+	draftDir := filepath.Join(workbenches, wbID, "draft")
+	if err := os.MkdirAll(draftDir, 0o755); err != nil {
+		t.Fatalf("draft dir: %v", err)
+	}
+	existingPath := filepath.Join(draftDir, "existing.xlsx")
+
+	makeScript := filepath.Join(root, "make_existing_xlsx.py")
+	makeCode := `import sys
+import openpyxl
+
+wb = openpyxl.Workbook()
+ws = wb.active
+ws["A1"] = "Existing data"
+wb.save(sys.argv[1])
+`
+	makeCode = "#!/usr/bin/env " + filepath.Base(python) + "\n" + makeCode
+	if err := os.WriteFile(makeScript, []byte(makeCode), 0o700); err != nil {
+		t.Fatalf("write make script: %v", err)
+	}
+	if out, err := exec.Command(python, makeScript, existingPath).CombinedOutput(); err != nil {
+		t.Fatalf("make xlsx: %v (%s)", err, string(out))
+	}
+
+	workerWrapper := makeWorkerWrapper(t, root, python)
+	os.Setenv("KEENBENCH_TOOL_WORKER_PATH", workerWrapper)
+	os.Setenv("KEENBENCH_WORKBENCHES_DIR", workbenches)
+	defer os.Unsetenv("KEENBENCH_TOOL_WORKER_PATH")
+	defer os.Unsetenv("KEENBENCH_WORKBENCHES_DIR")
+
+	mgr := New(workbenches, nil)
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var applyResp map[string]any
+	if err := mgr.Call(ctx, "XlsxApplyOps", map[string]any{
+		"workbench_id": wbID,
+		"path":         "existing.xlsx",
+		"root":         "draft",
+		"ops": []map[string]any{
+			{
+				"op":    "set_cells",
+				"sheet": "Summary",
+				"cells": []map[string]any{
+					{"cell": "A1", "value": "Summary data"},
+				},
+			},
+		},
+	}, &applyResp); err != nil {
+		t.Fatalf("XlsxApplyOps: %v", err)
+	}
+
+	var stylesResp map[string]any
+	if err := mgr.Call(ctx, "XlsxGetStyles", map[string]any{
+		"workbench_id": wbID,
+		"path":         "existing.xlsx",
+		"root":         "draft",
+	}, &stylesResp); err != nil {
+		t.Fatalf("XlsxGetStyles: %v", err)
+	}
+
+	sheetsRaw, ok := stylesResp["sheets"].([]any)
+	if !ok {
+		t.Fatalf("expected sheets array, got %T", stylesResp["sheets"])
+	}
+	if len(sheetsRaw) != 2 {
+		t.Fatalf("expected two sheets for existing workbook, got %v", sheetsRaw)
+	}
+	found := map[string]bool{
+		"Sheet":   false,
+		"Summary": false,
+	}
+	for _, raw := range sheetsRaw {
+		sheet, ok := raw.(string)
+		if !ok {
+			t.Fatalf("expected sheet entry to be string, got %T", raw)
+		}
+		if _, exists := found[sheet]; exists {
+			found[sheet] = true
+		}
+	}
+	for sheet, ok := range found {
+		if !ok {
+			t.Fatalf("expected sheet %q to remain present, got %v", sheet, sheetsRaw)
+		}
+	}
+}
+
 func TestWorkerXlsxGetStylesAndCopyCellStyle(t *testing.T) {
 	python := requirePython(t)
 	if !hasPythonModule(python, "openpyxl") {
