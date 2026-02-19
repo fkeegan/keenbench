@@ -872,6 +872,8 @@ func (m *Manager) PublishDraft(id string) (time.Time, error) {
 	if draftState != nil && draftState.DraftID != "" {
 		_ = os.RemoveAll(filepath.Join(root, metaFolder, "review", draftState.DraftID))
 	}
+	// Remove agent scratch files (underscore-prefixed) so they don't accumulate on disk.
+	deleteUnderscoreFiles(publishedPath)
 	manifest, err := buildManifestFromDir(publishedPath)
 	if err == nil {
 		_ = m.writeManifest(root, manifest)
@@ -1193,6 +1195,10 @@ func listFiles(root string) (map[string]string, error) {
 		if entry.IsDir() {
 			continue
 		}
+		// Skip agent-internal scratch files — same convention as buildManifestFromDir.
+		if strings.HasPrefix(entry.Name(), "_") {
+			continue
+		}
 		path := entry.Name()
 		data, err := os.ReadFile(filepath.Join(root, path))
 		if err != nil {
@@ -1202,6 +1208,20 @@ func listFiles(root string) (map[string]string, error) {
 		results[path] = hex.EncodeToString(hash[:])
 	}
 	return results, nil
+}
+
+// deleteUnderscoreFiles removes files whose names start with "_" from dir.
+// These are agent-internal scratch files and should not persist after publish.
+func deleteUnderscoreFiles(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "_") {
+			_ = os.Remove(filepath.Join(dir, entry.Name()))
+		}
+	}
 }
 
 func buildManifestFromDir(root string) (*FileManifest, error) {
