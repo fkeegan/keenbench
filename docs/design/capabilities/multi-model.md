@@ -17,7 +17,7 @@ Multi-model support in v1 means:
 - Users can pick a **single active model** for Workshop, switchable at any time.
 
 Key v1 choices (confirmed):
-- Supported models (v1): OpenAI `openai:gpt-5.2`, Anthropic `anthropic:claude-opus-4.5`, Google `google:gemini-3-pro`, Mistral `mistral:mistral-large`.
+- Supported models (v1): OpenAI `openai:gpt-5.2`, Anthropic `anthropic:claude-sonnet-4-6`, Anthropic `anthropic:claude-opus-4-6`, Google `google:gemini-3-pro`, Mistral `mistral:mistral-large`.
 - Workshop uses **one active model at a time** (switchable mid-conversation).
 - Provider endpoints are **fixed** to official public APIs (no custom endpoints in v1).
 - Provider API keys are stored in an **encrypted local file** (see ADR-0004).
@@ -86,7 +86,7 @@ Model choice is resolved in this order:
 
 ### Model Capability Matrix
 
-| Capability | OpenAI (`openai:gpt-5.2`) | Anthropic (`anthropic:claude-opus-4.5`) | Google (`google:gemini-3-pro`) | Mistral (`mistral:mistral-large`) |
+| Capability | OpenAI (`openai:gpt-5.2`) | Anthropic (`anthropic:claude-sonnet-4-6` / `anthropic:claude-opus-4-6`) | Google (`google:gemini-3-pro`) | Mistral (`mistral:mistral-large`) |
 |------------|------------------|-----------------------------|-----------------------|--------------------------|
 | Vision | Yes | Yes | Yes | Yes |
 | Context Tokens | ~200k | ~200k | ~1M | ~128k |
@@ -134,7 +134,8 @@ Workshop-specific RPCs are defined in their capability docs; they should referen
 ### Model IDs (v1)
 Use stable, namespaced IDs:
 - `openai:gpt-5.2`
-- `anthropic:claude-opus-4.5`
+- `anthropic:claude-sonnet-4-6`
+- `anthropic:claude-opus-4-6`
 - `google:gemini-3-pro`
 - `mistral:mistral-large`
 

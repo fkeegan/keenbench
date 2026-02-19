@@ -21,6 +21,9 @@ class _FakeSettingsEngine implements EngineApi {
     this.openAICodexResearchEffort = 'medium',
     this.openAICodexPlanEffort = 'medium',
     this.openAICodexImplementEffort = 'medium',
+    this.anthropicResearchEffort = 'medium',
+    this.anthropicPlanEffort = 'medium',
+    this.anthropicImplementEffort = 'medium',
   });
 
   final _notifications = StreamController<EngineNotification>.broadcast();
@@ -28,6 +31,7 @@ class _FakeSettingsEngine implements EngineApi {
   final Map<String, List<Map<String, dynamic>?>> paramsHistory = {};
 
   bool openAIConfigured = false;
+  bool anthropicConfigured = false;
   bool mistralConfigured = false;
   bool openAICodexConnected;
   bool openAICodexExpired;
@@ -39,6 +43,9 @@ class _FakeSettingsEngine implements EngineApi {
   String openAICodexResearchEffort;
   String openAICodexPlanEffort;
   String openAICodexImplementEffort;
+  String anthropicResearchEffort;
+  String anthropicPlanEffort;
+  String anthropicImplementEffort;
   String defaultModelId = 'openai/gpt-4o-mini';
 
   int _nextFlow = 1;
@@ -102,6 +109,22 @@ class _FakeSettingsEngine implements EngineApi {
                 'oauth_expires_at': openAICodexExpiresAt,
             },
             {
+              'provider_id': 'anthropic',
+              'display_name': 'Anthropic',
+              'enabled': true,
+              'configured': anthropicConfigured,
+              'models': [
+                'anthropic:claude-sonnet-4-6',
+                'anthropic:claude-opus-4-6',
+              ],
+              'auth_mode': 'api_key',
+              'rpi_reasoning': {
+                'research_effort': anthropicResearchEffort,
+                'plan_effort': anthropicPlanEffort,
+                'implement_effort': anthropicImplementEffort,
+              },
+            },
+            {
               'provider_id': 'mistral',
               'display_name': 'Mistral',
               'enabled': true,
@@ -138,6 +161,22 @@ class _FakeSettingsEngine implements EngineApi {
               'supports_file_read': true,
               'supports_file_write': true,
             },
+            {
+              'model_id': 'anthropic:claude-sonnet-4-6',
+              'provider_id': 'anthropic',
+              'display_name': 'Anthropic Claude Sonnet 4.6',
+              'context_tokens_estimate': 200000,
+              'supports_file_read': true,
+              'supports_file_write': true,
+            },
+            {
+              'model_id': 'anthropic:claude-opus-4-6',
+              'provider_id': 'anthropic',
+              'display_name': 'Anthropic Claude Opus 4.6',
+              'context_tokens_estimate': 200000,
+              'supports_file_read': true,
+              'supports_file_write': true,
+            },
           ],
         };
       case 'UserGetDefaultModel':
@@ -151,6 +190,8 @@ class _FakeSettingsEngine implements EngineApi {
         final providerId = params?['provider_id'] as String? ?? '';
         if (providerId == 'openai') {
           openAIConfigured = true;
+        } else if (providerId == 'anthropic') {
+          anthropicConfigured = true;
         } else if (providerId == 'mistral') {
           mistralConfigured = true;
         }
@@ -179,6 +220,16 @@ class _FakeSettingsEngine implements EngineApi {
           }
           if (implement != null) {
             openAICodexImplementEffort = implement;
+          }
+        } else if (providerId == 'anthropic') {
+          if (research != null) {
+            anthropicResearchEffort = research;
+          }
+          if (plan != null) {
+            anthropicPlanEffort = plan;
+          }
+          if (implement != null) {
+            anthropicImplementEffort = implement;
           }
         }
         return {};
@@ -416,6 +467,35 @@ void main() {
     },
   );
 
+  testWidgets('Anthropic reasoning effort dropdowns expose expected options', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine();
+
+    await _pumpSettingsScreen(tester, engine);
+
+    final researchKey = AppKeys.settingsReasoningResearchDropdown('anthropic');
+    final planKey = AppKeys.settingsReasoningPlanDropdown('anthropic');
+    final implementKey = AppKeys.settingsReasoningImplementDropdown(
+      'anthropic',
+    );
+
+    expect(find.byKey(researchKey), findsOneWidget);
+    expect(find.byKey(planKey), findsOneWidget);
+    expect(find.byKey(implementKey), findsOneWidget);
+
+    const expectedLabels = ['Low', 'Medium', 'High', 'Max (Opus only)'];
+    const expectedValues = ['low', 'medium', 'high', 'max'];
+
+    expect(_dropdownLabels(tester, researchKey), expectedLabels);
+    expect(_dropdownLabels(tester, planKey), expectedLabels);
+    expect(_dropdownLabels(tester, implementKey), expectedLabels);
+
+    expect(_dropdownValues(tester, researchKey), expectedValues);
+    expect(_dropdownValues(tester, planKey), expectedValues);
+    expect(_dropdownValues(tester, implementKey), expectedValues);
+  });
+
   testWidgets('OpenAI reasoning effort change sends all phase literals', (
     tester,
   ) async {
@@ -464,6 +544,31 @@ void main() {
     expect(payload?['research_effort'], 'low');
     expect(payload?['plan_effort'], 'xhigh');
     expect(payload?['implement_effort'], 'high');
+  });
+
+  testWidgets('Anthropic reasoning effort change sends all phase literals', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine(
+      anthropicResearchEffort: 'low',
+      anthropicPlanEffort: 'medium',
+      anthropicImplementEffort: 'high',
+    );
+
+    await _pumpSettingsScreen(tester, engine);
+
+    await _selectDropdownOption(
+      tester,
+      AppKeys.settingsReasoningImplementDropdown('anthropic'),
+      'Max (Opus only)',
+    );
+
+    expect(engine.callCount('ProvidersSetReasoningEffort'), 1);
+    final payload = engine.lastParams('ProvidersSetReasoningEffort');
+    expect(payload?['provider_id'], 'anthropic');
+    expect(payload?['research_effort'], 'low');
+    expect(payload?['plan_effort'], 'medium');
+    expect(payload?['implement_effort'], 'max');
   });
 
   testWidgets('OpenAI API key controls still render and save', (tester) async {

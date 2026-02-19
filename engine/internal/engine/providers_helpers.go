@@ -321,8 +321,15 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 		return "", errinfo.FileReadFailed(errinfo.PhaseWorkshop, err.Error())
 	}
 	if state.ActiveModelID != "" {
-		if _, ok := getModel(state.ActiveModelID); ok {
-			return state.ActiveModelID, nil
+		canonicalID := canonicalModelID(state.ActiveModelID)
+		if model, ok := getModel(canonicalID); ok {
+			if canonicalID != state.ActiveModelID {
+				state.ActiveModelID = canonicalID
+				if err := e.writeWorkshopState(workbenchID, state); err != nil {
+					return "", errinfo.FileWriteFailed(errinfo.PhaseWorkshop, err.Error())
+				}
+			}
+			return model.ModelID, nil
 		}
 	}
 	wb, err := e.workbenches.Open(workbenchID)
@@ -330,8 +337,14 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 		return "", errinfo.FileReadFailed(errinfo.PhaseWorkbench, err.Error())
 	}
 	if wb.DefaultModelID != "" {
-		if _, ok := getModel(wb.DefaultModelID); ok {
-			return wb.DefaultModelID, nil
+		canonicalID := canonicalModelID(wb.DefaultModelID)
+		if model, ok := getModel(canonicalID); ok {
+			if canonicalID != wb.DefaultModelID {
+				if errInfo := e.setWorkbenchDefaultModel(workbenchID, canonicalID); errInfo != nil {
+					return "", errInfo
+				}
+			}
+			return model.ModelID, nil
 		}
 	}
 	settingsData, err := e.settings.Load()
@@ -339,14 +352,22 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 		return "", errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
 	}
 	if settingsData.UserDefaultModelID != "" {
-		if _, ok := getModel(settingsData.UserDefaultModelID); ok {
-			return settingsData.UserDefaultModelID, nil
+		canonicalID := canonicalModelID(settingsData.UserDefaultModelID)
+		if model, ok := getModel(canonicalID); ok {
+			if canonicalID != settingsData.UserDefaultModelID {
+				settingsData.UserDefaultModelID = canonicalID
+				if err := e.settings.Save(settingsData); err != nil {
+					return "", errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())
+				}
+			}
+			return model.ModelID, nil
 		}
 	}
 	return ModelOpenAIID, nil
 }
 
 func (e *Engine) setActiveModel(workbenchID, modelID string) *errinfo.ErrorInfo {
+	modelID = canonicalModelID(modelID)
 	if _, ok := getModel(modelID); !ok {
 		return errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
@@ -359,6 +380,7 @@ func (e *Engine) setActiveModel(workbenchID, modelID string) *errinfo.ErrorInfo 
 }
 
 func (e *Engine) setWorkbenchDefaultModel(workbenchID, modelID string) *errinfo.ErrorInfo {
+	modelID = canonicalModelID(modelID)
 	if _, ok := getModel(modelID); !ok {
 		return errinfo.ValidationFailed(errinfo.PhaseWorkbench, "unsupported model")
 	}

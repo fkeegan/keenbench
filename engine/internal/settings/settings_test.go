@@ -41,6 +41,20 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("expected openai-codex implement reasoning effort to default to medium, got %q", codex.RPIImplementReasoningEffort)
 	}
 
+	anthropic := settings.Providers[providerAnthropic]
+	if anthropic.Enabled != true {
+		t.Fatalf("expected anthropic enabled by default")
+	}
+	if anthropic.RPIResearchReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic research reasoning effort to default to medium, got %q", anthropic.RPIResearchReasoningEffort)
+	}
+	if anthropic.RPIPlanReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic plan reasoning effort to default to medium, got %q", anthropic.RPIPlanReasoningEffort)
+	}
+	if anthropic.RPIImplementReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic implement reasoning effort to default to medium, got %q", anthropic.RPIImplementReasoningEffort)
+	}
+
 	mistral := settings.Providers[providerMistral]
 	if mistral.Enabled != true {
 		t.Fatalf("expected mistral enabled by default")
@@ -142,6 +156,23 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
 		t.Fatalf("expected openai-codex implement reasoning effort to default to %q, got %q", reasoningEffortMedium, entry.RPIImplementReasoningEffort)
 	}
 
+	anthropic, ok := settings.Providers[providerAnthropic]
+	if !ok {
+		t.Fatalf("expected anthropic provider to be backfilled")
+	}
+	if !anthropic.Enabled {
+		t.Fatalf("expected anthropic provider to default to enabled")
+	}
+	if anthropic.RPIResearchReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic research reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropic.RPIResearchReasoningEffort)
+	}
+	if anthropic.RPIPlanReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic plan reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropic.RPIPlanReasoningEffort)
+	}
+	if anthropic.RPIImplementReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic implement reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropic.RPIImplementReasoningEffort)
+	}
+
 	mistral, ok := settings.Providers[providerMistral]
 	if !ok {
 		t.Fatalf("expected mistral provider to be backfilled")
@@ -168,5 +199,33 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
 	}
 	if openAI.RPIImplementReasoningEffort != reasoningEffortMedium {
 		t.Fatalf("expected openai implement reasoning effort to default to %q for invalid legacy value, got %q", reasoningEffortMedium, openAI.RPIImplementReasoningEffort)
+	}
+}
+
+func TestLoadMigratesLegacyAnthropicUserDefaultModel(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "settings.json")
+	legacy := `{
+  "schema_version": 1,
+  "providers": {
+    "openai": {"enabled": true},
+    "openai-codex": {"enabled": true},
+    "anthropic": {"enabled": true},
+    "google": {"enabled": true},
+    "mistral": {"enabled": true}
+  },
+  "user_default_model_id": "anthropic:claude-opus-4.5"
+}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy settings: %v", err)
+	}
+
+	store := NewStore(path)
+	settings, err := store.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if settings.UserDefaultModelID != anthropicDefaultSonnet46Model {
+		t.Fatalf("expected user_default_model_id=%q, got %q", anthropicDefaultSonnet46Model, settings.UserDefaultModelID)
 	}
 }

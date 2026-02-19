@@ -22,6 +22,13 @@ const (
 	reasoningEffortMedium = "medium"
 	reasoningEffortHigh   = "high"
 	reasoningEffortXHigh  = "xhigh"
+	reasoningEffortMax    = "max"
+)
+
+const (
+	defaultUserModelID            = "openai:gpt-5.2"
+	anthropicLegacyOpus45ModelID  = "anthropic:claude-opus-4.5"
+	anthropicDefaultSonnet46Model = "anthropic:claude-sonnet-4-6"
 )
 
 type ProviderSettings struct {
@@ -88,7 +95,7 @@ func defaultSettings() *Settings {
 			providerGoogle:      defaultProviderSettings(providerGoogle),
 			providerMistral:     defaultProviderSettings(providerMistral),
 		},
-		UserDefaultModelID: "openai:gpt-5.2",
+		UserDefaultModelID: defaultUserModelID,
 	}
 }
 
@@ -114,7 +121,14 @@ func backfillSettings(settings *Settings) {
 	backfillProvider(settings.Providers, providerGoogle)
 	backfillProvider(settings.Providers, providerMistral)
 	if settings.UserDefaultModelID == "" {
-		settings.UserDefaultModelID = "openai:gpt-5.2"
+		settings.UserDefaultModelID = defaultUserModelID
+		return
+	}
+	switch strings.TrimSpace(settings.UserDefaultModelID) {
+	case anthropicLegacyOpus45ModelID:
+		settings.UserDefaultModelID = anthropicDefaultSonnet46Model
+	default:
+		settings.UserDefaultModelID = strings.TrimSpace(settings.UserDefaultModelID)
 	}
 }
 
@@ -148,7 +162,7 @@ func backfillProviderSettings(providerID string, entry ProviderSettings) Provide
 }
 
 func supportsRPIReasoningEffort(providerID string) bool {
-	return providerID == providerOpenAI || providerID == providerOpenAICodex
+	return providerID == providerOpenAI || providerID == providerOpenAICodex || providerID == providerAnthropic
 }
 
 func normalizeProviderReasoningEffort(providerID, value string) string {
@@ -162,6 +176,11 @@ func normalizeProviderReasoningEffort(providerID, value string) string {
 	case providerOpenAICodex:
 		switch effort {
 		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh:
+			return effort
+		}
+	case providerAnthropic:
+		switch effort {
+		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortMax:
 			return effort
 		}
 	}

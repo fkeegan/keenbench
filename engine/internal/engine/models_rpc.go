@@ -20,6 +20,7 @@ func (e *Engine) ModelsGetCapabilities(ctx context.Context, params json.RawMessa
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
 	}
+	req.ModelID = canonicalModelID(req.ModelID)
 	model, ok := getModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported model")
@@ -49,6 +50,7 @@ func (e *Engine) UserSetDefaultModel(ctx context.Context, params json.RawMessage
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
 	}
+	req.ModelID = canonicalModelID(req.ModelID)
 	if _, ok := getModel(req.ModelID); !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported model")
 	}
@@ -71,6 +73,13 @@ func (e *Engine) WorkbenchGetDefaultModel(ctx context.Context, params json.RawMe
 	wb, err := e.workbenches.Open(req.WorkbenchID)
 	if err != nil {
 		return nil, errinfo.FileReadFailed(errinfo.PhaseWorkbench, err.Error())
+	}
+	canonicalID := canonicalModelID(wb.DefaultModelID)
+	if canonicalID != "" && canonicalID != wb.DefaultModelID {
+		if errInfo := e.setWorkbenchDefaultModel(req.WorkbenchID, canonicalID); errInfo != nil {
+			return nil, errInfo
+		}
+		wb.DefaultModelID = canonicalID
 	}
 	return map[string]any{"model_id": wb.DefaultModelID}, nil
 }
@@ -97,6 +106,7 @@ func (e *Engine) WorkshopSetActiveModel(ctx context.Context, params json.RawMess
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "invalid params")
 	}
+	req.ModelID = canonicalModelID(req.ModelID)
 	model, ok := getModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")

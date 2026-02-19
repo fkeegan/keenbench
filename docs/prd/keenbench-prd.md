@@ -142,9 +142,10 @@ A chat-based, iterative collaboration:
 - Workshop uses a single active model at a time; switching replaces the active model
 
 ### Supported Models (v1)
-v1 supports exactly these four models:
+v1 supports exactly these five models:
 - OpenAI: GPT-5.2 (`openai:gpt-5.2`)
-- Anthropic: Claude 4.5 Opus (`anthropic:claude-opus-4.5`)
+- Anthropic: Claude Sonnet 4.6 (`anthropic:claude-sonnet-4-6`)
+- Anthropic: Claude Opus 4.6 (`anthropic:claude-opus-4-6`)
 - Google: Gemini 3 Pro (`google:gemini-3-pro`)
 - Mistral: Mistral Large (`mistral:mistral-large`)
 
