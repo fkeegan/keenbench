@@ -494,6 +494,9 @@ func TestWorkbenchFilesExtractRPC(t *testing.T) {
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(destination, "notes.txt"), []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write existing: %v", err)
+	}
 	resp, errInfo := eng.WorkbenchFilesExtract(ctx, mustJSON(t, map[string]any{
 		"workbench_id":    workbenchID,
 		"destination_dir": destination,
@@ -505,11 +508,11 @@ func TestWorkbenchFilesExtractRPC(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected extract_results")
 	}
-	if len(results) != 1 || results[0].Status != "extracted" {
+	if len(results) != 1 || results[0].Status != "extracted" || results[0].FinalPath != "notes(1).txt" {
 		t.Fatalf("unexpected extract results: %#v", results)
 	}
-	if _, err := os.Stat(filepath.Join(destination, "notes.txt")); err != nil {
-		t.Fatalf("expected exported file: %v", err)
+	if _, err := os.Stat(filepath.Join(destination, "notes(1).txt")); err != nil {
+		t.Fatalf("expected renamed exported file: %v", err)
 	}
 }
 

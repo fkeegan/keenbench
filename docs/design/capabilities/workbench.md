@@ -67,7 +67,7 @@ Workbench has a flat file structure. Users cannot create subfolders. All files e
 
 ### File Operations
 - **Add files**: Via drag-drop or file picker. Files are copied into Workbench.
-- **Extract files**: Per-file extraction from the file row; copies selected Published file to a user-selected local folder; existing destination files are skipped (no overwrite in v1).
+- **Extract files**: Per-file extraction from the file row; copies selected Published file to a user-selected local folder; destination collisions are auto-renamed with numeric suffixes (`file.xlsx`, `file(1).xlsx`, `file(2).xlsx`, ...).
 - **Remove files**: Users can remove files with explicit confirmation. Does not affect originals.
 - **Rename files**: Not supported. To rename, remove and re-add with the new name.
 - **Delete Workbench**: Users can delete a Workbench with explicit confirmation. Originals remain untouched. Block deletion while a Draft exists.
@@ -116,7 +116,7 @@ API names are illustrative; protocol (JSON-RPC over stdio) is handled in ADR-000
 - `WorkbenchFilesList(workbench_id) -> {files[]}`
 - `WorkbenchFilesAdd(workbench_id, source_paths[]) -> {add_results}` (blocked if Draft exists)
 - `WorkbenchFilesRemove(workbench_id, workbench_paths[]) -> {remove_results}` (blocked if Draft exists)
-- `WorkbenchFilesExtract(workbench_id, destination_dir, workbench_paths[]?) -> {extract_results}` (blocked if Draft exists; source is Published)
+- `WorkbenchFilesExtract(workbench_id, destination_dir, workbench_paths[]?) -> {extract_results}` (blocked if Draft exists; source is Published; successful results may include `final_path` for collision-safe naming)
 - `WorkbenchDelete(workbench_id) -> {}` (blocked if Draft exists)
 - `WorkbenchGetScope(workbench_id) -> {limits, supported_types, sandbox_root}`
 
@@ -186,9 +186,9 @@ Duplicate filenames are blocked at add time:
 4. For each file:
    - Validate flat workbench path.
    - Source from `published/<path>`.
-   - If destination file already exists, mark skipped (`destination_exists`).
+   - Resolve a unique destination filename; if destination exists, append `(N)` before the extension until a free name is found.
    - Copy file to destination on success.
-5. Return per-file extract results (`extracted|skipped|failed`) with reasons.
+5. Return per-file extract results (`extracted|skipped|failed`) with reasons; successful results include `final_path`.
 
 ### Supported vs Opaque Handling
 - Supported types: engine may extract text/preview as needed for jobs/review.

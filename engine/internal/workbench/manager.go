@@ -133,9 +133,10 @@ type RemoveResult struct {
 }
 
 type ExtractResult struct {
-	Path   string `json:"path"`
-	Status string `json:"status"`
-	Reason string `json:"reason,omitempty"`
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Reason    string `json:"reason,omitempty"`
+	FinalPath string `json:"final_path,omitempty"`
 }
 
 type DraftState struct {
@@ -541,13 +542,8 @@ func (m *Manager) FilesExtract(id, destinationDir string, paths []string) ([]Ext
 			continue
 		}
 
-		dest := filepath.Join(destinationDir, sourcePath)
-		if _, err := os.Stat(dest); err == nil {
-			result.Status = "skipped"
-			result.Reason = "destination_exists"
-			results = append(results, result)
-			continue
-		} else if !os.IsNotExist(err) {
+		dest, finalPath, err := uniqueExtractDestination(destinationDir, sourcePath)
+		if err != nil {
 			result.Status = "failed"
 			result.Reason = "copy_failed"
 			results = append(results, result)
@@ -558,6 +554,7 @@ func (m *Manager) FilesExtract(id, destinationDir string, paths []string) ([]Ext
 			result.Reason = "copy_failed"
 		} else {
 			result.Status = "extracted"
+			result.FinalPath = finalPath
 		}
 		results = append(results, result)
 	}
@@ -1139,6 +1136,39 @@ func copyFile(src, dest string) error {
 		return err
 	}
 	return out.Sync()
+}
+
+func uniqueExtractDestination(destinationDir, sourcePath string) (string, string, error) {
+	candidate := sourcePath
+	for i := 0; ; i++ {
+		if i > 0 {
+			stem, ext := splitExtractFileName(sourcePath)
+			candidate = fmt.Sprintf("%s(%d)%s", stem, i, ext)
+		}
+		dest := filepath.Join(destinationDir, candidate)
+		if _, err := os.Stat(dest); err == nil {
+			continue
+		} else if os.IsNotExist(err) {
+			return dest, candidate, nil
+		} else {
+			return "", "", err
+		}
+	}
+}
+
+func splitExtractFileName(name string) (stem, ext string) {
+	if strings.HasPrefix(name, ".") && strings.Count(name, ".") == 1 {
+		return name, ""
+	}
+	ext = filepath.Ext(name)
+	if ext == "" {
+		return name, ""
+	}
+	stem = strings.TrimSuffix(name, ext)
+	if stem == "" {
+		return name, ""
+	}
+	return stem, ext
 }
 
 func copyDir(src, dest string) error {
