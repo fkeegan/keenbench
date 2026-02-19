@@ -476,11 +476,13 @@ class WorkbenchExtractResult {
     required this.path,
     required this.status,
     required this.reason,
+    required this.finalPath,
   });
 
   final String path;
   final String status;
   final String reason;
+  final String finalPath;
 
   bool get isExtracted => status == 'extracted';
   bool get isSkipped => status == 'skipped';
@@ -491,6 +493,7 @@ class WorkbenchExtractResult {
       path: json['path'] as String? ?? '',
       status: json['status'] as String? ?? '',
       reason: json['reason'] as String? ?? '',
+      finalPath: json['final_path'] as String? ?? '',
     );
   }
 }

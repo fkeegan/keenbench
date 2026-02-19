@@ -955,9 +955,12 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       var message = 'No files extracted.';
       if (result != null) {
         if (result.isExtracted) {
-          message = 'Extracted "${file.path}".';
-        } else if (result.reason == 'destination_exists') {
-          message = '"${file.path}" already exists in the destination.';
+          final extractedAs = result.finalPath.trim();
+          if (extractedAs.isNotEmpty && extractedAs != file.path) {
+            message = 'Extracted "${file.path}" as "$extractedAs".';
+          } else {
+            message = 'Extracted "${file.path}".';
+          }
         } else if (result.isSkipped) {
           message = 'Skipped "${file.path}" (${result.reason}).';
         } else if (result.isFailed) {

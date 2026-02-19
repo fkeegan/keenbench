@@ -155,7 +155,7 @@ CSV (`.csv`) is treated as first-class tabular text. Tabular schema/stats/query/
 - Adding symlinks/shortcuts shows a clear error and blocks them.
 - Unsupported files are added with a notice and marked as opaque.
 - Users can view and remove files. Users cannot rename files within the Workbench.
-- Users can extract Published files to a selected folder (copy-only), with skipped-file reporting for destination collisions.
+- Users can extract Published files to a selected folder (copy-only), with collision-safe auto-rename (`file.ext`, `file(1).ext`, `file(2).ext`, ...).
 - File add/remove/extract actions are blocked while a Draft exists.
 - AI operations are visibly scoped to the Workbench.
 - The app never accesses filesystem paths the user didn't explicitly select.

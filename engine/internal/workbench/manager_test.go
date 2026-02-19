@@ -370,7 +370,7 @@ func TestFilesExtractBlockedByDraft(t *testing.T) {
 	}
 }
 
-func TestFilesExtractSkipsExistingDestination(t *testing.T) {
+func TestFilesExtractRenamesExistingDestination(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(filepath.Join(root, "workbenches"))
 	if err := mgr.Init(); err != nil {
@@ -398,8 +398,137 @@ func TestFilesExtractSkipsExistingDestination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
-	if len(results) != 1 || results[0].Status != "skipped" || results[0].Reason != "destination_exists" {
-		t.Fatalf("expected destination_exists skip, got %#v", results)
+	if len(results) != 1 || results[0].Status != "extracted" || results[0].FinalPath != "a(1).txt" {
+		t.Fatalf("expected renamed extract result, got %#v", results)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "a(1).txt")); err != nil {
+		t.Fatalf("expected renamed destination file: %v", err)
+	}
+}
+
+func TestFilesExtractRepeatedUsesIncrementingSuffixes(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	filePath := filepath.Join(root, "file.xlsx")
+	if err := os.WriteFile(filePath, []byte("sheet"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if _, err := mgr.FilesAdd(wb.ID, []string{filePath}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	dest := filepath.Join(root, "extract")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	expectedNames := []string{"file.xlsx", "file(1).xlsx", "file(2).xlsx"}
+	for i, expected := range expectedNames {
+		results, err := mgr.FilesExtract(wb.ID, dest, []string{"file.xlsx"})
+		if err != nil {
+			t.Fatalf("extract iteration %d: %v", i, err)
+		}
+		if len(results) != 1 || results[0].Status != "extracted" || results[0].FinalPath != expected {
+			t.Fatalf("unexpected result on iteration %d: %#v", i, results)
+		}
+	}
+
+	for _, expected := range expectedNames {
+		if _, err := os.Stat(filepath.Join(dest, expected)); err != nil {
+			t.Fatalf("expected extracted file %q: %v", expected, err)
+		}
+	}
+}
+
+func TestFilesExtractUsesFirstAvailableSuffix(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	filePath := filepath.Join(root, "file.xlsx")
+	if err := os.WriteFile(filePath, []byte("sheet"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if _, err := mgr.FilesAdd(wb.ID, []string{filePath}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	dest := filepath.Join(root, "extract")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "file.xlsx"), []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write existing base: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "file(2).xlsx"), []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write existing suffix: %v", err)
+	}
+
+	results, err := mgr.FilesExtract(wb.ID, dest, []string{"file.xlsx"})
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if len(results) != 1 || results[0].Status != "extracted" || results[0].FinalPath != "file(1).xlsx" {
+		t.Fatalf("expected first available suffix, got %#v", results)
+	}
+}
+
+func TestFilesExtractRenamesDotfileAndMultiDotNames(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	dotfilePath := filepath.Join(root, ".env")
+	if err := os.WriteFile(dotfilePath, []byte("KEY=value"), 0o600); err != nil {
+		t.Fatalf("write dotfile: %v", err)
+	}
+	multiDotPath := filepath.Join(root, "archive.tar.gz")
+	if err := os.WriteFile(multiDotPath, []byte("archive"), 0o600); err != nil {
+		t.Fatalf("write multi-dot: %v", err)
+	}
+	if _, err := mgr.FilesAdd(wb.ID, []string{dotfilePath, multiDotPath}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	dest := filepath.Join(root, "extract")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, ".env"), []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write existing dotfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "archive.tar.gz"), []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write existing multi-dot: %v", err)
+	}
+
+	dotfileResults, err := mgr.FilesExtract(wb.ID, dest, []string{".env"})
+	if err != nil {
+		t.Fatalf("extract dotfile: %v", err)
+	}
+	if len(dotfileResults) != 1 || dotfileResults[0].Status != "extracted" || dotfileResults[0].FinalPath != ".env(1)" {
+		t.Fatalf("expected renamed dotfile, got %#v", dotfileResults)
+	}
+
+	multiDotResults, err := mgr.FilesExtract(wb.ID, dest, []string{"archive.tar.gz"})
+	if err != nil {
+		t.Fatalf("extract multi-dot: %v", err)
+	}
+	if len(multiDotResults) != 1 || multiDotResults[0].Status != "extracted" || multiDotResults[0].FinalPath != "archive.tar(1).gz" {
+		t.Fatalf("expected renamed multi-dot, got %#v", multiDotResults)
 	}
 }
 
