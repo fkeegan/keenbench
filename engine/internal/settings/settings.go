@@ -22,6 +22,7 @@ const (
 	reasoningEffortMedium = "medium"
 	reasoningEffortHigh   = "high"
 	reasoningEffortXHigh  = "xhigh"
+	reasoningEffortMax    = "max"
 )
 
 const (
@@ -161,7 +162,7 @@ func backfillProviderSettings(providerID string, entry ProviderSettings) Provide
 }
 
 func supportsRPIReasoningEffort(providerID string) bool {
-	return providerID == providerOpenAI || providerID == providerOpenAICodex
+	return providerID == providerOpenAI || providerID == providerOpenAICodex || providerID == providerAnthropic
 }
 
 func normalizeProviderReasoningEffort(providerID, value string) string {
@@ -175,6 +176,11 @@ func normalizeProviderReasoningEffort(providerID, value string) string {
 	case providerOpenAICodex:
 		switch effort {
 		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh:
+			return effort
+		}
+	case providerAnthropic:
+		switch effort {
+		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortMax:
 			return effort
 		}
 	}

@@ -41,6 +41,20 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("expected openai-codex implement reasoning effort to default to medium, got %q", codex.RPIImplementReasoningEffort)
 	}
 
+	anthropic := settings.Providers[providerAnthropic]
+	if anthropic.Enabled != true {
+		t.Fatalf("expected anthropic enabled by default")
+	}
+	if anthropic.RPIResearchReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic research reasoning effort to default to medium, got %q", anthropic.RPIResearchReasoningEffort)
+	}
+	if anthropic.RPIPlanReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic plan reasoning effort to default to medium, got %q", anthropic.RPIPlanReasoningEffort)
+	}
+	if anthropic.RPIImplementReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic implement reasoning effort to default to medium, got %q", anthropic.RPIImplementReasoningEffort)
+	}
+
 	mistral := settings.Providers[providerMistral]
 	if mistral.Enabled != true {
 		t.Fatalf("expected mistral enabled by default")
@@ -140,6 +154,23 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
 	}
 	if entry.RPIImplementReasoningEffort != reasoningEffortMedium {
 		t.Fatalf("expected openai-codex implement reasoning effort to default to %q, got %q", reasoningEffortMedium, entry.RPIImplementReasoningEffort)
+	}
+
+	anthropic, ok := settings.Providers[providerAnthropic]
+	if !ok {
+		t.Fatalf("expected anthropic provider to be backfilled")
+	}
+	if !anthropic.Enabled {
+		t.Fatalf("expected anthropic provider to default to enabled")
+	}
+	if anthropic.RPIResearchReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic research reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropic.RPIResearchReasoningEffort)
+	}
+	if anthropic.RPIPlanReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic plan reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropic.RPIPlanReasoningEffort)
+	}
+	if anthropic.RPIImplementReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic implement reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropic.RPIImplementReasoningEffort)
 	}
 
 	mistral, ok := settings.Providers[providerMistral]

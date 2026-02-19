@@ -34,6 +34,7 @@ func TestEngineMetadataMethods(t *testing.T) {
 	}
 	foundOpenAI := false
 	foundOpenAICodex := false
+	foundAnthropic := false
 	foundMistral := false
 	for _, provider := range providers {
 		if provider["provider_id"] == ProviderOpenAI {
@@ -45,6 +46,10 @@ func TestEngineMetadataMethods(t *testing.T) {
 			if provider["auth_mode"] != "oauth" {
 				t.Fatalf("expected openai-codex auth_mode oauth, got %#v", provider["auth_mode"])
 			}
+			assertProviderRPIReasoning(t, provider, "medium", "medium", "medium")
+		}
+		if provider["provider_id"] == ProviderAnthropic {
+			foundAnthropic = true
 			assertProviderRPIReasoning(t, provider, "medium", "medium", "medium")
 		}
 		if provider["provider_id"] == ProviderMistral {
@@ -62,6 +67,9 @@ func TestEngineMetadataMethods(t *testing.T) {
 	}
 	if !foundOpenAICodex {
 		t.Fatalf("expected openai-codex provider in status")
+	}
+	if !foundAnthropic {
+		t.Fatalf("expected anthropic provider in status")
 	}
 	if !foundMistral {
 		t.Fatalf("expected mistral provider in status")
@@ -676,6 +684,14 @@ func TestProvidersSetReasoningEffortRoundTripAndValidation(t *testing.T) {
 	})); errInfo != nil {
 		t.Fatalf("set openai-codex reasoning effort: %v", errInfo)
 	}
+	if _, errInfo := eng.ProvidersSetReasoningEffort(ctx, mustJSON(t, map[string]any{
+		"provider_id":      ProviderAnthropic,
+		"research_effort":  "LOW",
+		"plan_effort":      "high",
+		"implement_effort": "max",
+	})); errInfo != nil {
+		t.Fatalf("set anthropic reasoning effort: %v", errInfo)
+	}
 
 	status, errInfo := eng.ProvidersGetStatus(ctx, nil)
 	if errInfo != nil {
@@ -684,15 +700,8 @@ func TestProvidersSetReasoningEffortRoundTripAndValidation(t *testing.T) {
 	providers := status.(map[string]any)["providers"].([]map[string]any)
 	assertProviderRPIReasoning(t, providerStatusByID(t, providers, ProviderOpenAI), "none", "high", "low")
 	assertProviderRPIReasoning(t, providerStatusByID(t, providers, ProviderOpenAICodex), "xhigh", "medium", "low")
+	assertProviderRPIReasoning(t, providerStatusByID(t, providers, ProviderAnthropic), "low", "high", "max")
 
-	if _, errInfo := eng.ProvidersSetReasoningEffort(ctx, mustJSON(t, map[string]any{
-		"provider_id":      ProviderAnthropic,
-		"research_effort":  "low",
-		"plan_effort":      "low",
-		"implement_effort": "low",
-	})); errInfo == nil {
-		t.Fatalf("expected unsupported provider validation error")
-	}
 	if _, errInfo := eng.ProvidersSetReasoningEffort(ctx, mustJSON(t, map[string]any{
 		"provider_id":      ProviderOpenAI,
 		"research_effort":  "xhigh",
@@ -708,6 +717,22 @@ func TestProvidersSetReasoningEffortRoundTripAndValidation(t *testing.T) {
 		"implement_effort": "medium",
 	})); errInfo == nil {
 		t.Fatalf("expected openai-codex invalid reasoning effort error")
+	}
+	if _, errInfo := eng.ProvidersSetReasoningEffort(ctx, mustJSON(t, map[string]any{
+		"provider_id":      ProviderAnthropic,
+		"research_effort":  "none",
+		"plan_effort":      "medium",
+		"implement_effort": "high",
+	})); errInfo == nil {
+		t.Fatalf("expected anthropic invalid reasoning effort error")
+	}
+	if _, errInfo := eng.ProvidersSetReasoningEffort(ctx, mustJSON(t, map[string]any{
+		"provider_id":      ProviderAnthropic,
+		"research_effort":  "xhigh",
+		"plan_effort":      "medium",
+		"implement_effort": "high",
+	})); errInfo == nil {
+		t.Fatalf("expected anthropic invalid reasoning effort error")
 	}
 }
 

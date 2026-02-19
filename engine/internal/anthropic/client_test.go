@@ -69,6 +69,14 @@ func TestChatUsesTopLevelSystemParameter(t *testing.T) {
 	if msg["role"] == "system" {
 		t.Fatalf("did not expect system role in messages payload")
 	}
+
+	outputConfig, ok := payload["output_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload.output_config object, got %#v", payload["output_config"])
+	}
+	if got, ok := outputConfig["effort"].(string); !ok || got != "high" {
+		t.Fatalf("expected output_config.effort=high by default, got %#v", outputConfig["effort"])
+	}
 }
 
 func TestChatWithToolsUsesTopLevelSystemParameter(t *testing.T) {
@@ -125,5 +133,83 @@ func TestChatWithToolsUsesTopLevelSystemParameter(t *testing.T) {
 		if msg["role"] == "system" {
 			t.Fatalf("did not expect system role in messages payload")
 		}
+	}
+}
+
+func TestReasoningEffortMaxClampsToHighForSonnet(t *testing.T) {
+	t.Helper()
+
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+	ctx := llm.WithRequestProfile(context.Background(), llm.RequestProfile{
+		ReasoningEffort: "max",
+	})
+	if _, err := client.Chat(ctx, "sk-test", "claude-sonnet-4-6", []llm.Message{
+		{Role: "user", Content: "Hello"},
+	}); err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+
+	outputConfig, ok := payload["output_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload.output_config object, got %#v", payload["output_config"])
+	}
+	if got := outputConfig["effort"]; got != "high" {
+		t.Fatalf("expected clamped effort=high for sonnet, got %#v", got)
+	}
+}
+
+func TestReasoningEffortMaxAllowedForOpus(t *testing.T) {
+	t.Helper()
+
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+	ctx := llm.WithRequestProfile(context.Background(), llm.RequestProfile{
+		ReasoningEffort: "max",
+	})
+	if _, err := client.Chat(ctx, "sk-test", "claude-opus-4-6", []llm.Message{
+		{Role: "user", Content: "Hello"},
+	}); err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+
+	outputConfig, ok := payload["output_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload.output_config object, got %#v", payload["output_config"])
+	}
+	if got := outputConfig["effort"]; got != "max" {
+		t.Fatalf("expected effort=max for opus, got %#v", got)
 	}
 }

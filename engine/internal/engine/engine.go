@@ -647,11 +647,12 @@ const (
 	reasoningEffortMedium = "medium"
 	reasoningEffortHigh   = "high"
 	reasoningEffortXHigh  = "xhigh"
+	reasoningEffortMax    = "max"
 )
 
 func supportsRPIReasoningEffortProvider(providerID string) bool {
 	switch strings.TrimSpace(providerID) {
-	case ProviderOpenAI, ProviderOpenAICodex:
+	case ProviderOpenAI, ProviderOpenAICodex, ProviderAnthropic:
 		return true
 	default:
 		return false
@@ -673,6 +674,11 @@ func validateProviderRPIReasoningEffort(providerID, effort string) (string, bool
 	case ProviderOpenAICodex:
 		switch effort {
 		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh:
+			return effort, true
+		}
+	case ProviderAnthropic:
+		switch effort {
+		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortMax:
 			return effort, true
 		}
 	}

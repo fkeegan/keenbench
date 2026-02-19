@@ -35,6 +35,13 @@ const List<_ReasoningEffortOption> _openAICodexReasoningEffortOptions = [
   _ReasoningEffortOption(label: 'Extra high', value: 'xhigh'),
 ];
 
+const List<_ReasoningEffortOption> _anthropicReasoningEffortOptions = [
+  _ReasoningEffortOption(label: 'Low', value: 'low'),
+  _ReasoningEffortOption(label: 'Medium', value: 'medium'),
+  _ReasoningEffortOption(label: 'High', value: 'high'),
+  _ReasoningEffortOption(label: 'Max (Opus only)', value: 'max'),
+];
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.urlLauncher});
 
@@ -144,7 +151,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   bool _supportsReasoningEffort(ProviderStatus provider) =>
-      provider.id == 'openai' || provider.id == 'openai-codex';
+      provider.id == 'openai' ||
+      provider.id == 'openai-codex' ||
+      provider.id == 'anthropic';
 
   List<_ReasoningEffortOption> _reasoningEffortOptionsForProvider(
     String providerId,
@@ -154,6 +163,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _openAIReasoningEffortOptions;
       case 'openai-codex':
         return _openAICodexReasoningEffortOptions;
+      case 'anthropic':
+        return _anthropicReasoningEffortOptions;
       default:
         return const [];
     }

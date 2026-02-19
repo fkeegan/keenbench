@@ -17,6 +17,7 @@ import (
 
 const defaultBaseURL = "https://api.anthropic.com"
 const defaultVersion = "2023-06-01"
+const defaultReasoningEffort = "high"
 
 // Client implements Anthropic Messages API (minimal v1 support).
 type Client struct {
@@ -71,6 +72,9 @@ func (c *Client) Chat(ctx context.Context, apiKey, model string, messages []llm.
 		"model":      model,
 		"max_tokens": 1024,
 		"messages":   anthropicMessages,
+		"output_config": map[string]any{
+			"effort": resolveReasoningEffort(ctx, model),
+		},
 	}
 	if systemPrompt != "" {
 		payload["system"] = systemPrompt
@@ -112,6 +116,9 @@ func (c *Client) ChatWithTools(ctx context.Context, apiKey, model string, messag
 		"model":      model,
 		"max_tokens": 1024,
 		"messages":   anthropicMessages,
+		"output_config": map[string]any{
+			"effort": resolveReasoningEffort(ctx, model),
+		},
 	}
 	if systemPrompt != "" {
 		payload["system"] = systemPrompt
@@ -286,6 +293,38 @@ func toAnthropicTools(tools []llm.Tool) []anthropicTool {
 		})
 	}
 	return result
+}
+
+func resolveReasoningEffort(ctx context.Context, model string) string {
+	profile, ok := llm.RequestProfileFromContext(ctx)
+	if !ok {
+		return defaultReasoningEffort
+	}
+	effort := normalizeReasoningEffort(profile.ReasoningEffort)
+	if effort == "max" && !supportsMaxReasoningEffort(model) {
+		return "high"
+	}
+	return effort
+}
+
+func normalizeReasoningEffort(effort string) string {
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "low":
+		return "low"
+	case "medium":
+		return "medium"
+	case "high":
+		return "high"
+	case "max":
+		return "max"
+	default:
+		return defaultReasoningEffort
+	}
+}
+
+func supportsMaxReasoningEffort(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(name, "claude-opus-4-6")
 }
 
 func extractText(contents []anthropicContent) string {
