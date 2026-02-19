@@ -82,6 +82,8 @@ func main() {
 	register("ModelsGetCapabilities", eng.ModelsGetCapabilities)
 	register("UserGetDefaultModel", eng.UserGetDefaultModel)
 	register("UserSetDefaultModel", eng.UserSetDefaultModel)
+	register("UserGetConsentMode", eng.UserGetConsentMode)
+	register("UserSetConsentMode", eng.UserSetConsentMode)
 	register("WorkbenchGetDefaultModel", eng.WorkbenchGetDefaultModel)
 	register("WorkbenchSetDefaultModel", eng.WorkbenchSetDefaultModel)
 

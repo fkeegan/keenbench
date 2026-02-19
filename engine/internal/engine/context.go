@@ -288,6 +288,9 @@ func (e *Engine) ContextProcess(ctx context.Context, params json.RawMessage) (an
 	if errInfo := e.ensureProviderReadyFor(ctx, model.ProviderID); errInfo != nil {
 		return nil, errInfo
 	}
+	if errInfo := e.ensureConsent(req.WorkbenchID); errInfo != nil {
+		return nil, errInfo
+	}
 	apiKey, errInfo := e.providerKey(ctx, model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo

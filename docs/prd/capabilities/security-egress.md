@@ -18,6 +18,7 @@ Ensure external data access and file uploads are explicit, reviewable, and withi
   - provider(s) and model(s), and
   - in-scope Workbench files and sizes.
 - Subsequent model calls do not re-prompt unless provider(s) or file scope changes.
+- Users can explicitly enable a global **Allow all model actions** setting in Settings. This skips consent prompts across Workbench and Context processing until disabled.
 - Users can cancel without losing Draft state.
 
 ### Consent Persistence
@@ -28,8 +29,9 @@ Ensure external data access and file uploads are explicit, reviewable, and withi
 1. Network egress is restricted to configured model providers by default.
 2. URL fetching/external retrieval is not available in v1; any attempt is blocked with a clear user-facing message.
 3. Model calls require explicit user confirmation before sending Workbench content (one-time per Workbench/job, not per-call).
-4. Confirmation lists provider(s)/model(s) and in-scope files and sizes.
-5. Egress actions are recorded in the job audit trail (provider(s), time, and in-scope files and/or scope hash).
+4. Default mode is consent prompts (`ask`). Global prompt suppression (`allow_all`) must require explicit user approval in Settings.
+5. Confirmation lists provider(s)/model(s) and in-scope files and sizes.
+6. Egress actions are recorded in the job audit trail (provider(s), time, and in-scope files and/or scope hash).
 
 ## Failure Modes & Recovery
 - External retrieval requested: show “not supported in v1” and allow the user to proceed without it.

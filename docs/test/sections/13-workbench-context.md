@@ -372,7 +372,7 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
 
 #### TC-171: Context processing enforces egress consent scope `[AI]`
 - Priority: P1
-- Preconditions: Valid provider key configured and enabled. Fresh Workbench with no granted Workshop consent for the active provider/model.
+- Preconditions: Valid provider key configured and enabled. Consent mode is `ask` (Settings toggle off). Fresh Workbench with no granted Workshop consent for the active provider/model.
 - Steps:
   1. Create a brand-new Workbench (new name) so there is no prior consent for this scope.
      Expected: The new Workbench opens with an empty conversation.
@@ -388,3 +388,12 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
      Expected: A "Consent required" dialog appears listing the workbench file(s). Click "Continue" to grant consent.
   5. Return to "Add Context" and retry the Company-Wide processing from step 3.
      Expected: Processing succeeds within 120 seconds and the Company-Wide context item becomes active.
+
+#### TC-172: Context processing skips prompt in global consent mode `[AI]`
+- Priority: P2
+- Preconditions: Valid provider key configured and enabled. Enable Settings toggle `AppKeys.settingsConsentModeToggle` (global consent mode on). Fresh Workbench with files.
+- Steps:
+  1. Open "Add Context" -> "Company-Wide Information" -> "Add".
+     Expected: Processing modal opens.
+  2. Paste `docs/test/fixtures/workbench-context/keenbench_company_context_v1.txt` and click "Process".
+     Expected: No consent dialog appears. Processing completes successfully and the Company-Wide context item becomes active.

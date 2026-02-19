@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_keys.dart';
+import '../egress_consent.dart';
+import '../engine/engine_client.dart';
 import '../models/models.dart';
 import '../state/workbench_state.dart';
 import '../theme.dart';
@@ -335,6 +337,17 @@ class _ContextProcessDialogState extends State<_ContextProcessDialog> {
   Future<bool> _processWithRetry(WorkbenchState state) async {
     while (true) {
       try {
+        final consented = await ensureEgressConsentForWorkbench(
+          context: context,
+          engine: state.engine,
+          workbenchId: state.workbenchId,
+          files: state.files,
+          models: state.models,
+          providers: state.providers,
+        );
+        if (!consented) {
+          return false;
+        }
         await state.processContextItem(
           category: widget.category,
           mode: _mode,
@@ -345,6 +358,41 @@ class _ContextProcessDialogState extends State<_ContextProcessDialog> {
         return true;
       } catch (err) {
         if (!mounted) {
+          return false;
+        }
+        if (err is EngineError && err.errorCode == 'EGRESS_CONSENT_REQUIRED') {
+          final status = await fetchEgressConsentStatus(
+            state.engine,
+            state.workbenchId,
+          );
+          final providerId = (err.providerId ?? '').trim().isNotEmpty
+              ? err.providerId!.trim()
+              : status.providerId;
+          final modelId = (err.modelId ?? '').trim().isNotEmpty
+              ? err.modelId!.trim()
+              : status.modelId;
+          final scopeHash = (err.scopeHash ?? '').trim().isNotEmpty
+              ? err.scopeHash!.trim()
+              : status.scopeHash;
+          final decision = await showEgressConsentDialog(
+            context,
+            files: state.files,
+            scopeHash: scopeHash,
+            providerId: providerId,
+            modelId: modelId,
+            models: state.models,
+            providers: state.providers,
+          );
+          if (decision != null && decision.granted) {
+            await state.engine.call('EgressGrantWorkshopConsent', {
+              'workbench_id': state.workbenchId,
+              'provider_id': providerId,
+              'model_id': modelId,
+              'scope_hash': scopeHash,
+              'persist': decision.persist,
+            });
+            continue;
+          }
           return false;
         }
         final retry = await showDialog<bool>(

@@ -68,6 +68,9 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if mistral.RPIImplementReasoningEffort != "" {
 		t.Fatalf("expected mistral implement reasoning effort to be empty, got %q", mistral.RPIImplementReasoningEffort)
 	}
+	if settings.UserConsentMode != UserConsentModeAsk {
+		t.Fatalf("expected user consent mode to default to %q, got %q", UserConsentModeAsk, settings.UserConsentMode)
+	}
 
 	settings.Providers[providerOpenAI] = ProviderSettings{
 		Enabled:                     false,
@@ -111,6 +114,9 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 	if codex.RPIImplementReasoningEffort != reasoningEffortMedium {
 		t.Fatalf("expected openai-codex implement reasoning effort to fall back to %q, got %q", reasoningEffortMedium, codex.RPIImplementReasoningEffort)
+	}
+	if loaded.UserConsentMode != UserConsentModeAsk {
+		t.Fatalf("expected user consent mode to normalize to %q, got %q", UserConsentModeAsk, loaded.UserConsentMode)
 	}
 }
 
@@ -227,5 +233,49 @@ func TestLoadMigratesLegacyAnthropicUserDefaultModel(t *testing.T) {
 	}
 	if settings.UserDefaultModelID != anthropicDefaultSonnet46Model {
 		t.Fatalf("expected user_default_model_id=%q, got %q", anthropicDefaultSonnet46Model, settings.UserDefaultModelID)
+	}
+	if settings.UserConsentMode != UserConsentModeAsk {
+		t.Fatalf("expected user consent mode to default to %q for legacy settings, got %q", UserConsentModeAsk, settings.UserConsentMode)
+	}
+}
+
+func TestLoadNormalizesUserConsentMode(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "settings.json")
+	legacy := `{
+  "schema_version": 1,
+  "providers": {
+    "openai": {"enabled": true},
+    "openai-codex": {"enabled": true},
+    "anthropic": {"enabled": true},
+    "google": {"enabled": true},
+    "mistral": {"enabled": true}
+  },
+  "user_default_model_id": "openai:gpt-5.2",
+  "user_consent_mode": "ALLOW_ALL"
+}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy settings: %v", err)
+	}
+
+	store := NewStore(path)
+	settings, err := store.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if settings.UserConsentMode != UserConsentModeAllowAll {
+		t.Fatalf("expected user_consent_mode=%q, got %q", UserConsentModeAllowAll, settings.UserConsentMode)
+	}
+
+	settings.UserConsentMode = "invalid"
+	if err := store.Save(settings); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.UserConsentMode != UserConsentModeAsk {
+		t.Fatalf("expected invalid user_consent_mode to normalize to %q, got %q", UserConsentModeAsk, reloaded.UserConsentMode)
 	}
 }

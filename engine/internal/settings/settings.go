@@ -31,6 +31,11 @@ const (
 	anthropicDefaultSonnet46Model = "anthropic:claude-sonnet-4-6"
 )
 
+const (
+	UserConsentModeAsk      = "ask"
+	UserConsentModeAllowAll = "allow_all"
+)
+
 type ProviderSettings struct {
 	Enabled                     bool   `json:"enabled"`
 	RPIResearchReasoningEffort  string `json:"rpi_research_reasoning_effort,omitempty"`
@@ -42,6 +47,7 @@ type Settings struct {
 	SchemaVersion      int                         `json:"schema_version"`
 	Providers          map[string]ProviderSettings `json:"providers"`
 	UserDefaultModelID string                      `json:"user_default_model_id,omitempty"`
+	UserConsentMode    string                      `json:"user_consent_mode,omitempty"`
 }
 
 type Store struct {
@@ -96,6 +102,7 @@ func defaultSettings() *Settings {
 			providerMistral:     defaultProviderSettings(providerMistral),
 		},
 		UserDefaultModelID: defaultUserModelID,
+		UserConsentMode:    UserConsentModeAsk,
 	}
 }
 
@@ -129,6 +136,16 @@ func backfillSettings(settings *Settings) {
 		settings.UserDefaultModelID = anthropicDefaultSonnet46Model
 	default:
 		settings.UserDefaultModelID = strings.TrimSpace(settings.UserDefaultModelID)
+	}
+	settings.UserConsentMode = NormalizeUserConsentMode(settings.UserConsentMode)
+}
+
+func NormalizeUserConsentMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case UserConsentModeAllowAll:
+		return UserConsentModeAllowAll
+	default:
+		return UserConsentModeAsk
 	}
 }
 
