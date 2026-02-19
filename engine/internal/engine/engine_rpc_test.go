@@ -34,6 +34,7 @@ func TestEngineMetadataMethods(t *testing.T) {
 	}
 	foundOpenAI := false
 	foundOpenAICodex := false
+	foundMistral := false
 	for _, provider := range providers {
 		if provider["provider_id"] == ProviderOpenAI {
 			foundOpenAI = true
@@ -46,6 +47,15 @@ func TestEngineMetadataMethods(t *testing.T) {
 			}
 			assertProviderRPIReasoning(t, provider, "medium", "medium", "medium")
 		}
+		if provider["provider_id"] == ProviderMistral {
+			foundMistral = true
+			if provider["auth_mode"] != "api_key" {
+				t.Fatalf("expected mistral auth_mode api_key, got %#v", provider["auth_mode"])
+			}
+			if _, ok := provider["rpi_reasoning"]; ok {
+				t.Fatalf("expected mistral to omit rpi_reasoning, got %#v", provider["rpi_reasoning"])
+			}
+		}
 	}
 	if !foundOpenAI {
 		t.Fatalf("expected openai provider in status")
@@ -53,12 +63,41 @@ func TestEngineMetadataMethods(t *testing.T) {
 	if !foundOpenAICodex {
 		t.Fatalf("expected openai-codex provider in status")
 	}
+	if !foundMistral {
+		t.Fatalf("expected mistral provider in status")
+	}
+
+	modelsResp, errInfo := eng.ModelsListSupported(ctx, nil)
+	if errInfo != nil {
+		t.Fatalf("models list: %v", errInfo)
+	}
+	modelsRaw, ok := modelsResp.(map[string]any)["models"].([]ModelInfo)
+	if !ok {
+		t.Fatalf("expected models list payload")
+	}
+	foundMistralModel := false
+	for _, model := range modelsRaw {
+		if model.ModelID == ModelMistralID {
+			foundMistralModel = true
+			break
+		}
+	}
+	if !foundMistralModel {
+		t.Fatalf("expected mistral model in supported list")
+	}
 
 	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "Meta"}))
 	if errInfo != nil {
 		t.Fatalf("create: %v", errInfo)
 	}
 	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+	cancelResp, errInfo := eng.WorkshopCancelRun(ctx, mustJSON(t, map[string]any{"workbench_id": workbenchID}))
+	if errInfo != nil {
+		t.Fatalf("cancel run: %v", errInfo)
+	}
+	if cancelResp.(map[string]any)["cancel_requested"] != false {
+		t.Fatalf("expected cancel_requested=false when no run is active, got %#v", cancelResp)
+	}
 
 	listResp, errInfo := eng.WorkbenchList(ctx, nil)
 	if errInfo != nil {

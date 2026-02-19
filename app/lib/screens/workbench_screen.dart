@@ -393,6 +393,18 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     }
   }
 
+  Future<void> _cancelActiveRun() async {
+    final state = context.read<WorkbenchState>();
+    if (!state.isConversationBusy) {
+      return;
+    }
+    try {
+      await state.cancelRun();
+    } on EngineError catch (err) {
+      await _handleEngineError(err);
+    }
+  }
+
   Future<void> _rewindToMessage(ChatMessage message) async {
     final messageId = message.id.trim();
     if (messageId.isEmpty) {
@@ -638,6 +650,13 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     Future<void> Function()? onRetry,
   }) async {
     if (!mounted) return;
+    if (err.errorCode == 'USER_CANCELED') {
+      AppLog.info('workbench.run_canceled', {
+        'workbench_id': context.read<WorkbenchState>().workbenchId,
+      });
+      _showMessage('Run canceled.');
+      return;
+    }
     if (err.errorCode == 'PROVIDER_NOT_CONFIGURED' ||
         err.errorCode == 'PROVIDER_AUTH_FAILED') {
       AppLog.warn('workbench.provider_error', {
@@ -1760,6 +1779,64 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                               ),
                                             ),
                                             const SizedBox(height: 12),
+                                            if ((state.rateLimitWarning ?? '')
+                                                .isNotEmpty)
+                                              Semantics(
+                                                liveRegion: true,
+                                                label: state.rateLimitWarning!,
+                                                child: Container(
+                                                  key: AppKeys
+                                                      .workbenchRateLimitWarning,
+                                                  margin: const EdgeInsets.only(
+                                                    bottom: 8,
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 10,
+                                                        vertical: 8,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: KeenBenchTheme
+                                                        .colorWarningBackground,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                    border: Border.all(
+                                                      color: KeenBenchTheme
+                                                          .colorBorderDefault,
+                                                    ),
+                                                  ),
+                                                  child: Row(
+                                                    children: [
+                                                      const Icon(
+                                                        Icons
+                                                            .warning_amber_rounded,
+                                                        size: 16,
+                                                        color: KeenBenchTheme
+                                                            .colorWarningText,
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Text(
+                                                          state
+                                                              .rateLimitWarning!,
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .bodySmall
+                                                              ?.copyWith(
+                                                                color: KeenBenchTheme
+                                                                    .colorWarningText,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
                                             if (_phaseStatusLabel(state) !=
                                                 null)
                                               Semantics(
@@ -1922,23 +1999,16 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                                       key: AppKeys
                                                           .workbenchSendButton,
                                                       onPressed:
-                                                          state.isConversationBusy ||
-                                                              state
-                                                                  .isApplyingDraft
+                                                          state.isApplyingDraft
                                                           ? null
+                                                          : state
+                                                                .isConversationBusy
+                                                          ? _cancelActiveRun
                                                           : _submitComposer,
                                                       child:
                                                           state
                                                               .isConversationBusy
-                                                          ? const SizedBox(
-                                                              width: 16,
-                                                              height: 16,
-                                                              child:
-                                                                  CircularProgressIndicator(
-                                                                    strokeWidth:
-                                                                        2,
-                                                                  ),
-                                                            )
+                                                          ? const Text('Cancel')
                                                           : const Text('Send'),
                                                     ),
                                                   ],

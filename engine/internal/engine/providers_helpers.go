@@ -58,6 +58,12 @@ func (e *Engine) providerKey(ctx context.Context, providerID string) (string, *e
 			return "", withProviderID(errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error()), providerID)
 		}
 		return key, nil
+	case ProviderMistral:
+		key, err := e.secrets.GetMistralKey()
+		if err != nil {
+			return "", withProviderID(errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error()), providerID)
+		}
+		return key, nil
 	default:
 		return "", withProviderID(errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported provider"), providerID)
 	}
@@ -75,6 +81,10 @@ func (e *Engine) setProviderKey(providerID, apiKey string) *errinfo.ErrorInfo {
 		}
 	case ProviderGoogle:
 		if err := e.secrets.SetGoogleKey(strings.TrimSpace(apiKey)); err != nil {
+			return withProviderID(errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error()), providerID)
+		}
+	case ProviderMistral:
+		if err := e.secrets.SetMistralKey(strings.TrimSpace(apiKey)); err != nil {
 			return withProviderID(errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error()), providerID)
 		}
 	default:

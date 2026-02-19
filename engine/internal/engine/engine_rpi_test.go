@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"keenbench/engine/internal/errinfo"
 	"keenbench/engine/internal/llm"
@@ -95,6 +96,39 @@ func requestReasoningEffort(ctx context.Context) string {
 		return ""
 	}
 	return strings.TrimSpace(profile.ReasoningEffort)
+}
+
+type blockingRPIClient struct {
+	started chan struct{}
+}
+
+func (b *blockingRPIClient) ValidateKey(ctx context.Context, apiKey string) error {
+	return nil
+}
+
+func (b *blockingRPIClient) Chat(ctx context.Context, apiKey, model string, messages []llm.Message) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func (b *blockingRPIClient) StreamChat(ctx context.Context, apiKey, model string, messages []llm.Message, onDelta func(string)) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func (b *blockingRPIClient) ChatWithTools(ctx context.Context, apiKey, model string, messages []llm.ChatMessage, tools []llm.Tool) (llm.ChatResponse, error) {
+	return b.StreamChatWithTools(ctx, apiKey, model, messages, tools, nil)
+}
+
+func (b *blockingRPIClient) StreamChatWithTools(ctx context.Context, apiKey, model string, messages []llm.ChatMessage, tools []llm.Tool, onDelta func(string)) (llm.ChatResponse, error) {
+	if b.started != nil {
+		select {
+		case b.started <- struct{}{}:
+		default:
+		}
+	}
+	<-ctx.Done()
+	return llm.ChatResponse{}, ctx.Err()
 }
 
 func setupRPIWorkflowRun(t *testing.T, client LLMClient, userText string) (*Engine, string, string, string) {
@@ -527,6 +561,127 @@ func TestRPIOrchestratorImplementRetryFailsThenContinues(t *testing.T) {
 	}
 	if !strings.Contains(plan, "- [x] 2. Working item — write ok.txt") {
 		t.Fatalf("expected second item to continue and complete, got:\n%s", plan)
+	}
+}
+
+func TestRPIOrchestratorImplementRateLimitStopsRunWithBackoff(t *testing.T) {
+	client := &scriptedRPIClient{
+		toolTurns: []scriptedRPIToolTurn{
+			{resp: llm.ChatResponse{Content: "Research", FinishReason: "stop"}},
+			{resp: llm.ChatResponse{Content: strings.Join([]string{
+				"# Execution Plan",
+				"",
+				"## Task",
+				"Stop on rate limits",
+				"",
+				"## Items",
+				"- [ ] 1. Rate-limited item",
+				"- [ ] 2. Should never run",
+			}, "\n"), FinishReason: "stop"}},
+			{err: llm.ErrRateLimited},
+			{err: llm.ErrRateLimited},
+			{err: llm.ErrRateLimited},
+			{err: llm.ErrRateLimited},
+			{err: llm.ErrRateLimited},
+			{err: llm.ErrRateLimited},
+		},
+	}
+	eng, workbenchID, messageID, _ := setupRPIWorkflowRun(t, client, "Rate-limit test")
+	ctx := context.Background()
+
+	var waits []time.Duration
+	eng.sleep = func(ctx context.Context, wait time.Duration) error {
+		waits = append(waits, wait)
+		return nil
+	}
+
+	_, errInfo := eng.WorkshopRunAgent(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"message_id":   messageID,
+	}))
+	if errInfo == nil {
+		t.Fatalf("expected rate-limit error")
+	}
+	if errInfo.Subphase != errinfo.SubphaseRPIImplement {
+		t.Fatalf("expected subphase %s, got %s", errinfo.SubphaseRPIImplement, errInfo.Subphase)
+	}
+	if errInfo.ErrorCode != errinfo.CodeProviderUnavailable {
+		t.Fatalf("expected error code %s, got %s", errinfo.CodeProviderUnavailable, errInfo.ErrorCode)
+	}
+	if len(waits) != 5 {
+		t.Fatalf("expected 5 backoff waits, got %d (%v)", len(waits), waits)
+	}
+	if waits[0] != 10*time.Second ||
+		waits[1] != 20*time.Second ||
+		waits[2] != 40*time.Second ||
+		waits[3] != 80*time.Second ||
+		waits[4] != 160*time.Second {
+		t.Fatalf("unexpected backoff sequence: %v", waits)
+	}
+
+	plan, err := eng.readRPIArtifact(workbenchID, rpiPlanFile)
+	if err != nil {
+		t.Fatalf("read plan: %v", err)
+	}
+	if !strings.Contains(plan, "- [ ] 1. Rate-limited item") {
+		t.Fatalf("expected first item to remain pending, got:\n%s", plan)
+	}
+	if !strings.Contains(plan, "- [ ] 2. Should never run") {
+		t.Fatalf("expected second item to remain pending, got:\n%s", plan)
+	}
+
+	conversation, err := eng.readConversation(workbenchID)
+	if err != nil {
+		t.Fatalf("read conversation: %v", err)
+	}
+	if len(conversation) != 1 || conversation[0].Role != "user" {
+		t.Fatalf("expected only user message (no summary on hard stop), got %#v", conversation)
+	}
+}
+
+func TestWorkshopRunAgentCancelStopsInFlightRun(t *testing.T) {
+	client := &blockingRPIClient{started: make(chan struct{}, 1)}
+	eng, workbenchID, messageID, _ := setupRPIWorkflowRun(t, client, "Cancel run")
+	ctx := context.Background()
+
+	done := make(chan *errinfo.ErrorInfo, 1)
+	go func() {
+		_, runErr := eng.WorkshopRunAgent(ctx, mustJSON(t, map[string]any{
+			"workbench_id": workbenchID,
+			"message_id":   messageID,
+		}))
+		done <- runErr
+	}()
+
+	select {
+	case <-client.started:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("run did not reach model call in time")
+	}
+
+	cancelResp, cancelErr := eng.WorkshopCancelRun(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+	}))
+	if cancelErr != nil {
+		t.Fatalf("cancel run: %v", cancelErr)
+	}
+	if cancelResp.(map[string]any)["cancel_requested"] != true {
+		t.Fatalf("expected cancel_requested=true, got %#v", cancelResp)
+	}
+
+	select {
+	case runErr := <-done:
+		if runErr == nil {
+			t.Fatalf("expected canceled run error")
+		}
+		if runErr.ErrorCode != errinfo.CodeUserCanceled {
+			t.Fatalf("expected USER_CANCELED, got %s", runErr.ErrorCode)
+		}
+		if runErr.Subphase != errinfo.SubphaseRPIResearch {
+			t.Fatalf("expected subphase %s, got %s", errinfo.SubphaseRPIResearch, runErr.Subphase)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for canceled run")
 	}
 }
 

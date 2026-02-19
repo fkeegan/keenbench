@@ -32,6 +32,7 @@ import (
 	"keenbench/engine/internal/gemini"
 	"keenbench/engine/internal/llm"
 	"keenbench/engine/internal/logging"
+	"keenbench/engine/internal/mistral"
 	"keenbench/engine/internal/openai"
 	"keenbench/engine/internal/secrets"
 	"keenbench/engine/internal/settings"
@@ -63,6 +64,12 @@ const (
 	oauthFlowStatusFailed       = "failed"
 	oauthFlowStatusExpired      = "expired"
 	defaultOAuthFlowTTL         = 10 * time.Minute
+)
+
+const (
+	rateLimitRetryMaxAttempts = 5
+	rateLimitRetryBaseDelay   = 10 * time.Second
+	rateLimitRetryMaxDelay    = 4 * time.Minute
 )
 
 var workbenchEditableExtensions = []string{
@@ -102,6 +109,11 @@ type providerOAuthFlow struct {
 	ExpiresAt    time.Time
 }
 
+type workshopRunHandle struct {
+	runID  string
+	cancel context.CancelFunc
+}
+
 type Engine struct {
 	dataDir             string
 	settings            *settings.Store
@@ -124,6 +136,9 @@ type Engine struct {
 	oauthFlows          map[string]*providerOAuthFlow
 	oauthFlowByState    map[string]string
 	oauthCallbackServer *http.Server
+	runMu               sync.Mutex
+	workshopRuns        map[string]workshopRunHandle
+	sleep               func(context.Context, time.Duration) error
 }
 
 type Option func(*Engine)
@@ -169,6 +184,7 @@ func New(opts ...Option) (*Engine, error) {
 		ProviderOpenAICodex: openai.NewCodexClient(),
 		ProviderAnthropic:   anthropic.NewClient(),
 		ProviderGoogle:      gemini.NewClient(),
+		ProviderMistral:     mistral.NewClient(),
 	}
 	if envutil.Bool("KEENBENCH_FAKE_OPENAI") {
 		fake := newFakeOpenAI()
@@ -209,6 +225,8 @@ func New(opts ...Option) (*Engine, error) {
 	engine.newCodexPKCE = openai.GenerateCodexPKCE
 	engine.oauthFlows = make(map[string]*providerOAuthFlow)
 	engine.oauthFlowByState = make(map[string]string)
+	engine.workshopRuns = make(map[string]workshopRunHandle)
+	engine.sleep = sleepWithContext
 	engine.logger.Debug("engine.init", "data_dir", dataDir, "workbenches_dir", workbenchesDir, "fake_openai", envutil.Bool("KEENBENCH_FAKE_OPENAI"))
 	return engine, nil
 }
@@ -260,6 +278,7 @@ func (e *Engine) ProvidersGetStatus(ctx context.Context, _ json.RawMessage) (any
 		{ProviderOpenAICodex, "OpenAI Codex", "oauth"},
 		{ProviderAnthropic, "Anthropic", "api_key"},
 		{ProviderGoogle, "Google", "api_key"},
+		{ProviderMistral, "Mistral", "api_key"},
 	}
 	for _, provider := range providers {
 		entry := settingsData.Providers[provider.id]
@@ -1300,6 +1319,27 @@ func (e *Engine) WorkshopSendUserMessage(ctx context.Context, params json.RawMes
 	return map[string]any{"message_id": id}, nil
 }
 
+func (e *Engine) WorkshopCancelRun(_ context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	var req struct {
+		WorkbenchID string `json:"workbench_id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "invalid params")
+	}
+	if strings.TrimSpace(req.WorkbenchID) == "" {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "workbench_id is required")
+	}
+	cancelRequested := e.cancelWorkshopRun(req.WorkbenchID)
+	if cancelRequested && e.notify != nil {
+		e.notify("WorkshopRunCancelRequested", map[string]any{
+			"workbench_id": req.WorkbenchID,
+		})
+	}
+	return map[string]any{
+		"cancel_requested": cancelRequested,
+	}, nil
+}
+
 func (e *Engine) WorkshopStreamAssistantReply(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID string `json:"workbench_id"`
@@ -1311,6 +1351,11 @@ func (e *Engine) WorkshopStreamAssistantReply(ctx context.Context, params json.R
 	if err := e.ensureWorkshopUnlocked(req.WorkbenchID); err != nil {
 		return nil, err
 	}
+	runCtx, runID, errInfo := e.beginWorkshopRun(ctx, req.WorkbenchID)
+	if errInfo != nil {
+		return nil, errInfo
+	}
+	defer e.endWorkshopRun(req.WorkbenchID, runID)
 	modelID, errInfo := e.resolveActiveModel(req.WorkbenchID)
 	if errInfo != nil {
 		return nil, errInfo
@@ -1319,17 +1364,17 @@ func (e *Engine) WorkshopStreamAssistantReply(ctx context.Context, params json.R
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
-	if err := e.ensureProviderReadyFor(ctx, model.ProviderID); err != nil {
+	if err := e.ensureProviderReadyFor(runCtx, model.ProviderID); err != nil {
 		return nil, err
 	}
 	if err := e.ensureConsent(req.WorkbenchID); err != nil {
 		return nil, err
 	}
-	messages, errInfo := e.buildChatMessages(ctx, req.WorkbenchID)
+	messages, errInfo := e.buildChatMessages(runCtx, req.WorkbenchID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
-	apiKey, errInfo := e.providerKey(ctx, model.ProviderID)
+	apiKey, errInfo := e.providerKey(runCtx, model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
@@ -1340,16 +1385,26 @@ func (e *Engine) WorkshopStreamAssistantReply(ctx context.Context, params json.R
 	assistantID := fmt.Sprintf("a-%d", time.Now().UnixNano())
 	e.logger.Debug("provider.stream_chat", "workbench_id", req.WorkbenchID, "message_id", assistantID, "model", modelID, "api_key", logging.RedactValue(apiKey), "messages", messages)
 	var fullResponse strings.Builder
-	_, err := client.StreamChat(ctx, apiKey, providerModelName(modelID), messages, func(delta string) {
-		fullResponse.WriteString(delta)
-		if e.notify != nil {
-			e.notify("WorkshopAssistantStreamDelta", map[string]any{
-				"workbench_id": req.WorkbenchID,
-				"message_id":   assistantID,
-				"token_delta":  delta,
-			})
-		}
-	})
+	_, err := e.streamChatWithRateLimitRetry(
+		runCtx,
+		req.WorkbenchID,
+		client,
+		apiKey,
+		modelID,
+		messages,
+		func(delta string) {
+			fullResponse.WriteString(delta)
+			if e.notify != nil {
+				e.notify("WorkshopAssistantStreamDelta", map[string]any{
+					"workbench_id": req.WorkbenchID,
+					"message_id":   assistantID,
+					"token_delta":  delta,
+				})
+			}
+		},
+		model.ProviderID,
+		"stream",
+	)
 	if err != nil {
 		e.logger.Warn("provider.stream_chat_failed", "workbench_id", req.WorkbenchID, "error", err.Error())
 		return nil, mapLLMError(errinfo.PhaseWorkshop, model.ProviderID, err)
@@ -1930,6 +1985,203 @@ func withSubphase(errInfo *errinfo.ErrorInfo, subphase string) *errinfo.ErrorInf
 	return &copied
 }
 
+func sleepWithContext(ctx context.Context, wait time.Duration) error {
+	if wait <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func rateLimitBackoffDuration(attempt int) time.Duration {
+	if attempt <= 0 {
+		return 0
+	}
+	wait := rateLimitRetryBaseDelay * time.Duration(1<<uint(attempt-1))
+	if wait > rateLimitRetryMaxDelay {
+		return rateLimitRetryMaxDelay
+	}
+	return wait
+}
+
+func isRateLimitErrorInfo(errInfo *errinfo.ErrorInfo) bool {
+	if errInfo == nil {
+		return false
+	}
+	if errInfo.ErrorCode != errinfo.CodeProviderUnavailable {
+		return false
+	}
+	detail := strings.ToLower(strings.TrimSpace(errInfo.Detail))
+	return strings.Contains(detail, "rate limit") ||
+		strings.Contains(detail, "rate-limited") ||
+		strings.Contains(detail, "too many requests") ||
+		strings.Contains(detail, "429")
+}
+
+func (e *Engine) notifyRateLimitWarning(workbenchID, providerID, modelID, phase string, attempt int, wait time.Duration) {
+	if e.notify == nil {
+		return
+	}
+	e.notify("WorkshopRateLimitWarning", map[string]any{
+		"workbench_id":  workbenchID,
+		"provider_id":   providerID,
+		"model_id":      modelID,
+		"phase":         strings.TrimSpace(phase),
+		"retry_attempt": attempt,
+		"retry_max":     rateLimitRetryMaxAttempts,
+		"wait_ms":       wait.Milliseconds(),
+		"warning_message": fmt.Sprintf(
+			"Rate limit reached. Retrying in %d ms (%d/%d).",
+			wait.Milliseconds(),
+			attempt,
+			rateLimitRetryMaxAttempts,
+		),
+	})
+}
+
+func (e *Engine) beginWorkshopRun(parent context.Context, workbenchID string) (context.Context, string, *errinfo.ErrorInfo) {
+	runCtx, cancel := context.WithCancel(parent)
+	runID := fmt.Sprintf("run-%d", time.Now().UnixNano())
+
+	e.runMu.Lock()
+	defer e.runMu.Unlock()
+	if _, exists := e.workshopRuns[workbenchID]; exists {
+		cancel()
+		return nil, "", errinfo.ValidationFailed(errinfo.PhaseWorkshop, "workshop run already in progress")
+	}
+	e.workshopRuns[workbenchID] = workshopRunHandle{
+		runID:  runID,
+		cancel: cancel,
+	}
+	return runCtx, runID, nil
+}
+
+func (e *Engine) endWorkshopRun(workbenchID, runID string) {
+	var cancel context.CancelFunc
+
+	e.runMu.Lock()
+	handle, ok := e.workshopRuns[workbenchID]
+	if ok && handle.runID == runID {
+		cancel = handle.cancel
+		delete(e.workshopRuns, workbenchID)
+	}
+	e.runMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (e *Engine) cancelWorkshopRun(workbenchID string) bool {
+	e.runMu.Lock()
+	handle, ok := e.workshopRuns[workbenchID]
+	e.runMu.Unlock()
+	if !ok || handle.cancel == nil {
+		return false
+	}
+	handle.cancel()
+	return true
+}
+
+func (e *Engine) streamChatWithToolsWithRateLimitRetry(
+	ctx context.Context,
+	cfg agentLoopConfig,
+	messages []llm.ChatMessage,
+	onDelta func(string),
+	turn int,
+	providerID string,
+	logPrefix string,
+) (llm.ChatResponse, error) {
+	var lastErr error
+	for attempt := 0; attempt <= rateLimitRetryMaxAttempts; attempt++ {
+		resp, err := cfg.client.StreamChatWithTools(
+			ctx,
+			cfg.apiKey,
+			providerModelName(cfg.modelID),
+			messages,
+			cfg.tools,
+			onDelta,
+		)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !errors.Is(err, llm.ErrRateLimited) {
+			return llm.ChatResponse{}, err
+		}
+		if attempt == rateLimitRetryMaxAttempts {
+			return llm.ChatResponse{}, err
+		}
+		retryAttempt := attempt + 1
+		wait := rateLimitBackoffDuration(retryAttempt)
+		e.logger.Warn(
+			logPrefix+"_rate_limited",
+			"turn", turn,
+			"retry_attempt", retryAttempt,
+			"retry_max", rateLimitRetryMaxAttempts,
+			"retry_in_ms", wait.Milliseconds(),
+		)
+		e.notifyRateLimitWarning(cfg.workbenchID, providerID, cfg.modelID, cfg.phaseName, retryAttempt, wait)
+		if err := e.sleep(ctx, wait); err != nil {
+			return llm.ChatResponse{}, err
+		}
+	}
+	if lastErr != nil {
+		return llm.ChatResponse{}, lastErr
+	}
+	return llm.ChatResponse{}, errors.New("rate-limit retry failed")
+}
+
+func (e *Engine) streamChatWithRateLimitRetry(
+	ctx context.Context,
+	workbenchID string,
+	client LLMClient,
+	apiKey string,
+	modelID string,
+	messages []llm.Message,
+	onDelta func(string),
+	providerID string,
+	phase string,
+) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt <= rateLimitRetryMaxAttempts; attempt++ {
+		resp, err := client.StreamChat(ctx, apiKey, providerModelName(modelID), messages, onDelta)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !errors.Is(err, llm.ErrRateLimited) {
+			return "", err
+		}
+		if attempt == rateLimitRetryMaxAttempts {
+			return "", err
+		}
+		retryAttempt := attempt + 1
+		wait := rateLimitBackoffDuration(retryAttempt)
+		e.logger.Warn(
+			"workshop.stream_rate_limited",
+			"phase", strings.TrimSpace(phase),
+			"retry_attempt", retryAttempt,
+			"retry_max", rateLimitRetryMaxAttempts,
+			"retry_in_ms", wait.Milliseconds(),
+		)
+		e.notifyRateLimitWarning(workbenchID, providerID, modelID, phase, retryAttempt, wait)
+		if err := e.sleep(ctx, wait); err != nil {
+			return "", err
+		}
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", errors.New("rate-limit retry failed")
+}
+
 func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoopResult {
 	result := agentLoopResult{
 		toolLogSeqEnd: cfg.toolLogSeqStart,
@@ -1981,7 +2233,15 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 		e.logger.Info(logPrefix+"_api_request", "turn", turn, "messages", len(messages), "payload_bytes_approx", payloadBytes)
 
 		apiStart := time.Now()
-		resp, err := cfg.client.StreamChatWithTools(ctx, cfg.apiKey, providerModelName(cfg.modelID), messages, cfg.tools, onDelta)
+		resp, err := e.streamChatWithToolsWithRateLimitRetry(
+			ctx,
+			cfg,
+			messages,
+			onDelta,
+			turn,
+			providerID,
+			logPrefix,
+		)
 		if err != nil {
 			if providerID == ProviderOpenAICodex && errors.Is(err, llm.ErrUnauthorized) {
 				e.logCodexUnauthorizedDiagnostics()
@@ -2252,6 +2512,11 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if err := e.ensureWorkshopUnlocked(req.WorkbenchID); err != nil {
 		return nil, err
 	}
+	runCtx, runID, runErr := e.beginWorkshopRun(ctx, req.WorkbenchID)
+	if runErr != nil {
+		return nil, runErr
+	}
+	defer e.endWorkshopRun(req.WorkbenchID, runID)
 	modelID, errInfo := e.resolveActiveModel(req.WorkbenchID)
 	if errInfo != nil {
 		return nil, errInfo
@@ -2260,7 +2525,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
-	if err := e.ensureProviderReadyFor(ctx, model.ProviderID); err != nil {
+	if err := e.ensureProviderReadyFor(runCtx, model.ProviderID); err != nil {
 		return nil, err
 	}
 	if err := e.ensureConsent(req.WorkbenchID); err != nil {
@@ -2271,7 +2536,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 		runStartedAt = e.now()
 	}
 
-	apiKey, errInfo := e.providerKey(ctx, model.ProviderID)
+	apiKey, errInfo := e.providerKey(runCtx, model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
@@ -2296,7 +2561,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if !state.HasResearch {
 		e.notifyPhase(req.WorkbenchID, "research")
 		toolLogSeq, errInfo = e.runResearchPhase(
-			withRPIReasoningEffortProfile(ctx, model.ProviderID, reasoningEffort.ResearchEffort),
+			withRPIReasoningEffortProfile(runCtx, model.ProviderID, reasoningEffort.ResearchEffort),
 			req.WorkbenchID,
 			userPrompt,
 			client,
@@ -2314,7 +2579,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if state.HasResearch && !state.HasPlan {
 		e.notifyPhase(req.WorkbenchID, "plan")
 		toolLogSeq, errInfo = e.runPlanPhase(
-			withRPIReasoningEffortProfile(ctx, model.ProviderID, reasoningEffort.PlanEffort),
+			withRPIReasoningEffortProfile(runCtx, model.ProviderID, reasoningEffort.PlanEffort),
 			req.WorkbenchID,
 			userPrompt,
 			client,
@@ -2333,7 +2598,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 		e.notifyPhase(req.WorkbenchID, "implement")
 		var hints map[string]map[string]any
 		toolLogSeq, hints, errInfo = e.runImplementPhase(
-			withRPIReasoningEffortProfile(ctx, model.ProviderID, reasoningEffort.ImplementEffort),
+			withRPIReasoningEffortProfile(runCtx, model.ProviderID, reasoningEffort.ImplementEffort),
 			req.WorkbenchID,
 			userPrompt,
 			client,
@@ -2350,7 +2615,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 		e.notifyPhaseComplete(req.WorkbenchID, "implement")
 	}
 
-	assistantID, summaryText, errInfo := e.runSummaryPhase(ctx, req.WorkbenchID, client, apiKey, modelID)
+	assistantID, summaryText, errInfo := e.runSummaryPhase(runCtx, req.WorkbenchID, client, apiKey, modelID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
@@ -2503,6 +2768,9 @@ func (e *Engine) runImplementPhase(ctx context.Context, workbenchID, userPrompt 
 		})
 		toolLogSeq = result.toolLogSeqEnd
 		if result.err != nil {
+			if result.err.ErrorCode == errinfo.CodeUserCanceled || isRateLimitErrorInfo(result.err) {
+				return toolLogSeq, handler.FocusHints(), withSubphase(result.err, errinfo.SubphaseRPIImplement)
+			}
 			reason := compactRPIErrorReason(result.err)
 			retryMessages, retryErrInfo := e.buildRPIImplementRetryMessages(ctx, workbenchID, currentItem, userPrompt, reason)
 			if retryErrInfo != nil {
@@ -2524,6 +2792,9 @@ func (e *Engine) runImplementPhase(ctx context.Context, workbenchID, userPrompt 
 			})
 			toolLogSeq = retryResult.toolLogSeqEnd
 			if retryResult.err != nil {
+				if retryResult.err.ErrorCode == errinfo.CodeUserCanceled || isRateLimitErrorInfo(retryResult.err) {
+					return toolLogSeq, handler.FocusHints(), withSubphase(retryResult.err, errinfo.SubphaseRPIImplement)
+				}
 				failReason := compactRPIErrorReason(retryResult.err)
 				if err := e.markPlanItem(workbenchID, currentIdx, rpiStatusFailed, failReason); err != nil {
 					return toolLogSeq, handler.FocusHints(), withSubphase(errinfo.FileWriteFailed(errinfo.PhaseWorkshop, err.Error()), errinfo.SubphaseRPIImplement)
@@ -2561,19 +2832,29 @@ func (e *Engine) runSummaryPhase(ctx context.Context, workbenchID string, client
 
 	assistantID := fmt.Sprintf("a-%d", time.Now().UnixNano())
 	var fullResponse strings.Builder
-	resp, err := client.StreamChat(ctx, apiKey, providerModelName(modelID), messages, func(delta string) {
-		fullResponse.WriteString(delta)
-		if e.addPendingClutter(workbenchID, delta) {
-			e.emitClutterChanged(workbenchID)
-		}
-		if e.notify != nil {
-			e.notify("WorkshopAssistantStreamDelta", map[string]any{
-				"workbench_id": workbenchID,
-				"message_id":   assistantID,
-				"token_delta":  delta,
-			})
-		}
-	})
+	resp, err := e.streamChatWithRateLimitRetry(
+		ctx,
+		workbenchID,
+		client,
+		apiKey,
+		modelID,
+		messages,
+		func(delta string) {
+			fullResponse.WriteString(delta)
+			if e.addPendingClutter(workbenchID, delta) {
+				e.emitClutterChanged(workbenchID)
+			}
+			if e.notify != nil {
+				e.notify("WorkshopAssistantStreamDelta", map[string]any{
+					"workbench_id": workbenchID,
+					"message_id":   assistantID,
+					"token_delta":  delta,
+				})
+			}
+		},
+		providerID,
+		"summary",
+	)
 	if err != nil {
 		return "", "", withSubphase(mapLLMError(errinfo.PhaseWorkshop, providerID, err), errinfo.SubphaseRPISummary)
 	}

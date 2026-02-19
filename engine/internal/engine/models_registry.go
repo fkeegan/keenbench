@@ -7,6 +7,7 @@ const (
 	ProviderOpenAICodex = "openai-codex"
 	ProviderAnthropic   = "anthropic"
 	ProviderGoogle      = "google"
+	ProviderMistral     = "mistral"
 )
 
 const (
@@ -14,6 +15,7 @@ const (
 	ModelOpenAICodexID = "openai-codex:gpt-5.3-codex"
 	ModelAnthropicID   = "anthropic:claude-opus-4.5"
 	ModelGoogleID      = "google:gemini-3-pro"
+	ModelMistralID     = "mistral:mistral-large"
 )
 
 type ModelInfo struct {
@@ -68,6 +70,16 @@ var modelRegistry = map[string]ModelInfo{
 		CanBeSecondary:    false,
 		RequiresKey:       true,
 	},
+	ModelMistralID: {
+		ModelID:           ModelMistralID,
+		ProviderID:        ProviderMistral,
+		DisplayName:       "Mistral Large",
+		ContextTokens:     128000,
+		SupportsFileRead:  true,
+		SupportsFileWrite: true,
+		CanBeSecondary:    true,
+		RequiresKey:       true,
+	},
 }
 
 func listSupportedModels() []ModelInfo {
@@ -76,6 +88,7 @@ func listSupportedModels() []ModelInfo {
 		modelRegistry[ModelOpenAICodexID],
 		modelRegistry[ModelAnthropicID],
 		modelRegistry[ModelGoogleID],
+		modelRegistry[ModelMistralID],
 	}
 }
 
@@ -85,6 +98,9 @@ func getModel(modelID string) (ModelInfo, bool) {
 }
 
 func providerModelName(modelID string) string {
+	if modelID == ModelMistralID {
+		return "mistral-large-latest"
+	}
 	parts := strings.SplitN(modelID, ":", 2)
 	if len(parts) == 2 {
 		return parts[1]

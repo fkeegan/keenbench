@@ -44,6 +44,7 @@ class WorkbenchState extends ChangeNotifier {
   int? implementCurrentItem;
   int? implementTotalItems;
   String? implementItemLabel;
+  String? rateLimitWarning;
 
   ChatMode chatMode = ChatMode.agent;
 
@@ -383,6 +384,7 @@ class WorkbenchState extends ChangeNotifier {
       return;
     }
     isSending = true;
+    rateLimitWarning = null;
     notifyListeners();
     try {
       AppLog.info('workbench.send_message', {
@@ -423,8 +425,17 @@ class WorkbenchState extends ChangeNotifier {
       isSending = false;
       currentToolName = null;
       currentToolCallId = null;
+      currentPhase = null;
+      implementCurrentItem = null;
+      implementTotalItems = null;
+      implementItemLabel = null;
+      rateLimitWarning = null;
       notifyListeners();
     }
+  }
+
+  Future<void> cancelRun() async {
+    await engine.call('WorkshopCancelRun', {'workbench_id': workbenchId});
   }
 
   Future<void> setActiveModel(String modelId) async {
@@ -640,6 +651,28 @@ class WorkbenchState extends ChangeNotifier {
           implementCurrentItem = null;
           implementTotalItems = null;
           implementItemLabel = null;
+          notifyListeners();
+          break;
+        case 'WorkshopRateLimitWarning':
+          final retryAttempt = (params['retry_attempt'] as num?)?.toInt();
+          final retryMax = (params['retry_max'] as num?)?.toInt();
+          final waitMs = (params['wait_ms'] as num?)?.toInt();
+          final providerId = (params['provider_id'] as String?)?.trim();
+          final providerLabel = providerId == null || providerId.isEmpty
+              ? 'provider'
+              : providerId;
+          final waitSeconds = waitMs == null ? 0 : (waitMs / 1000).ceil();
+          if (retryAttempt != null && retryMax != null && retryMax > 0) {
+            rateLimitWarning =
+                'Rate limit hit on $providerLabel. Retrying ($retryAttempt/$retryMax) in ${waitSeconds}s. You can cancel.';
+          } else {
+            rateLimitWarning =
+                'Rate limit hit on $providerLabel. Retrying shortly. You can cancel.';
+          }
+          notifyListeners();
+          break;
+        case 'WorkshopRunCancelRequested':
+          rateLimitWarning = 'Cancel requested. Stopping run...';
           notifyListeners();
           break;
         default:

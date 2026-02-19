@@ -19,7 +19,7 @@ This test plan covers all milestones (M0 through M3):
 - Review: offline diffs, side-by-side previews, text extraction diffs
 - Office files: DOCX, XLSX, PPTX read/write via tool worker
 - PDF, ODT, images: read-only ingest with previews
-- Multi-provider: OpenAI, Anthropic, Gemini
+- Multi-provider: OpenAI, Anthropic, Gemini, Mistral
 - Checkpoints: create, list, restore
 - Clutter bar: context usage signal
 - Safety: sandbox enforcement, egress allowlist, draft gating, error codes
@@ -27,11 +27,12 @@ This test plan covers all milestones (M0 through M3):
 ## Test Environment
 
 - Linux desktop (X11). E2E harness targets `flutter test integration_test -d linux`.
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`.
+- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
   - `KEENBENCH_GEMINI_API_KEY` (required for multi-provider tests)
+  - `KEENBENCH_MISTRAL_API_KEY` (required for multi-provider tests)
 - Clean app data directory per test run (`KEENBENCH_DATA_DIR` pointed to temp dir).
 - Python venv with tool worker dependencies (`engine/tools/pyworker/.venv`).
 

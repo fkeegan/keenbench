@@ -28,6 +28,7 @@ class _FakeSettingsEngine implements EngineApi {
   final Map<String, List<Map<String, dynamic>?>> paramsHistory = {};
 
   bool openAIConfigured = false;
+  bool mistralConfigured = false;
   bool openAICodexConnected;
   bool openAICodexExpired;
   String? openAICodexAccountLabel;
@@ -100,6 +101,14 @@ class _FakeSettingsEngine implements EngineApi {
               if (openAICodexExpiresAt != null)
                 'oauth_expires_at': openAICodexExpiresAt,
             },
+            {
+              'provider_id': 'mistral',
+              'display_name': 'Mistral',
+              'enabled': true,
+              'configured': mistralConfigured,
+              'models': ['mistral:mistral-large'],
+              'auth_mode': 'api_key',
+            },
           ],
         };
       case 'ModelsListSupported':
@@ -121,6 +130,14 @@ class _FakeSettingsEngine implements EngineApi {
               'supports_file_read': true,
               'supports_file_write': true,
             },
+            {
+              'model_id': 'mistral:mistral-large',
+              'provider_id': 'mistral',
+              'display_name': 'Mistral Large',
+              'context_tokens_estimate': 128000,
+              'supports_file_read': true,
+              'supports_file_write': true,
+            },
           ],
         };
       case 'UserGetDefaultModel':
@@ -131,7 +148,12 @@ class _FakeSettingsEngine implements EngineApi {
       case 'ProvidersSetEnabled':
         return {};
       case 'ProvidersSetApiKey':
-        openAIConfigured = true;
+        final providerId = params?['provider_id'] as String? ?? '';
+        if (providerId == 'openai') {
+          openAIConfigured = true;
+        } else if (providerId == 'mistral') {
+          mistralConfigured = true;
+        }
         return {};
       case 'ProvidersSetReasoningEffort':
         final providerId = params?['provider_id'] as String? ?? '';
@@ -461,5 +483,35 @@ void main() {
     expect(engine.lastParams('ProvidersSetApiKey')?['api_key'], 'sk-test');
     expect(engine.callCount('ProvidersValidate'), 1);
     expect(engine.lastParams('ProvidersValidate')?['provider_id'], 'openai');
+  });
+
+  testWidgets('Mistral API key controls render and save', (tester) async {
+    final engine = _FakeSettingsEngine();
+
+    await _pumpSettingsScreen(tester, engine);
+
+    expect(find.text('Mistral'), findsOneWidget);
+
+    final mistralField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == 'Mistral API Key',
+    );
+    expect(mistralField, findsOneWidget);
+
+    await tester.enterText(mistralField, 'mistral-test-key');
+    final mistralSaveButton = find.text('Save & Validate').last;
+    await tester.ensureVisible(mistralSaveButton);
+    await tester.tap(mistralSaveButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ProvidersSetApiKey'), 1);
+    expect(engine.lastParams('ProvidersSetApiKey')?['provider_id'], 'mistral');
+    expect(
+      engine.lastParams('ProvidersSetApiKey')?['api_key'],
+      'mistral-test-key',
+    );
+    expect(engine.callCount('ProvidersValidate'), 1);
+    expect(engine.lastParams('ProvidersValidate')?['provider_id'], 'mistral');
   });
 }

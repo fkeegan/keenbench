@@ -66,6 +66,13 @@ class FakeEngine implements EngineApi {
             'configured': true,
             'models': ['openai/gpt-4o-mini'],
           },
+          {
+            'provider_id': 'mistral',
+            'display_name': 'Mistral',
+            'enabled': true,
+            'configured': false,
+            'models': ['mistral:mistral-large'],
+          },
         ],
       };
     }
@@ -76,6 +83,14 @@ class FakeEngine implements EngineApi {
             'model_id': 'openai/gpt-4o-mini',
             'provider_id': 'openai',
             'display_name': 'GPT-4o mini',
+            'context_tokens_estimate': 128000,
+            'supports_file_read': true,
+            'supports_file_write': true,
+          },
+          {
+            'model_id': 'mistral:mistral-large',
+            'provider_id': 'mistral',
+            'display_name': 'Mistral Large',
             'context_tokens_estimate': 128000,
             'supports_file_read': true,
             'supports_file_write': true,
