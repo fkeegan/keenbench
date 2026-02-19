@@ -67,7 +67,10 @@ func (c *Client) ValidateKey(ctx context.Context, apiKey string) error {
 }
 
 func (c *Client) Chat(ctx context.Context, apiKey, model string, messages []llm.Message) (string, error) {
-	anthropicMessages, systemPrompt := toAnthropicMessages(messages, nil)
+	anthropicMessages, systemPrompt, err := toAnthropicMessages(messages, nil)
+	if err != nil {
+		return "", err
+	}
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
@@ -111,7 +114,10 @@ func (c *Client) StreamChat(ctx context.Context, apiKey, model string, messages 
 }
 
 func (c *Client) ChatWithTools(ctx context.Context, apiKey, model string, messages []llm.ChatMessage, tools []llm.Tool) (llm.ChatResponse, error) {
-	anthropicMessages, systemPrompt := toAnthropicMessages(nil, messages)
+	anthropicMessages, systemPrompt, err := toAnthropicMessages(nil, messages)
+	if err != nil {
+		return llm.ChatResponse{}, err
+	}
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
@@ -192,9 +198,9 @@ func (c *Client) post(ctx context.Context, apiKey string, body []byte) ([]byte, 
 	return io.ReadAll(resp.Body)
 }
 
-type anthropicMessage struct {
-	Role    string             `json:"role"`
-	Content []anthropicContent `json:"content"`
+type anthropicRequestMessage struct {
+	Role    string           `json:"role"`
+	Content []map[string]any `json:"content"`
 }
 
 type anthropicContent struct {
@@ -217,8 +223,8 @@ type anthropicResponse struct {
 	Content []anthropicContent `json:"content"`
 }
 
-func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthropicMessage, string) {
-	var messages []anthropicMessage
+func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthropicRequestMessage, string, error) {
+	var messages []anthropicRequestMessage
 	systemParts := make([]string, 0)
 	if len(chat) == 0 {
 		for _, msg := range simple {
@@ -230,12 +236,18 @@ func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthro
 				}
 				continue
 			}
-			messages = append(messages, anthropicMessage{
-				Role:    role,
-				Content: []anthropicContent{{Type: "text", Text: msg.Content}},
+			messages = append(messages, anthropicRequestMessage{
+				Role: normalizeAnthropicRole(role),
+				Content: []map[string]any{{
+					"type": "text",
+					"text": msg.Content,
+				}},
 			})
 		}
-		return messages, strings.Join(systemParts, "\n\n")
+		if len(messages) == 0 {
+			return nil, "", errors.New("anthropic requires at least one non-system message")
+		}
+		return messages, strings.Join(systemParts, "\n\n"), nil
 	}
 	for _, msg := range chat {
 		switch strings.ToLower(strings.TrimSpace(msg.Role)) {
@@ -245,47 +257,84 @@ func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthro
 				systemParts = append(systemParts, text)
 			}
 		case "tool":
-			messages = append(messages, anthropicMessage{
+			toolUseID := strings.TrimSpace(msg.ToolCallID)
+			if toolUseID == "" {
+				return nil, "", errors.New("anthropic tool_result missing tool_use_id")
+			}
+			messages = append(messages, anthropicRequestMessage{
 				Role: "user",
-				Content: []anthropicContent{{
-					Type:      "tool_result",
-					ToolUseID: msg.ToolCallID,
-					Content:   msg.Content,
+				Content: []map[string]any{{
+					"type":        "tool_result",
+					"tool_use_id": toolUseID,
+					"content":     msg.Content,
 				}},
 			})
 		default:
-			content := []anthropicContent{}
+			content := make([]map[string]any, 0, 1+len(msg.ToolCalls))
 			if msg.Content != "" {
-				content = append(content, anthropicContent{Type: "text", Text: msg.Content})
-			}
-			for _, call := range msg.ToolCalls {
-				input := map[string]any{}
-				if call.Function.Arguments != "" {
-					_ = json.Unmarshal([]byte(call.Function.Arguments), &input)
-				}
-				content = append(content, anthropicContent{
-					Type:  "tool_use",
-					ID:    call.ID,
-					Name:  call.Function.Name,
-					Input: input,
+				content = append(content, map[string]any{
+					"type": "text",
+					"text": msg.Content,
 				})
 			}
-			messages = append(messages, anthropicMessage{
-				Role:    strings.ToLower(strings.TrimSpace(msg.Role)),
+			for _, call := range msg.ToolCalls {
+				callID := strings.TrimSpace(call.ID)
+				if callID == "" {
+					return nil, "", errors.New("anthropic tool_use missing id")
+				}
+				callName := strings.TrimSpace(call.Function.Name)
+				if callName == "" {
+					return nil, "", errors.New("anthropic tool_use missing name")
+				}
+				input := map[string]any{}
+				if call.Function.Arguments != "" {
+					if err := json.Unmarshal([]byte(call.Function.Arguments), &input); err != nil {
+						// Keep payload valid for Anthropic even if upstream args are malformed.
+						input = map[string]any{}
+					}
+				}
+				content = append(content, map[string]any{
+					"type":  "tool_use",
+					"id":    callID,
+					"name":  callName,
+					"input": input,
+				})
+			}
+			if len(content) == 0 {
+				continue
+			}
+			messages = append(messages, anthropicRequestMessage{
+				Role:    normalizeAnthropicRole(msg.Role),
 				Content: content,
 			})
 		}
 	}
-	return messages, strings.Join(systemParts, "\n\n")
+	if len(messages) == 0 {
+		return nil, "", errors.New("anthropic requires at least one non-system message")
+	}
+	return messages, strings.Join(systemParts, "\n\n"), nil
+}
+
+func normalizeAnthropicRole(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "assistant", "model":
+		return "assistant"
+	default:
+		return "user"
+	}
 }
 
 func toAnthropicTools(tools []llm.Tool) []anthropicTool {
 	result := make([]anthropicTool, 0, len(tools))
 	for _, tool := range tools {
+		schema := bytes.TrimSpace(tool.Function.Parameters)
+		if len(schema) == 0 || !json.Valid(schema) {
+			schema = []byte(`{"type":"object","properties":{}}`)
+		}
 		result = append(result, anthropicTool{
 			Name:        tool.Function.Name,
 			Description: tool.Function.Description,
-			InputSchema: tool.Function.Parameters,
+			InputSchema: json.RawMessage(schema),
 		})
 	}
 	return result
@@ -341,7 +390,11 @@ func extractTools(contents []anthropicContent) (string, []llm.ToolCall) {
 		case "text":
 			buf.WriteString(item.Text)
 		case "tool_use":
-			args, _ := json.Marshal(item.Input)
+			input := item.Input
+			if input == nil {
+				input = map[string]any{}
+			}
+			args, _ := json.Marshal(input)
 			calls = append(calls, llm.ToolCall{
 				ID:   item.ID,
 				Type: "function",

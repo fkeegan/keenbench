@@ -217,7 +217,7 @@ func TestReasoningEffortMaxAllowedForOpus(t *testing.T) {
 func TestToAnthropicMessagesToolResultOmitsName(t *testing.T) {
 	t.Helper()
 
-	messages, _ := toAnthropicMessages(nil, []llm.ChatMessage{
+	messages, _, err := toAnthropicMessages(nil, []llm.ChatMessage{
 		{Role: "user", Content: "Run tool"},
 		{
 			Role: "assistant",
@@ -232,6 +232,9 @@ func TestToAnthropicMessagesToolResultOmitsName(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "toolu_1", Content: "file body"},
 	})
+	if err != nil {
+		t.Fatalf("toAnthropicMessages: %v", err)
+	}
 
 	if len(messages) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(messages))
@@ -262,5 +265,105 @@ func TestToAnthropicMessagesToolResultOmitsName(t *testing.T) {
 	}
 	if _, exists := block["name"]; exists {
 		t.Fatalf("tool_result must not include name, got %#v", block["name"])
+	}
+}
+
+func TestToAnthropicMessagesToolUseIncludesInputWhenArgumentsEmpty(t *testing.T) {
+	t.Helper()
+
+	messages, _, err := toAnthropicMessages(nil, []llm.ChatMessage{
+		{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID:   "toolu_1",
+				Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      "read_file",
+					Arguments: "",
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("toAnthropicMessages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+
+	raw, err := json.Marshal(messages[0])
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal message: %v", err)
+	}
+	content, ok := decoded["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("expected single content block, got %#v", decoded["content"])
+	}
+	block, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected content block object, got %#v", content[0])
+	}
+	if got := block["type"]; got != "tool_use" {
+		t.Fatalf("expected tool_use block, got %#v", got)
+	}
+	if _, exists := block["input"]; !exists {
+		t.Fatalf("tool_use must include input")
+	}
+	input, ok := block["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected input object, got %#v", block["input"])
+	}
+	if len(input) != 0 {
+		t.Fatalf("expected empty input object, got %#v", input)
+	}
+}
+
+func TestToAnthropicMessagesRejectsToolResultWithoutToolUseID(t *testing.T) {
+	t.Helper()
+
+	if _, _, err := toAnthropicMessages(nil, []llm.ChatMessage{
+		{Role: "tool", Content: "missing id"},
+	}); err == nil {
+		t.Fatalf("expected tool_result validation error")
+	}
+}
+
+func TestToAnthropicMessagesRejectsAllSystemInput(t *testing.T) {
+	t.Helper()
+
+	if _, _, err := toAnthropicMessages([]llm.Message{
+		{Role: "system", Content: "A"},
+		{Role: "system", Content: "B"},
+	}, nil); err == nil {
+		t.Fatalf("expected missing non-system message validation error")
+	}
+}
+
+func TestToAnthropicToolsBackfillsEmptyInputSchema(t *testing.T) {
+	t.Helper()
+
+	tools := toAnthropicTools([]llm.Tool{{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "read_file",
+			Description: "Read file",
+		},
+	}})
+	if len(tools) != 1 {
+		t.Fatalf("expected one tool, got %d", len(tools))
+	}
+	if !json.Valid(tools[0].InputSchema) {
+		t.Fatalf("expected valid json schema, got %q", string(tools[0].InputSchema))
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(tools[0].InputSchema, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	if schema["type"] != "object" {
+		t.Fatalf("expected object schema type, got %#v", schema["type"])
 	}
 }
