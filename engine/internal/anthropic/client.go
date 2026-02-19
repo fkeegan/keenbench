@@ -220,7 +220,6 @@ type anthropicResponse struct {
 func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthropicMessage, string) {
 	var messages []anthropicMessage
 	systemParts := make([]string, 0)
-	toolNameByID := make(map[string]string)
 	if len(chat) == 0 {
 		for _, msg := range simple {
 			role := strings.ToLower(strings.TrimSpace(msg.Role))
@@ -246,14 +245,12 @@ func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthro
 				systemParts = append(systemParts, text)
 			}
 		case "tool":
-			name := toolNameByID[msg.ToolCallID]
 			messages = append(messages, anthropicMessage{
 				Role: "user",
 				Content: []anthropicContent{{
 					Type:      "tool_result",
 					ToolUseID: msg.ToolCallID,
 					Content:   msg.Content,
-					Name:      name,
 				}},
 			})
 		default:
@@ -262,7 +259,6 @@ func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthro
 				content = append(content, anthropicContent{Type: "text", Text: msg.Content})
 			}
 			for _, call := range msg.ToolCalls {
-				toolNameByID[call.ID] = call.Function.Name
 				input := map[string]any{}
 				if call.Function.Arguments != "" {
 					_ = json.Unmarshal([]byte(call.Function.Arguments), &input)

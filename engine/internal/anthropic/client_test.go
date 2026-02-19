@@ -213,3 +213,54 @@ func TestReasoningEffortMaxAllowedForOpus(t *testing.T) {
 		t.Fatalf("expected effort=max for opus, got %#v", got)
 	}
 }
+
+func TestToAnthropicMessagesToolResultOmitsName(t *testing.T) {
+	t.Helper()
+
+	messages, _ := toAnthropicMessages(nil, []llm.ChatMessage{
+		{Role: "user", Content: "Run tool"},
+		{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID:   "toolu_1",
+				Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      "read_file",
+					Arguments: `{"path":"README.md"}`,
+				},
+			}},
+		},
+		{Role: "tool", ToolCallID: "toolu_1", Content: "file body"},
+	})
+
+	if len(messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(messages))
+	}
+
+	raw, err := json.Marshal(messages[2])
+	if err != nil {
+		t.Fatalf("marshal tool_result message: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal tool_result message: %v", err)
+	}
+
+	content, ok := decoded["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("expected single content block, got %#v", decoded["content"])
+	}
+	block, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected content block object, got %#v", content[0])
+	}
+	if got := block["type"]; got != "tool_result" {
+		t.Fatalf("expected tool_result block, got %#v", got)
+	}
+	if got := block["tool_use_id"]; got != "toolu_1" {
+		t.Fatalf("expected tool_use_id=toolu_1, got %#v", got)
+	}
+	if _, exists := block["name"]; exists {
+		t.Fatalf("tool_result must not include name, got %#v", block["name"])
+	}
+}
