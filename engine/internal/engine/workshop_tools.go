@@ -2318,7 +2318,8 @@ Rules:
 8. The file manifest below shows all current workbench files and their structure. Do NOT call list_files or get_file_info to discover files — use the manifest. Only call list_files after creating a new file to confirm it exists.
 9. For xlsx files, the manifest map shows existing sheet names and dimensions. Do NOT call ensure_sheet for sheets that already appear in the manifest — they already exist.
 10. Prefer table_update_from_export to write query results into existing xlsx workbooks/sheets. Use table_export for stand-alone csv/xlsx outputs.
-11. Keep SQL queries efficient: use GROUP BY/aggregation instead of SELECT * followed by manual processing. Double-quote column names with special characters in DuckDB.`
+11. Keep SQL queries efficient: use GROUP BY/aggregation instead of SELECT * followed by manual processing. Double-quote column names with special characters in DuckDB.
+12. SCRATCH/INTERMEDIATE FILES: Any file you create as a working copy, intermediate step, or scratch space MUST have a name starting with "_" (e.g. "_work.xlsx", "_filtered.csv"). Only files the user explicitly requested should have a regular name. Underscore-prefixed files are hidden from the user and deleted on publish.`
 
 const RPISummarySystemPrompt = `You are KeenBench in SUMMARY phase.
 
@@ -2395,6 +2396,7 @@ CRITICAL RULES:
 10. For CSV analysis, start with table_get_map to see schema. Use table_stats for summaries. Prefer aggregation queries (GROUP BY, SUM, COUNT, AVG) over SELECT *. Use window_rows to control result size (default 100, use 10-25 for exploration). Use table_export for stand-alone files and table_update_from_export when writing into existing xlsx workbook/sheet.
 11. All modifications go to a draft - users will review before publishing
 12. PDF and image files are read-only
+21. SCRATCH/INTERMEDIATE FILES: Any file you create as a working copy, intermediate step, or scratch space MUST have a name starting with "_" (e.g. "_work.xlsx", "_filtered.csv"). Only files the user explicitly requested should have a regular name. Underscore-prefixed files are hidden from the user and deleted on publish.
 13. For docx replace_text use "search"/"replace"; for pptx set_slide_text/append_bullets use "index" for slide number
 14. For CSV merge/join tasks, NEVER return header-only output when source files contain rows. If join keys are missing or mismatched, perform a deterministic best-effort merge (for example, assign rows from the second file in order / round-robin) and include a row for each primary-source record.
 15. For requests to edit an existing file, keep the same filename/path unless the user explicitly asks for a new file.
