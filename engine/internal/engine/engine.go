@@ -548,6 +548,7 @@ func (e *Engine) ProvidersOAuthComplete(ctx context.Context, params json.RawMess
 	}
 
 	code := strings.TrimSpace(flow.Code)
+	// redirect_url is optional when the callback listener has already captured the authorization code.
 	if strings.TrimSpace(req.RedirectURL) != "" {
 		parsedCode, state, err := e.codexOAuth.ParseRedirectURL(req.RedirectURL)
 		if err != nil {

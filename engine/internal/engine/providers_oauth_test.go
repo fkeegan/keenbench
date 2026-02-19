@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -213,6 +214,102 @@ func TestProvidersOAuthCompleteStateMismatch(t *testing.T) {
 		"redirect_url": "http://localhost:1455/auth/callback?code=code-1&state=wrong-state",
 	})); errInfo == nil || errInfo.ErrorCode != "VALIDATION_FAILED" {
 		t.Fatalf("expected validation failed on oauth state mismatch")
+	}
+}
+
+func TestProvidersOAuthCompleteWithoutRedirectUsesCapturedCode(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	eng.oauthCallbackServer = &http.Server{}
+	now := time.Date(2026, 2, 17, 10, 0, 0, 0, time.UTC)
+	eng.now = func() time.Time { return now }
+	eng.newOAuthFlowID = func() (string, error) { return "flow-1", nil }
+	eng.newCodexPKCE = func() (openai.CodexPKCEValues, error) {
+		return openai.CodexPKCEValues{
+			State:         "state-1",
+			CodeVerifier:  "verifier-1",
+			CodeChallenge: "challenge-1",
+		}, nil
+	}
+	eng.codexOAuth = &fakeCodexOAuth{
+		exchangeTok: openai.CodexOAuthToken{
+			AccessToken:  "access-1",
+			RefreshToken: "refresh-1",
+			IDToken:      "id-1",
+			ExpiresAt:    now.Add(1 * time.Hour),
+		},
+		accountID: "acct_123",
+	}
+
+	if _, errInfo := eng.ProvidersOAuthStart(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderOpenAICodex,
+	})); errInfo != nil {
+		t.Fatalf("oauth start: %v", errInfo)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state=state-1", nil)
+	rec := httptest.NewRecorder()
+	eng.handleOAuthCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected callback status 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	completeRespRaw, errInfo := eng.ProvidersOAuthComplete(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderOpenAICodex,
+		"flow_id":     "flow-1",
+	}))
+	if errInfo != nil {
+		t.Fatalf("oauth complete: %v", errInfo)
+	}
+	completeResp := completeRespRaw.(map[string]any)
+	if connected, _ := completeResp["oauth_connected"].(bool); !connected {
+		t.Fatalf("expected oauth_connected=true")
+	}
+}
+
+func TestProvidersOAuthCompleteWithoutRedirectRequiresCapturedCode(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	eng.oauthCallbackServer = &http.Server{}
+	eng.newOAuthFlowID = func() (string, error) { return "flow-1", nil }
+	eng.newCodexPKCE = func() (openai.CodexPKCEValues, error) {
+		return openai.CodexPKCEValues{
+			State:         "state-1",
+			CodeVerifier:  "verifier-1",
+			CodeChallenge: "challenge-1",
+		}, nil
+	}
+	eng.codexOAuth = &fakeCodexOAuth{}
+
+	if _, errInfo := eng.ProvidersOAuthStart(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderOpenAICodex,
+	})); errInfo != nil {
+		t.Fatalf("oauth start: %v", errInfo)
+	}
+
+	if _, errInfo := eng.ProvidersOAuthComplete(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderOpenAICodex,
+		"flow_id":     "flow-1",
+	})); errInfo == nil || errInfo.ErrorCode != "VALIDATION_FAILED" {
+		t.Fatalf("expected VALIDATION_FAILED, got %#v", errInfo)
 	}
 }
 

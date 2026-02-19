@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -42,10 +43,55 @@ const List<_ReasoningEffortOption> _anthropicReasoningEffortOptions = [
   _ReasoningEffortOption(label: 'Max (Opus only)', value: 'max'),
 ];
 
+const Duration _oauthStatusPollIntervalDefault = Duration(seconds: 1);
+const Duration _oauthStatusWaitTimeoutDefault = Duration(minutes: 2);
+const _oauthFlowStatusCodeReceived = 'code_received';
+const _oauthFlowStatusCompleted = 'completed';
+const _oauthFlowStatusFailed = 'failed';
+const _oauthFlowStatusExpired = 'expired';
+
+class _OAuthWaitResult {
+  const _OAuthWaitResult._({
+    required this.codeCaptured,
+    required this.cancelled,
+    required this.timedOut,
+    this.error,
+  });
+
+  const _OAuthWaitResult.captured()
+    : this._(codeCaptured: true, cancelled: false, timedOut: false);
+
+  const _OAuthWaitResult.cancelled()
+    : this._(codeCaptured: false, cancelled: true, timedOut: false);
+
+  const _OAuthWaitResult.timedOut()
+    : this._(codeCaptured: false, cancelled: false, timedOut: true);
+
+  const _OAuthWaitResult.failed(String error)
+    : this._(
+        codeCaptured: false,
+        cancelled: false,
+        timedOut: false,
+        error: error,
+      );
+
+  final bool codeCaptured;
+  final bool cancelled;
+  final bool timedOut;
+  final String? error;
+}
+
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.urlLauncher});
+  const SettingsScreen({
+    super.key,
+    this.urlLauncher,
+    this.oauthStatusPollInterval = _oauthStatusPollIntervalDefault,
+    this.oauthStatusWaitTimeout = _oauthStatusWaitTimeoutDefault,
+  });
 
   final ExternalUrlLauncher? urlLauncher;
+  final Duration oauthStatusPollInterval;
+  final Duration oauthStatusWaitTimeout;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -301,8 +347,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<String?> _showOAuthCompleteDialog(
     ProviderStatus provider,
-    String authorizeUrl,
-  ) async {
+    String authorizeUrl, {
+    String? statusMessage,
+  }) async {
+    final message = statusMessage?.trim() ?? '';
     final controller = TextEditingController();
     final redirectUrl = await showDialog<String>(
       context: context,
@@ -324,8 +372,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Authorize in your browser, then paste the full redirect URL.',
+                    Text(
+                      message.isEmpty
+                          ? 'Automatic callback capture is unavailable. '
+                                'Authorize in your browser, then paste the full redirect URL.'
+                          : message,
                     ),
                     if (authorizeUrl.trim().isNotEmpty) ...[
                       const SizedBox(height: 8),
@@ -367,6 +418,192 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return redirectUrl;
   }
 
+  Future<_OAuthWaitResult> _showOAuthProgressDialog(
+    ProviderStatus provider,
+    String flowId,
+  ) async {
+    final engine = context.read<EngineApi>();
+    final stopPolling = Completer<void>();
+    final waitResult = Completer<_OAuthWaitResult>();
+    BuildContext? dialogContext;
+    var pollingStarted = false;
+
+    void resolve(_OAuthWaitResult result) {
+      if (!waitResult.isCompleted) {
+        waitResult.complete(result);
+      }
+      if (!stopPolling.isCompleted) {
+        stopPolling.complete();
+      }
+      if (dialogContext != null && dialogContext!.mounted) {
+        Navigator.of(dialogContext!).pop(result);
+      }
+    }
+
+    Future<void> pollStatus() async {
+      final deadline = DateTime.now().add(widget.oauthStatusWaitTimeout);
+      while (!stopPolling.isCompleted && DateTime.now().isBefore(deadline)) {
+        Map<String, dynamic> status;
+        try {
+          final statusRaw = await engine.call('ProvidersOAuthStatus', {
+            'provider_id': provider.id,
+            'flow_id': flowId,
+          });
+          status = Map<String, dynamic>.from(statusRaw as Map);
+        } on EngineError catch (err) {
+          resolve(_OAuthWaitResult.failed(err.message));
+          return;
+        } catch (_) {
+          resolve(
+            _OAuthWaitResult.failed('Could not read OAuth callback status.'),
+          );
+          return;
+        }
+
+        final flowStatus = (status['status'] as String? ?? '')
+            .trim()
+            .toLowerCase();
+        final codeCaptured =
+            status['code_captured'] == true ||
+            flowStatus == _oauthFlowStatusCodeReceived ||
+            flowStatus == _oauthFlowStatusCompleted;
+        if (codeCaptured) {
+          resolve(const _OAuthWaitResult.captured());
+          return;
+        }
+
+        final statusError = (status['error'] as String? ?? '').trim();
+        if (flowStatus == _oauthFlowStatusFailed) {
+          resolve(
+            _OAuthWaitResult.failed(
+              statusError.isNotEmpty
+                  ? statusError
+                  : 'Authorization failed before completion.',
+            ),
+          );
+          return;
+        }
+        if (flowStatus == _oauthFlowStatusExpired) {
+          resolve(const _OAuthWaitResult.timedOut());
+          return;
+        }
+        if (statusError.isNotEmpty) {
+          resolve(_OAuthWaitResult.failed(statusError));
+          return;
+        }
+
+        await Future.any<void>([
+          Future<void>.delayed(widget.oauthStatusPollInterval),
+          stopPolling.future,
+        ]);
+      }
+      if (!stopPolling.isCompleted) {
+        resolve(const _OAuthWaitResult.timedOut());
+      }
+    }
+
+    final dialogResult = await showDialog<_OAuthWaitResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        dialogContext = dialogCtx;
+        if (!pollingStarted) {
+          pollingStarted = true;
+          unawaited(pollStatus());
+        }
+        void cancel() => resolve(const _OAuthWaitResult.cancelled());
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: cancel,
+          child: AlertDialog(
+            key: AppKeys.settingsOAuthProgressDialog(provider.id),
+            title: Text('Connect ${provider.displayName}'),
+            content: SizedBox(
+              width: 420,
+              child: Row(
+                children: [
+                  const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Waiting for browser authorization callback...',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                key: AppKeys.settingsOAuthProgressCancelButton(provider.id),
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!stopPolling.isCompleted) {
+      stopPolling.complete();
+    }
+    if (dialogResult != null) {
+      return dialogResult;
+    }
+    if (waitResult.isCompleted) {
+      return waitResult.future;
+    }
+    return const _OAuthWaitResult.cancelled();
+  }
+
+  Future<void> _completeOAuthConnection(
+    ProviderStatus provider,
+    String flowId, {
+    String? redirectUrl,
+  }) async {
+    final engine = context.read<EngineApi>();
+    final payload = <String, dynamic>{
+      'provider_id': provider.id,
+      'flow_id': flowId,
+    };
+    final redirect = redirectUrl?.trim() ?? '';
+    if (redirect.isNotEmpty) {
+      payload['redirect_url'] = redirect;
+    }
+    AppLog.info('settings.oauth_complete', {
+      'provider_id': provider.id,
+      'manual_redirect': redirect.isNotEmpty,
+    });
+    await engine.call('ProvidersOAuthComplete', payload);
+  }
+
+  Future<bool> _completeOAuthWithManualRedirect(
+    ProviderStatus provider,
+    String flowId,
+    String authorizeUrl, {
+    String? statusMessage,
+  }) async {
+    final redirectUrl = await _showOAuthCompleteDialog(
+      provider,
+      authorizeUrl,
+      statusMessage: statusMessage,
+    );
+    if (!mounted || redirectUrl == null) {
+      return false;
+    }
+    await _completeOAuthConnection(
+      provider,
+      flowId,
+      redirectUrl: redirectUrl.trim(),
+    );
+    return true;
+  }
+
   Future<void> _connectOAuth(ProviderStatus provider) async {
     final engine = context.read<EngineApi>();
     try {
@@ -377,6 +614,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final start = Map<String, dynamic>.from(startRaw as Map);
       final flowId = (start['flow_id'] as String? ?? '').trim();
       final authorizeUrl = (start['authorize_url'] as String? ?? '').trim();
+      final callbackListening = start['callback_listening'] == true;
       if (flowId.isEmpty) {
         if (!mounted) {
           return;
@@ -390,19 +628,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) {
         return;
       }
-      final redirectUrl = await _showOAuthCompleteDialog(
-        provider,
-        authorizeUrl,
-      );
-      if (!mounted || redirectUrl == null) {
+
+      var connected = false;
+      if (callbackListening) {
+        final waitResult = await _showOAuthProgressDialog(provider, flowId);
+        if (!mounted || waitResult.cancelled) {
+          return;
+        }
+        if (waitResult.codeCaptured) {
+          await _completeOAuthConnection(provider, flowId);
+          connected = true;
+        } else {
+          final fallbackMessage = waitResult.timedOut
+              ? 'Automatic callback capture timed out. Authorize in your browser, then paste the full redirect URL.'
+              : waitResult.error?.trim().isNotEmpty == true
+              ? 'Automatic callback capture failed (${waitResult.error}). '
+                    'Authorize in your browser, then paste the full redirect URL.'
+              : 'Automatic callback capture failed. Authorize in your browser, then paste the full redirect URL.';
+          connected = await _completeOAuthWithManualRedirect(
+            provider,
+            flowId,
+            authorizeUrl,
+            statusMessage: fallbackMessage,
+          );
+        }
+      } else {
+        connected = await _completeOAuthWithManualRedirect(
+          provider,
+          flowId,
+          authorizeUrl,
+          statusMessage:
+              'Automatic callback capture is unavailable on this device. '
+              'Authorize in your browser, then paste the full redirect URL.',
+        );
+      }
+      if (!mounted || !connected) {
         return;
       }
-      AppLog.info('settings.oauth_complete', {'provider_id': provider.id});
-      await engine.call('ProvidersOAuthComplete', {
-        'provider_id': provider.id,
-        'flow_id': flowId,
-        'redirect_url': redirectUrl.trim(),
-      });
+
       await _load();
       if (!mounted) {
         return;

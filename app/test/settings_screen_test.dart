@@ -15,6 +15,9 @@ class _FakeSettingsEngine implements EngineApi {
     this.openAICodexExpired = false,
     this.openAICodexAccountLabel,
     this.openAICodexExpiresAt,
+    this.oauthCallbackListening = true,
+    List<Map<String, dynamic>>? oauthStatusResponses,
+    Map<String, dynamic>? oauthStatusDefault,
     this.openAIResearchEffort = 'medium',
     this.openAIPlanEffort = 'medium',
     this.openAIImplementEffort = 'medium',
@@ -24,7 +27,12 @@ class _FakeSettingsEngine implements EngineApi {
     this.anthropicResearchEffort = 'medium',
     this.anthropicPlanEffort = 'medium',
     this.anthropicImplementEffort = 'medium',
-  });
+  }) : oauthStatusResponses = List<Map<String, dynamic>>.from(
+         oauthStatusResponses ?? const <Map<String, dynamic>>[],
+       ),
+       oauthStatusDefault = Map<String, dynamic>.from(
+         oauthStatusDefault ?? const {'status': 'pending'},
+       );
 
   final _notifications = StreamController<EngineNotification>.broadcast();
   final List<String> calls = [];
@@ -37,6 +45,9 @@ class _FakeSettingsEngine implements EngineApi {
   bool openAICodexExpired;
   String? openAICodexAccountLabel;
   String? openAICodexExpiresAt;
+  bool oauthCallbackListening;
+  final List<Map<String, dynamic>> oauthStatusResponses;
+  final Map<String, dynamic> oauthStatusDefault;
   String openAIResearchEffort;
   String openAIPlanEffort;
   String openAIImplementEffort;
@@ -244,8 +255,13 @@ class _FakeSettingsEngine implements EngineApi {
           'authorize_url': 'https://example.test/oauth/start?flow_id=$flowId',
           'status': 'pending',
           'expires_at': '2026-02-17T12:00:00Z',
-          'callback_listening': true,
+          'callback_listening': oauthCallbackListening,
         };
+      case 'ProvidersOAuthStatus':
+        if (oauthStatusResponses.isNotEmpty) {
+          return Map<String, dynamic>.from(oauthStatusResponses.removeAt(0));
+        }
+        return Map<String, dynamic>.from(oauthStatusDefault);
       case 'ProvidersOAuthComplete':
         openAICodexConnected = true;
         openAICodexExpired = false;
@@ -273,13 +289,19 @@ Future<void> _pumpSettingsScreen(
   WidgetTester tester,
   _FakeSettingsEngine engine, {
   ExternalUrlLauncher? urlLauncher,
+  Duration oauthStatusPollInterval = const Duration(milliseconds: 10),
+  Duration oauthStatusWaitTimeout = const Duration(milliseconds: 300),
 }) async {
   await tester.pumpWidget(
     Provider<EngineApi>.value(
       value: engine,
       child: MaterialApp(
         theme: KeenBenchTheme.theme(),
-        home: SettingsScreen(urlLauncher: urlLauncher),
+        home: SettingsScreen(
+          urlLauncher: urlLauncher,
+          oauthStatusPollInterval: oauthStatusPollInterval,
+          oauthStatusWaitTimeout: oauthStatusWaitTimeout,
+        ),
       ),
     ),
   );
@@ -334,14 +356,23 @@ void main() {
     );
   });
 
-  testWidgets('OAuth connect flow calls start then complete', (tester) async {
-    final engine = _FakeSettingsEngine();
+  testWidgets('OAuth connect flow auto-completes after callback capture', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine(
+      oauthStatusResponses: [
+        {'status': 'pending'},
+        {'status': 'code_received', 'code_captured': true},
+      ],
+    );
     final launchedUrls = <String>[];
 
     await _pumpSettingsScreen(
       tester,
       engine,
       urlLauncher: (url) async => launchedUrls.add(url),
+      oauthStatusPollInterval: const Duration(milliseconds: 10),
+      oauthStatusWaitTimeout: const Duration(milliseconds: 300),
     );
 
     final connectButton = find.byKey(
@@ -353,6 +384,100 @@ void main() {
 
     expect(engine.callCount('ProvidersOAuthStart'), 1);
     expect(launchedUrls, hasLength(1));
+    expect(engine.callCount('ProvidersOAuthStatus') >= 1, isTrue);
+
+    expect(
+      find.byKey(AppKeys.settingsOAuthRedirectField('openai-codex')),
+      findsNothing,
+    );
+
+    expect(engine.callCount('ProvidersOAuthComplete'), 1);
+
+    final completeParams = engine.lastParams('ProvidersOAuthComplete');
+    expect(completeParams?['provider_id'], 'openai-codex');
+    expect(completeParams?['flow_id'], engine.lastFlowId);
+    expect(completeParams?.containsKey('redirect_url'), isFalse);
+
+    final startIndex = engine.calls.indexOf('ProvidersOAuthStart');
+    final completeIndex = engine.calls.indexOf('ProvidersOAuthComplete');
+    expect(startIndex >= 0, isTrue);
+    expect(completeIndex > startIndex, isTrue);
+  });
+
+  testWidgets(
+    'OAuth connect falls back to manual entry when callback is unavailable',
+    (tester) async {
+      final engine = _FakeSettingsEngine(oauthCallbackListening: false);
+      final launchedUrls = <String>[];
+
+      await _pumpSettingsScreen(
+        tester,
+        engine,
+        urlLauncher: (url) async => launchedUrls.add(url),
+      );
+
+      final connectButton = find.byKey(
+        AppKeys.settingsOAuthConnectButton('openai-codex'),
+      );
+      await tester.ensureVisible(connectButton);
+      await tester.tap(connectButton);
+      await tester.pumpAndSettle();
+
+      expect(engine.callCount('ProvidersOAuthStart'), 1);
+      expect(engine.callCount('ProvidersOAuthStatus'), 0);
+      expect(launchedUrls, hasLength(1));
+      expect(
+        find.byKey(AppKeys.settingsOAuthRedirectField('openai-codex')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(AppKeys.settingsOAuthRedirectField('openai-codex')),
+        'http://localhost:1455/auth/callback?code=code-1&state=state-1',
+      );
+      await tester.tap(
+        find.byKey(AppKeys.settingsOAuthCompleteButton('openai-codex')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(engine.callCount('ProvidersOAuthComplete'), 1);
+      expect(
+        engine.lastParams('ProvidersOAuthComplete')?['redirect_url'],
+        'http://localhost:1455/auth/callback?code=code-1&state=state-1',
+      );
+    },
+  );
+
+  testWidgets('OAuth connect falls back to manual entry after timeout', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine(
+      oauthStatusDefault: {'status': 'pending'},
+    );
+    final launchedUrls = <String>[];
+
+    await _pumpSettingsScreen(
+      tester,
+      engine,
+      urlLauncher: (url) async => launchedUrls.add(url),
+      oauthStatusPollInterval: const Duration(milliseconds: 10),
+      oauthStatusWaitTimeout: const Duration(milliseconds: 40),
+    );
+
+    final connectButton = find.byKey(
+      AppKeys.settingsOAuthConnectButton('openai-codex'),
+    );
+    await tester.ensureVisible(connectButton);
+    await tester.tap(connectButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ProvidersOAuthStart'), 1);
+    expect(engine.callCount('ProvidersOAuthStatus') >= 1, isTrue);
+    expect(launchedUrls, hasLength(1));
+    expect(
+      find.byKey(AppKeys.settingsOAuthRedirectField('openai-codex')),
+      findsOneWidget,
+    );
 
     await tester.enterText(
       find.byKey(AppKeys.settingsOAuthRedirectField('openai-codex')),
@@ -364,24 +489,51 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(engine.callCount('ProvidersOAuthComplete'), 1);
-
-    final completeParams = engine.lastParams('ProvidersOAuthComplete');
-    expect(completeParams?['provider_id'], 'openai-codex');
-    expect(completeParams?['flow_id'], engine.lastFlowId);
     expect(
-      completeParams?['redirect_url'],
+      engine.lastParams('ProvidersOAuthComplete')?['redirect_url'],
       'http://localhost:1455/auth/callback?code=code-1&state=state-1',
     );
+  });
 
-    final startIndex = engine.calls.indexOf('ProvidersOAuthStart');
-    final completeIndex = engine.calls.indexOf('ProvidersOAuthComplete');
-    expect(startIndex >= 0, isTrue);
-    expect(completeIndex > startIndex, isTrue);
+  testWidgets('OAuth connect cancel stops without completion', (tester) async {
+    final engine = _FakeSettingsEngine();
+    final launchedUrls = <String>[];
+
+    await _pumpSettingsScreen(
+      tester,
+      engine,
+      urlLauncher: (url) async => launchedUrls.add(url),
+      oauthStatusPollInterval: const Duration(milliseconds: 10),
+      oauthStatusWaitTimeout: const Duration(seconds: 1),
+    );
+
+    final connectButton = find.byKey(
+      AppKeys.settingsOAuthConnectButton('openai-codex'),
+    );
+    await tester.ensureVisible(connectButton);
+    await tester.tap(connectButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(
+      find.byKey(AppKeys.settingsOAuthProgressDialog('openai-codex')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(AppKeys.settingsOAuthProgressCancelButton('openai-codex')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ProvidersOAuthStart'), 1);
+    expect(engine.callCount('ProvidersOAuthComplete'), 0);
+    expect(launchedUrls, hasLength(1));
+    expect(find.text('Not connected'), findsOneWidget);
   });
 
   testWidgets('OAuth disconnect calls disconnect RPC', (tester) async {
     final engine = _FakeSettingsEngine(
       openAICodexConnected: true,
+      openAICodexExpired: false,
       openAICodexAccountLabel: 'acct_test',
       openAICodexExpiresAt: '2026-02-17T13:00:00Z',
     );

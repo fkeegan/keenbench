@@ -72,6 +72,11 @@ class AppKeys {
       ValueKey<String>('settings_oauth_connect_$providerId');
   static ValueKey<String> settingsOAuthDisconnectButton(String providerId) =>
       ValueKey<String>('settings_oauth_disconnect_$providerId');
+  static ValueKey<String> settingsOAuthProgressDialog(String providerId) =>
+      ValueKey<String>('settings_oauth_progress_$providerId');
+  static ValueKey<String> settingsOAuthProgressCancelButton(
+    String providerId,
+  ) => ValueKey<String>('settings_oauth_progress_cancel_$providerId');
   static ValueKey<String> settingsOAuthRedirectField(String providerId) =>
       ValueKey<String>('settings_oauth_redirect_$providerId');
   static ValueKey<String> settingsOAuthCompleteButton(String providerId) =>
