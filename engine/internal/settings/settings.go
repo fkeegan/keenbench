@@ -24,6 +24,12 @@ const (
 	reasoningEffortXHigh  = "xhigh"
 )
 
+const (
+	defaultUserModelID            = "openai:gpt-5.2"
+	anthropicLegacyOpus45ModelID  = "anthropic:claude-opus-4.5"
+	anthropicDefaultSonnet46Model = "anthropic:claude-sonnet-4-6"
+)
+
 type ProviderSettings struct {
 	Enabled                     bool   `json:"enabled"`
 	RPIResearchReasoningEffort  string `json:"rpi_research_reasoning_effort,omitempty"`
@@ -88,7 +94,7 @@ func defaultSettings() *Settings {
 			providerGoogle:      defaultProviderSettings(providerGoogle),
 			providerMistral:     defaultProviderSettings(providerMistral),
 		},
-		UserDefaultModelID: "openai:gpt-5.2",
+		UserDefaultModelID: defaultUserModelID,
 	}
 }
 
@@ -114,7 +120,14 @@ func backfillSettings(settings *Settings) {
 	backfillProvider(settings.Providers, providerGoogle)
 	backfillProvider(settings.Providers, providerMistral)
 	if settings.UserDefaultModelID == "" {
-		settings.UserDefaultModelID = "openai:gpt-5.2"
+		settings.UserDefaultModelID = defaultUserModelID
+		return
+	}
+	switch strings.TrimSpace(settings.UserDefaultModelID) {
+	case anthropicLegacyOpus45ModelID:
+		settings.UserDefaultModelID = anthropicDefaultSonnet46Model
+	default:
+		settings.UserDefaultModelID = strings.TrimSpace(settings.UserDefaultModelID)
 	}
 }
 

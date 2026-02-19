@@ -170,3 +170,31 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
 		t.Fatalf("expected openai implement reasoning effort to default to %q for invalid legacy value, got %q", reasoningEffortMedium, openAI.RPIImplementReasoningEffort)
 	}
 }
+
+func TestLoadMigratesLegacyAnthropicUserDefaultModel(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "settings.json")
+	legacy := `{
+  "schema_version": 1,
+  "providers": {
+    "openai": {"enabled": true},
+    "openai-codex": {"enabled": true},
+    "anthropic": {"enabled": true},
+    "google": {"enabled": true},
+    "mistral": {"enabled": true}
+  },
+  "user_default_model_id": "anthropic:claude-opus-4.5"
+}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy settings: %v", err)
+	}
+
+	store := NewStore(path)
+	settings, err := store.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if settings.UserDefaultModelID != anthropicDefaultSonnet46Model {
+		t.Fatalf("expected user_default_model_id=%q, got %q", anthropicDefaultSonnet46Model, settings.UserDefaultModelID)
+	}
+}

@@ -866,8 +866,10 @@ func (e *Engine) WorkbenchCreate(ctx context.Context, params json.RawMessage) (a
 	if err != nil {
 		return nil, errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
 	}
-	defaultModel := settingsData.UserDefaultModelID
-	if _, ok := getModel(defaultModel); !ok {
+	defaultModel := canonicalModelID(settingsData.UserDefaultModelID)
+	if model, ok := getModel(defaultModel); ok {
+		defaultModel = model.ModelID
+	} else {
 		defaultModel = ModelOpenAIID
 	}
 	wb, err := e.workbenches.Create(req.Name, defaultModel)
@@ -1113,8 +1115,20 @@ func (e *Engine) EgressGetConsentStatus(ctx context.Context, params json.RawMess
 	if err != nil {
 		return nil, errinfo.FileReadFailed(errinfo.PhaseWorkshop, err.Error())
 	}
-	persistedConsent := consent.Workshop.ScopeHash != "" && consent.Workshop.ScopeHash == scope && consent.Workshop.ProviderID == model.ProviderID && consent.Workshop.ModelID == modelID
+	canonicalConsentModelID := canonicalModelID(consent.Workshop.ModelID)
+	if consent.Workshop.ModelID != "" && canonicalConsentModelID != consent.Workshop.ModelID {
+		consent.Workshop.ModelID = canonicalConsentModelID
+		if err := e.workbenches.WriteConsent(req.WorkbenchID, consent); err != nil {
+			return nil, errinfo.FileWriteFailed(errinfo.PhaseWorkshop, err.Error())
+		}
+	}
 	sessionConsent := e.sessionConsent[req.WorkbenchID]
+	canonicalSessionModelID := canonicalModelID(sessionConsent.ModelID)
+	if sessionConsent.ModelID != "" && canonicalSessionModelID != sessionConsent.ModelID {
+		sessionConsent.ModelID = canonicalSessionModelID
+		e.sessionConsent[req.WorkbenchID] = sessionConsent
+	}
+	persistedConsent := consent.Workshop.ScopeHash != "" && consent.Workshop.ScopeHash == scope && consent.Workshop.ProviderID == model.ProviderID && consent.Workshop.ModelID == modelID
 	sessionOk := sessionConsent.ScopeHash != "" && sessionConsent.ScopeHash == scope && sessionConsent.ProviderID == model.ProviderID && sessionConsent.ModelID == modelID
 	consented := persistedConsent || sessionOk
 	e.logger.Debug("egress.get_consent", "workbench_id", req.WorkbenchID, "consented", consented)
@@ -1138,6 +1152,7 @@ func (e *Engine) EgressGrantWorkshopConsent(ctx context.Context, params json.Raw
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "invalid params")
 	}
+	req.ModelID = canonicalModelID(req.ModelID)
 	model, ok := getModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
@@ -1179,6 +1194,13 @@ func (e *Engine) WorkshopGetState(ctx context.Context, params json.RawMessage) (
 		return nil, errInfo
 	}
 	wb, _ := e.workbenches.Open(req.WorkbenchID)
+	defaultModelID := canonicalModelID(wb.DefaultModelID)
+	if defaultModelID != "" && defaultModelID != wb.DefaultModelID {
+		if errInfo := e.setWorkbenchDefaultModel(req.WorkbenchID, defaultModelID); errInfo != nil {
+			return nil, errInfo
+		}
+		wb.DefaultModelID = defaultModelID
+	}
 	e.logger.Debug("workshop.get_state", "workbench_id", req.WorkbenchID, "has_draft", draft != nil)
 	return map[string]any{
 		"active_model_id":     modelID,

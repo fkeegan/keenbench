@@ -130,7 +130,7 @@ func (s *Server) handleRequest(ctx context.Context, req Request, handler Handler
 		return
 	}
 	if err != nil {
-		s.logger.Debug("rpc.response_error", "method", req.Method, "id", string(req.ID), "error", logging.RedactAny(err.Data))
+		s.logger.Error("rpc.response_error", "method", req.Method, "id", string(req.ID), "error", logging.RedactAny(err.Data))
 		s.sendError(req.ID, err.Message, err.Data)
 		return
 	}

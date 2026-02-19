@@ -11,12 +11,17 @@ const (
 )
 
 const (
-	ModelOpenAIID      = "openai:gpt-5.2"
-	ModelOpenAICodexID = "openai-codex:gpt-5.3-codex"
-	ModelAnthropicID   = "anthropic:claude-opus-4.5"
-	ModelGoogleID      = "google:gemini-3-pro"
-	ModelMistralID     = "mistral:mistral-large"
+	ModelOpenAIID            = "openai:gpt-5.2"
+	ModelOpenAICodexID       = "openai-codex:gpt-5.3-codex"
+	ModelAnthropicSonnet46ID = "anthropic:claude-sonnet-4-6"
+	ModelAnthropicOpus46ID   = "anthropic:claude-opus-4-6"
+	// ModelAnthropicID is kept as a compatibility alias for older internal references.
+	ModelAnthropicID = ModelAnthropicSonnet46ID
+	ModelGoogleID    = "google:gemini-3-pro"
+	ModelMistralID   = "mistral:mistral-large"
 )
+
+const modelAnthropicLegacyOpus45ID = "anthropic:claude-opus-4.5"
 
 type ModelInfo struct {
 	ModelID           string `json:"model_id"`
@@ -50,10 +55,20 @@ var modelRegistry = map[string]ModelInfo{
 		CanBeSecondary:    true,
 		RequiresKey:       true,
 	},
-	ModelAnthropicID: {
-		ModelID:           ModelAnthropicID,
+	ModelAnthropicSonnet46ID: {
+		ModelID:           ModelAnthropicSonnet46ID,
 		ProviderID:        ProviderAnthropic,
-		DisplayName:       "Anthropic Claude Opus 4.5",
+		DisplayName:       "Anthropic Claude Sonnet 4.6",
+		ContextTokens:     200000,
+		SupportsFileRead:  true,
+		SupportsFileWrite: true,
+		CanBeSecondary:    true,
+		RequiresKey:       true,
+	},
+	ModelAnthropicOpus46ID: {
+		ModelID:           ModelAnthropicOpus46ID,
+		ProviderID:        ProviderAnthropic,
+		DisplayName:       "Anthropic Claude Opus 4.6",
 		ContextTokens:     200000,
 		SupportsFileRead:  true,
 		SupportsFileWrite: true,
@@ -86,18 +101,29 @@ func listSupportedModels() []ModelInfo {
 	return []ModelInfo{
 		modelRegistry[ModelOpenAIID],
 		modelRegistry[ModelOpenAICodexID],
-		modelRegistry[ModelAnthropicID],
+		modelRegistry[ModelAnthropicSonnet46ID],
+		modelRegistry[ModelAnthropicOpus46ID],
 		modelRegistry[ModelGoogleID],
 		modelRegistry[ModelMistralID],
 	}
 }
 
 func getModel(modelID string) (ModelInfo, bool) {
-	model, ok := modelRegistry[modelID]
+	model, ok := modelRegistry[canonicalModelID(modelID)]
 	return model, ok
 }
 
+func canonicalModelID(modelID string) string {
+	switch strings.TrimSpace(modelID) {
+	case modelAnthropicLegacyOpus45ID:
+		return ModelAnthropicSonnet46ID
+	default:
+		return strings.TrimSpace(modelID)
+	}
+}
+
 func providerModelName(modelID string) string {
+	modelID = canonicalModelID(modelID)
 	if modelID == ModelMistralID {
 		return "mistral-large-latest"
 	}

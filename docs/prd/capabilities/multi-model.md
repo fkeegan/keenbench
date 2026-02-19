@@ -34,7 +34,8 @@ Additional providers may be added based on demand.
 ### Supported Models (v1)
 v1 supports a **curated allowlist** of frontier models (no arbitrary model selection):
 - OpenAI: `openai:gpt-5.2`
-- Anthropic: `anthropic:claude-opus-4.5`
+- Anthropic: `anthropic:claude-sonnet-4-6`
+- Anthropic: `anthropic:claude-opus-4-6`
 - Google: `google:gemini-3-pro`
 - Mistral: `mistral:mistral-large`
 

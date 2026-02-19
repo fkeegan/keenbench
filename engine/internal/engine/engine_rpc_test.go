@@ -218,6 +218,185 @@ func TestWorkbenchFilesRemoveRPC(t *testing.T) {
 	}
 }
 
+func TestModelsListSupportedIncludesAnthropic46Variants(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	modelsResp, errInfo := eng.ModelsListSupported(ctx, nil)
+	if errInfo != nil {
+		t.Fatalf("models list: %v", errInfo)
+	}
+	modelsRaw, ok := modelsResp.(map[string]any)["models"].([]ModelInfo)
+	if !ok {
+		t.Fatalf("expected models list payload")
+	}
+	sonnetIndex := -1
+	opusIndex := -1
+	for i, model := range modelsRaw {
+		if model.ModelID == ModelAnthropicSonnet46ID {
+			sonnetIndex = i
+		}
+		if model.ModelID == ModelAnthropicOpus46ID {
+			opusIndex = i
+		}
+		if model.ModelID == modelAnthropicLegacyOpus45ID {
+			t.Fatalf("did not expect legacy anthropic model in supported list")
+		}
+	}
+	if sonnetIndex == -1 {
+		t.Fatalf("expected %q in supported list", ModelAnthropicSonnet46ID)
+	}
+	if opusIndex == -1 {
+		t.Fatalf("expected %q in supported list", ModelAnthropicOpus46ID)
+	}
+	if sonnetIndex >= opusIndex {
+		t.Fatalf("expected sonnet model before opus model, got sonnet=%d opus=%d", sonnetIndex, opusIndex)
+	}
+}
+
+func TestUserSetDefaultModelCanonicalizesLegacyAnthropicModel(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	if _, errInfo := eng.UserSetDefaultModel(ctx, mustJSON(t, map[string]any{
+		"model_id": modelAnthropicLegacyOpus45ID,
+	})); errInfo != nil {
+		t.Fatalf("set user default model: %v", errInfo)
+	}
+	resp, errInfo := eng.UserGetDefaultModel(ctx, nil)
+	if errInfo != nil {
+		t.Fatalf("get user default model: %v", errInfo)
+	}
+	if got := resp.(map[string]any)["model_id"]; got != ModelAnthropicSonnet46ID {
+		t.Fatalf("expected canonical model id %q, got %#v", ModelAnthropicSonnet46ID, got)
+	}
+}
+
+func TestWorkshopGetStateMigratesLegacyAnthropicModelIDs(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "LegacyAnthropic"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+	workbenchesDir := appdirs.WorkbenchesDir(dataDir)
+
+	var wb workbench.Workbench
+	workbenchPath := filepath.Join(workbenchesDir, workbenchID, "meta", "workbench.json")
+	if err := readJSON(workbenchPath, &wb); err != nil {
+		t.Fatalf("read workbench: %v", err)
+	}
+	wb.DefaultModelID = modelAnthropicLegacyOpus45ID
+	if err := writeJSON(workbenchPath, &wb); err != nil {
+		t.Fatalf("write workbench: %v", err)
+	}
+
+	statePath := filepath.Join(workbenchesDir, workbenchID, "meta", "workshop_state.json")
+	state := workshopState{ActiveModelID: modelAnthropicLegacyOpus45ID}
+	if err := writeJSON(statePath, &state); err != nil {
+		t.Fatalf("write workshop state: %v", err)
+	}
+
+	workshopStateResp, errInfo := eng.WorkshopGetState(ctx, mustJSON(t, map[string]any{"workbench_id": workbenchID}))
+	if errInfo != nil {
+		t.Fatalf("workshop state: %v", errInfo)
+	}
+	payload := workshopStateResp.(map[string]any)
+	if got := payload["active_model_id"]; got != ModelAnthropicSonnet46ID {
+		t.Fatalf("expected active_model_id=%q, got %#v", ModelAnthropicSonnet46ID, got)
+	}
+	if got := payload["default_model_id"]; got != ModelAnthropicSonnet46ID {
+		t.Fatalf("expected default_model_id=%q, got %#v", ModelAnthropicSonnet46ID, got)
+	}
+
+	var persistedState workshopState
+	if err := readJSON(statePath, &persistedState); err != nil {
+		t.Fatalf("read persisted workshop state: %v", err)
+	}
+	if persistedState.ActiveModelID != ModelAnthropicSonnet46ID {
+		t.Fatalf("expected persisted active_model_id=%q, got %q", ModelAnthropicSonnet46ID, persistedState.ActiveModelID)
+	}
+
+	if err := readJSON(workbenchPath, &wb); err != nil {
+		t.Fatalf("read persisted workbench: %v", err)
+	}
+	if wb.DefaultModelID != ModelAnthropicSonnet46ID {
+		t.Fatalf("expected persisted default_model_id=%q, got %q", ModelAnthropicSonnet46ID, wb.DefaultModelID)
+	}
+}
+
+func TestEgressGrantWorkshopConsentCanonicalizesLegacyAnthropicModel(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "ConsentLegacyAnthropic"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	status, errInfo := eng.EgressGetConsentStatus(ctx, mustJSON(t, map[string]any{"workbench_id": workbenchID}))
+	if errInfo != nil {
+		t.Fatalf("consent status: %v", errInfo)
+	}
+	scopeHash := status.(map[string]any)["scope_hash"].(string)
+	if _, errInfo := eng.EgressGrantWorkshopConsent(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"provider_id":  ProviderAnthropic,
+		"model_id":     modelAnthropicLegacyOpus45ID,
+		"scope_hash":   scopeHash,
+		"persist":      true,
+	})); errInfo != nil {
+		t.Fatalf("grant consent: %v", errInfo)
+	}
+
+	consent, err := eng.workbenches.ReadConsent(workbenchID)
+	if err != nil {
+		t.Fatalf("read consent: %v", err)
+	}
+	if consent.Workshop.ModelID != ModelAnthropicSonnet46ID {
+		t.Fatalf("expected persisted consent model_id=%q, got %q", ModelAnthropicSonnet46ID, consent.Workshop.ModelID)
+	}
+}
+
 func TestWorkbenchDeleteRPC(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

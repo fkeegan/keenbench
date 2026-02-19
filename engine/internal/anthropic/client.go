@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"keenbench/engine/internal/egress"
@@ -65,10 +66,14 @@ func (c *Client) ValidateKey(ctx context.Context, apiKey string) error {
 }
 
 func (c *Client) Chat(ctx context.Context, apiKey, model string, messages []llm.Message) (string, error) {
+	anthropicMessages, systemPrompt := toAnthropicMessages(messages, nil)
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
-		"messages":   toAnthropicMessages(messages, nil),
+		"messages":   anthropicMessages,
+	}
+	if systemPrompt != "" {
+		payload["system"] = systemPrompt
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -102,10 +107,14 @@ func (c *Client) StreamChat(ctx context.Context, apiKey, model string, messages 
 }
 
 func (c *Client) ChatWithTools(ctx context.Context, apiKey, model string, messages []llm.ChatMessage, tools []llm.Tool) (llm.ChatResponse, error) {
+	anthropicMessages, systemPrompt := toAnthropicMessages(nil, messages)
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
-		"messages":   toAnthropicMessages(nil, messages),
+		"messages":   anthropicMessages,
+	}
+	if systemPrompt != "" {
+		payload["system"] = systemPrompt
 	}
 	if len(tools) > 0 {
 		payload["tools"] = toAnthropicTools(tools)
@@ -201,20 +210,34 @@ type anthropicResponse struct {
 	Content []anthropicContent `json:"content"`
 }
 
-func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) []anthropicMessage {
+func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) ([]anthropicMessage, string) {
 	var messages []anthropicMessage
+	systemParts := make([]string, 0)
 	toolNameByID := make(map[string]string)
 	if len(chat) == 0 {
 		for _, msg := range simple {
+			role := strings.ToLower(strings.TrimSpace(msg.Role))
+			if role == "system" {
+				text := strings.TrimSpace(msg.Content)
+				if text != "" {
+					systemParts = append(systemParts, text)
+				}
+				continue
+			}
 			messages = append(messages, anthropicMessage{
-				Role:    msg.Role,
+				Role:    role,
 				Content: []anthropicContent{{Type: "text", Text: msg.Content}},
 			})
 		}
-		return messages
+		return messages, strings.Join(systemParts, "\n\n")
 	}
 	for _, msg := range chat {
-		switch msg.Role {
+		switch strings.ToLower(strings.TrimSpace(msg.Role)) {
+		case "system":
+			text := strings.TrimSpace(msg.Content)
+			if text != "" {
+				systemParts = append(systemParts, text)
+			}
 		case "tool":
 			name := toolNameByID[msg.ToolCallID]
 			messages = append(messages, anthropicMessage{
@@ -244,10 +267,13 @@ func toAnthropicMessages(simple []llm.Message, chat []llm.ChatMessage) []anthrop
 					Input: input,
 				})
 			}
-			messages = append(messages, anthropicMessage{Role: msg.Role, Content: content})
+			messages = append(messages, anthropicMessage{
+				Role:    strings.ToLower(strings.TrimSpace(msg.Role)),
+				Content: content,
+			})
 		}
 	}
-	return messages
+	return messages, strings.Join(systemParts, "\n\n")
 }
 
 func toAnthropicTools(tools []llm.Tool) []anthropicTool {
