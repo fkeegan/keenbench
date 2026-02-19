@@ -30,7 +30,12 @@ func mapLLMError(phase, providerID string, err error) *errinfo.ErrorInfo {
 		info.ProviderID = providerID
 		return info
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
+		info := errinfo.UserCanceled(phase, "run canceled")
+		info.ProviderID = providerID
+		return info
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
 		info := errinfo.NetworkUnavailable(phase, err.Error())
 		info.ProviderID = providerID
 		return info

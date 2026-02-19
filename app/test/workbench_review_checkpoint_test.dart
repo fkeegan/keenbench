@@ -24,6 +24,13 @@ class _FakeWorkbenchEngine implements EngineApi {
           'configured': true,
           'models': ['openai/gpt-4o-mini'],
         },
+        {
+          'provider_id': 'mistral',
+          'display_name': 'Mistral',
+          'enabled': true,
+          'configured': false,
+          'models': ['mistral:mistral-large'],
+        },
       ];
   static const List<Map<String, dynamic>> _defaultModels =
       <Map<String, dynamic>>[
@@ -31,6 +38,14 @@ class _FakeWorkbenchEngine implements EngineApi {
           'model_id': 'openai/gpt-4o-mini',
           'provider_id': 'openai',
           'display_name': 'GPT-4o mini',
+          'context_tokens_estimate': 128000,
+          'supports_file_read': true,
+          'supports_file_write': true,
+        },
+        {
+          'model_id': 'mistral:mistral-large',
+          'provider_id': 'mistral',
+          'display_name': 'Mistral Large',
           'context_tokens_estimate': 128000,
           'supports_file_read': true,
           'supports_file_write': true,
@@ -54,6 +69,8 @@ class _FakeWorkbenchEngine implements EngineApi {
     this.providerStatuses = _defaultProviders,
     this.supportedModels = _defaultModels,
     this.egressConsented = true,
+    this.workshopRunGate,
+    this.emitRateLimitWarningDuringRun = false,
   });
 
   final _notifications = StreamController<EngineNotification>.broadcast();
@@ -76,12 +93,15 @@ class _FakeWorkbenchEngine implements EngineApi {
   final String workshopDefaultModelId;
   final List<Map<String, dynamic>> providerStatuses;
   final List<Map<String, dynamic>> supportedModels;
+  final Completer<void>? workshopRunGate;
+  final bool emitRateLimitWarningDuringRun;
   bool egressConsented;
   bool hasDraft;
   String draftId;
   String? draftSummary;
   String? runtimeActiveModelId;
   String? runtimeDefaultModelId;
+  bool runCanceled = false;
 
   String get effectiveActiveModelId =>
       runtimeActiveModelId ?? workshopActiveModelId;
@@ -197,9 +217,40 @@ class _FakeWorkbenchEngine implements EngineApi {
       case 'WorkshopSendUserMessage':
         return {'message_id': 'u-1'};
       case 'WorkshopRunAgent':
+        if (emitRateLimitWarningDuringRun) {
+          _notifications.add(
+            EngineNotification('WorkshopRateLimitWarning', {
+              'workbench_id': 'wb-1',
+              'provider_id': 'mistral',
+              'model_id': 'mistral:mistral-large',
+              'phase': 'implement',
+              'retry_attempt': 1,
+              'retry_max': 5,
+              'wait_ms': 10000,
+            }),
+          );
+        }
+        if (workshopRunGate != null) {
+          await workshopRunGate!.future;
+        }
+        if (runCanceled) {
+          runCanceled = false;
+          throw EngineError('run canceled', {'error_code': 'USER_CANCELED'});
+        }
         hasDraft = true;
         draftId = 'd-new';
         return {'has_draft': true};
+      case 'WorkshopCancelRun':
+        runCanceled = true;
+        if (workshopRunGate != null && !workshopRunGate!.isCompleted) {
+          workshopRunGate!.complete();
+        }
+        _notifications.add(
+          EngineNotification('WorkshopRunCancelRequested', {
+            'workbench_id': 'wb-1',
+          }),
+        );
+        return {'cancel_requested': true};
       case 'ReviewGetChangeSet':
         final response = <String, dynamic>{
           'draft_id': draftId,
@@ -617,6 +668,42 @@ void main() {
       expect(find.byKey(AppKeys.providerRequiredDialog), findsNothing);
     },
   );
+
+  testWidgets('rate-limit warning renders and cancel requests run stop', (
+    tester,
+  ) async {
+    await useDesktopSurface(tester);
+    final gate = Completer<void>();
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      messages: const [],
+      reviewChanges: const [],
+      workshopRunGate: gate,
+      emitRateLimitWarningDuringRun: true,
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(AppKeys.workbenchComposerField),
+      'Please run this task.',
+    );
+    await tester.tap(find.byKey(AppKeys.workbenchSendButton));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byKey(AppKeys.workbenchRateLimitWarning), findsOneWidget);
+    expect(find.textContaining('Rate limit hit on mistral'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Cancel'), findsOneWidget);
+
+    await tester.tap(find.byKey(AppKeys.workbenchSendButton));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('WorkshopCancelRun'), 1);
+  });
 
   testWidgets('workbench context action opens context overview', (
     tester,

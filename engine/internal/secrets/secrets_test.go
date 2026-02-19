@@ -19,6 +19,17 @@ func TestSecretsRoundTrip(t *testing.T) {
 	if key != "sk-test" {
 		t.Fatalf("expected key roundtrip")
 	}
+
+	if err := store.SetMistralKey("mistral-test"); err != nil {
+		t.Fatalf("set mistral key: %v", err)
+	}
+	mistralKey, err := store.GetMistralKey()
+	if err != nil {
+		t.Fatalf("get mistral key: %v", err)
+	}
+	if mistralKey != "mistral-test" {
+		t.Fatalf("expected mistral key roundtrip")
+	}
 }
 
 func TestOpenAICodexOAuthRoundTrip(t *testing.T) {
@@ -77,5 +88,24 @@ func TestClearProviderKeyOpenAICodex(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("expected oauth credentials to be cleared, got %#v", got)
+	}
+}
+
+func TestClearProviderKeyMistral(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(root, "secrets.enc"), filepath.Join(root, "master.key"))
+
+	if err := store.SetMistralKey("mistral-test"); err != nil {
+		t.Fatalf("set mistral key: %v", err)
+	}
+	if err := store.ClearProviderKey("mistral"); err != nil {
+		t.Fatalf("clear provider key: %v", err)
+	}
+	got, err := store.GetMistralKey()
+	if err != nil {
+		t.Fatalf("get mistral key: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected mistral key to be cleared, got %q", got)
 	}
 }

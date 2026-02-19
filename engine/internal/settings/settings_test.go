@@ -41,6 +41,20 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("expected openai-codex implement reasoning effort to default to medium, got %q", codex.RPIImplementReasoningEffort)
 	}
 
+	mistral := settings.Providers[providerMistral]
+	if mistral.Enabled != true {
+		t.Fatalf("expected mistral enabled by default")
+	}
+	if mistral.RPIResearchReasoningEffort != "" {
+		t.Fatalf("expected mistral research reasoning effort to be empty, got %q", mistral.RPIResearchReasoningEffort)
+	}
+	if mistral.RPIPlanReasoningEffort != "" {
+		t.Fatalf("expected mistral plan reasoning effort to be empty, got %q", mistral.RPIPlanReasoningEffort)
+	}
+	if mistral.RPIImplementReasoningEffort != "" {
+		t.Fatalf("expected mistral implement reasoning effort to be empty, got %q", mistral.RPIImplementReasoningEffort)
+	}
+
 	settings.Providers[providerOpenAI] = ProviderSettings{
 		Enabled:                     false,
 		RPIResearchReasoningEffort:  reasoningEffortLow,
@@ -126,6 +140,23 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
 	}
 	if entry.RPIImplementReasoningEffort != reasoningEffortMedium {
 		t.Fatalf("expected openai-codex implement reasoning effort to default to %q, got %q", reasoningEffortMedium, entry.RPIImplementReasoningEffort)
+	}
+
+	mistral, ok := settings.Providers[providerMistral]
+	if !ok {
+		t.Fatalf("expected mistral provider to be backfilled")
+	}
+	if !mistral.Enabled {
+		t.Fatalf("expected mistral provider to default to enabled")
+	}
+	if mistral.RPIResearchReasoningEffort != "" {
+		t.Fatalf("expected mistral research reasoning effort to stay empty, got %q", mistral.RPIResearchReasoningEffort)
+	}
+	if mistral.RPIPlanReasoningEffort != "" {
+		t.Fatalf("expected mistral plan reasoning effort to stay empty, got %q", mistral.RPIPlanReasoningEffort)
+	}
+	if mistral.RPIImplementReasoningEffort != "" {
+		t.Fatalf("expected mistral implement reasoning effort to stay empty, got %q", mistral.RPIImplementReasoningEffort)
 	}
 
 	openAI := settings.Providers[providerOpenAI]

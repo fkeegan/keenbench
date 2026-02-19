@@ -20,7 +20,7 @@
 
 **Required environment for AI tests:**
 - `KEENBENCH_OPENAI_API_KEY` must be set to a valid key in `.env`
-- For multi-provider tests: `KEENBENCH_ANTHROPIC_API_KEY`, `KEENBENCH_GEMINI_API_KEY`
+- For multi-provider tests: `KEENBENCH_ANTHROPIC_API_KEY`, `KEENBENCH_GEMINI_API_KEY`, `KEENBENCH_MISTRAL_API_KEY`
 - Tests must have appropriate timeouts (60-120s for single model calls)
 
 ## Architecture

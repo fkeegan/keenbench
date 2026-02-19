@@ -109,6 +109,7 @@ func main() {
 	register("WorkshopGetConversation", eng.WorkshopGetConversation)
 	register("WorkshopSetActiveModel", eng.WorkshopSetActiveModel)
 	register("WorkshopSendUserMessage", eng.WorkshopSendUserMessage)
+	register("WorkshopCancelRun", eng.WorkshopCancelRun)
 	register("WorkshopStreamAssistantReply", eng.WorkshopStreamAssistantReply)
 	register("WorkshopRunAgent", eng.WorkshopRunAgent)
 	register("WorkshopUndoToMessage", eng.WorkshopUndoToMessage)

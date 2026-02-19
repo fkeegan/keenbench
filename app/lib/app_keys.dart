@@ -49,6 +49,7 @@ class AppKeys {
   static const workbenchChatModeToggle = Key('workbench_chat_mode_toggle');
   static const workbenchPhaseStatus = Key('workbench_phase_status');
   static const workbenchToolStatus = Key('workbench_tool_status');
+  static const workbenchRateLimitWarning = Key('workbench_rate_limit_warning');
   static const workbenchRemoveFileDialog = Key('workbench_remove_file_dialog');
   static const workbenchRemoveFileConfirm = Key(
     'workbench_remove_file_confirm',

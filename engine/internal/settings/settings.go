@@ -15,6 +15,7 @@ const (
 	providerOpenAICodex = "openai-codex"
 	providerAnthropic   = "anthropic"
 	providerGoogle      = "google"
+	providerMistral     = "mistral"
 
 	reasoningEffortNone   = "none"
 	reasoningEffortLow    = "low"
@@ -85,6 +86,7 @@ func defaultSettings() *Settings {
 			providerOpenAICodex: defaultProviderSettings(providerOpenAICodex),
 			providerAnthropic:   defaultProviderSettings(providerAnthropic),
 			providerGoogle:      defaultProviderSettings(providerGoogle),
+			providerMistral:     defaultProviderSettings(providerMistral),
 		},
 		UserDefaultModelID: "openai:gpt-5.2",
 	}
@@ -110,6 +112,7 @@ func backfillSettings(settings *Settings) {
 	backfillProvider(settings.Providers, providerOpenAICodex)
 	backfillProvider(settings.Providers, providerAnthropic)
 	backfillProvider(settings.Providers, providerGoogle)
+	backfillProvider(settings.Providers, providerMistral)
 	if settings.UserDefaultModelID == "" {
 		settings.UserDefaultModelID = "openai:gpt-5.2"
 	}

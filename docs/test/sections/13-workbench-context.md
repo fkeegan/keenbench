@@ -12,11 +12,12 @@ See `CLAUDE.md` for the full testing policy.
 ## Test Environment (Manual)
 
 - Desktop app build (Linux recommended; macOS/Windows acceptable if supported by the build you are testing).
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`.
+- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
   - `KEENBENCH_GEMINI_API_KEY` (required for multi-provider tests)
+  - `KEENBENCH_MISTRAL_API_KEY` (required for multi-provider tests)
 - Optional but recommended for repeatable runs: a clean app data directory (`KEENBENCH_DATA_DIR` pointed to an empty temp dir).
 
 ## Soap Opera Scenario (Test Story)

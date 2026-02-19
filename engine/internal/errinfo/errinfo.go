@@ -164,6 +164,15 @@ func ProviderUnavailable(phase, detail string) *ErrorInfo {
 	}
 }
 
+func UserCanceled(phase, detail string) *ErrorInfo {
+	return &ErrorInfo{
+		ErrorCode: CodeUserCanceled,
+		Phase:     phase,
+		Retryable: false,
+		Detail:    detail,
+	}
+}
+
 func NetworkUnavailable(phase, detail string) *ErrorInfo {
 	return &ErrorInfo{
 		ErrorCode: CodeNetworkUnavailable,
