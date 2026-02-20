@@ -4,6 +4,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'package:keenbench/app_keys.dart';
 import 'package:keenbench/app_env.dart';
+import 'package:keenbench/engine/engine_client.dart';
 
 import 'support/e2e_screenshots.dart';
 import 'support/e2e_utils.dart';
@@ -13,10 +14,8 @@ void main() {
   final screenshooter = E2eScreenshooter();
 
   testWidgets('m1 office ops -> review previews', (tester) async {
-    final useReal = AppEnv.get('KEENBENCH_REAL_OPENAI') == '1';
-    if (!useReal) {
-      AppEnv.setOverride('KEENBENCH_FAKE_OPENAI', '1');
-    }
+    AppEnv.setOverride('KEENBENCH_FAKE_OPENAI', '0');
+    AppEnv.setOverride('KEENBENCH_FAKE_TOOL_WORKER', '0');
     final harness = E2eHarness(tester, screenshooter);
     final binding = tester.binding;
     await binding.setSurfaceSize(const Size(1600, 1000));
@@ -56,17 +55,18 @@ void main() {
         });
       });
 
-      await tester.runAsync(() async {
-        await state.sendMessage('Update the office files. [proposal_ops]');
-      });
+      await _sendMessageWithRetries(
+        tester,
+        state,
+        'Create exactly one draft change by editing simple.docx and changing a single sentence. Do not modify any other files.',
+      );
       await tester.pumpAndSettle();
       await pumpUntilFound(
         find.byKey(AppKeys.reviewScreen),
         tester: tester,
-        timeout: const Duration(seconds: 30),
+        timeout: const Duration(seconds: 90),
       );
 
-      final isFake = isFakeOpenAIEnabled();
       String? targetPath;
       await tester.runAsync(() async {
         final changeResp =
@@ -76,37 +76,22 @@ void main() {
                 as Map<String, dynamic>;
         final changes = (changeResp['changes'] as List<dynamic>? ?? [])
             .cast<Map<String, dynamic>>();
-        if (changes.isNotEmpty) {
-          targetPath = changes.first['path'] as String?;
+        if (changes.isEmpty) {
+          fail('Expected at least one review change.');
         }
+        targetPath = changes.first['path'] as String?;
       });
-      if (isFake) {
-        await pumpUntilFound(
-          find.text('report.docx'),
-          tester: tester,
-          timeout: const Duration(seconds: 30),
-        );
-        expect(find.text('DOCX'), findsWidgets);
-        expect(find.text('XLSX'), findsWidgets);
-        expect(find.text('PPTX'), findsWidgets);
-        targetPath ??= 'report.docx';
-      } else {
-        if (targetPath == null || targetPath!.isEmpty) {
-          fail('Expected at least one review change with real OpenAI.');
-        }
-        await pumpUntilFound(
-          find.text(targetPath!),
-          tester: tester,
-          timeout: const Duration(seconds: 30),
-        );
+      if (targetPath == null || targetPath!.isEmpty) {
+        fail('Expected at least one review change with a valid path.');
       }
+      await pumpUntilFound(
+        find.text(targetPath!),
+        tester: tester,
+        timeout: const Duration(seconds: 30),
+      );
 
       await _tapVisible(tester, find.text(targetPath!));
-      if (isFake) {
-        await pumpUntilFound(find.text('Draft'), tester: tester);
-      } else {
-        await pumpUntilFound(find.text('Summary'), tester: tester);
-      }
+      await pumpUntilFound(find.text('Summary'), tester: tester);
 
       await _tapVisible(tester, find.byKey(AppKeys.reviewPublishButton));
       await pumpUntilFound(find.byKey(AppKeys.workbenchScreen), tester: tester);
@@ -146,4 +131,38 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();
+}
+
+Future<void> _sendMessageWithRetries(
+  WidgetTester tester,
+  dynamic state,
+  String message, {
+  int maxAttempts = 2,
+}) async {
+  Object? lastError;
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await tester.runAsync(() async {
+        await state.sendMessage(message);
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!_isTransientAgentError(error) || attempt == maxAttempts) {
+        rethrow;
+      }
+      await tester.pumpAndSettle();
+    }
+  }
+  throw StateError('message send failed after retries: $lastError');
+}
+
+bool _isTransientAgentError(Object error) {
+  if (error is EngineError) {
+    return error.errorCode == 'AGENT_LOOP_DETECTED' ||
+        error.errorCode == 'VALIDATION_FAILED';
+  }
+  final text = error.toString();
+  return text.contains('AGENT_LOOP_DETECTED') ||
+      text.contains('VALIDATION_FAILED');
 }

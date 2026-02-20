@@ -122,6 +122,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) {
+      return;
+    }
     final engine = context.read<EngineApi>();
     final providersResponse = await engine.call('ProvidersGetStatus');
     final providerList =
@@ -174,6 +177,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'api_key': key,
       });
       await engine.call('ProvidersValidate', {'provider_id': provider.id});
+      if (!mounted) {
+        return;
+      }
       await _load();
       if (!mounted) {
         return;
