@@ -19,7 +19,7 @@ This test plan covers all milestones (M0 through M3):
 - Review: offline diffs, side-by-side previews, text extraction diffs
 - Office files: DOCX, XLSX, PPTX read/write via tool worker
 - PDF, ODT, images: read-only ingest with previews
-- Multi-provider: OpenAI, Anthropic, Gemini, Mistral
+- Multi-provider: OpenAI, OpenAI Codex, Anthropic, Gemini, Mistral
 - Checkpoints: create, list, restore
 - Clutter bar: context usage signal
 - Safety: sandbox enforcement, egress allowlist, draft gating, error codes
@@ -27,7 +27,7 @@ This test plan covers all milestones (M0 through M3):
 ## Test Environment
 
 - Linux desktop (X11). E2E harness targets `flutter test integration_test -d linux`.
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
+- Network access to: `api.openai.com`, `auth.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
@@ -84,6 +84,8 @@ This test plan covers all milestones (M0 through M3):
 - **Priority:** P0 = must-pass, P1 = important, P2 = nice-to-have.
 - **IDs:** `TC-###`. No milestone prefix — test cases apply across milestones.
 - **AI tests:** Marked with `[AI]` tag. These MUST use real model calls.
+- **Manual-only tests:** Marked with `[MANUAL ONLY]` and `Runner: Human only`.
+- **Manual-only skip rule for AI agents:** Skip these cases with reason `Skipped: manual browser OAuth required (OpenAI Codex auth callback flow).`
 - **Steps format:** Each step is an atomic action followed by `Expected:` with the verifiable result.
 - **Timeout convention:** AI-driven steps use 60-120s timeouts unless noted.
 
@@ -197,8 +199,8 @@ This test plan covers all milestones (M0 through M3):
      Expected: The text "Financial Analysis" appears in the field.
   3. Click "Create" (`AppKeys.newWorkbenchCreateButton`).
      Expected: The dialog closes. The workbench screen (`AppKeys.workbenchScreen`) opens with title "Financial Analysis". The file list (`AppKeys.workbenchFileList`) is empty. The scope description text is visible (`AppKeys.workbenchScopeLimits`).
-  4. Verify the composer field (`AppKeys.workbenchComposerField`) is visible with placeholder "Ask the Workshop...".
-     Expected: The composer is present and enabled.
+  4. Verify the composer field (`AppKeys.workbenchComposerField`) is visible.
+     Expected: The composer is present and enabled. Placeholder is mode-dependent: "Describe a task..." in Agent mode, "Ask a question..." in Ask mode.
 
 #### TC-008: Add text and CSV files
 - Priority: P0
@@ -304,6 +306,17 @@ This test plan covers all milestones (M0 through M3):
   4. Repeat steps 1-2, then click the red confirm button (`AppKeys.homeDeleteWorkbenchConfirm`).
      Expected: The dialog closes. The workbench tile is removed from the grid.
 
+#### TC-018: Extract destination collision auto-renames output
+- Priority: P1
+- Preconditions: Workbench has `notes.txt`, no Draft, and a writable destination folder already containing `notes.txt`.
+- Steps:
+  1. Click extract on `notes.txt` (`AppKeys.workbenchFileExtractButton('notes.txt')`) and choose the destination folder that already has a file with the same name.
+     Expected: Extraction succeeds instead of failing.
+  2. Verify destination folder contents.
+     Expected: A new file is created with collision suffix naming (`notes(1).txt`, then `notes(2).txt` on repeated extracts).
+  3. Verify extraction feedback message in the app.
+     Expected: The message indicates the file was extracted with the renamed path (for example, `Extracted "notes.txt" as "notes(1).txt".`).
+
 ---
 
 ### 4. Egress Consent
@@ -317,7 +330,7 @@ This test plan covers all milestones (M0 through M3):
   2. Click Send (`AppKeys.workbenchSendButton`).
      Expected: The consent dialog appears (`AppKeys.consentDialog`) with title "Consent required".
   3. Verify the dialog shows the provider name ("OpenAI") and model name in the description text.
-     Expected: The text reads "KeenBench will send Workbench content to OpenAI (gpt-4o-mini) to generate responses." (model name may vary).
+     Expected: The text indicates KeenBench will send Workbench content to OpenAI and includes the active model display name (for example, GPT-5.2).
   4. Verify the file list (`AppKeys.consentFileList`) shows both files with sizes.
      Expected: Two entries: "notes.txt (N bytes)" and "data.csv (N bytes)" where N reflects actual file sizes.
   5. Verify the scope hash (`AppKeys.consentScopeHash`) is displayed.
@@ -421,6 +434,28 @@ This test plan covers all milestones (M0 through M3):
      Expected: Instead of the composer, the draft status area is shown with text "Draft in progress" and buttons for "Open Review" (`AppKeys.workbenchReviewButton`) and "Discard" (`AppKeys.workbenchDiscardButton`).
   2. Verify there is no send button visible.
      Expected: `AppKeys.workbenchSendButton` is not found in the widget tree.
+
+#### TC-034: Chat mode toggle changes composer intent
+- Priority: P1
+- Preconditions: Workbench open, no Draft, no active run.
+- Steps:
+  1. Verify chat mode toggle (`AppKeys.workbenchChatModeToggle`) is visible with options "Ask" and "Agent".
+     Expected: Toggle renders both options and one is selected.
+  2. Select "Agent".
+     Expected: Composer placeholder reads "Describe a task...".
+  3. Select "Ask".
+     Expected: Composer placeholder reads "Ask a question...".
+
+#### TC-035: In-flight run can be canceled from Send button `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has at least one file. No Draft.
+- Steps:
+  1. Send a prompt that takes long enough to observe an active run (for example: "Analyze all files step by step and explain your approach before the final answer.").
+     Expected: Run starts and the Send button changes to "Cancel".
+  2. Click the "Cancel" button (`AppKeys.workbenchSendButton`) while the run is in progress.
+     Expected: A cancellation notice appears (for example, "Run canceled." or "Cancel requested. Stopping run..."), and the app remains responsive.
+  3. Wait for completion of cancellation.
+     Expected: The button returns to "Send". No crash occurs. Conversation state remains intact.
 
 ---
 
@@ -712,6 +747,13 @@ This test plan covers all milestones (M0 through M3):
 
 ### 11. Multi-Provider
 
+Supported providers in v1:
+- OpenAI (`api_key`)
+- OpenAI Codex (`oauth`)
+- Anthropic (`api_key`)
+- Google Gemini (`api_key`)
+- Mistral (`api_key`)
+
 #### TC-090: Configure Anthropic key
 - Priority: P1
 - Preconditions: Settings screen open. Valid `KEENBENCH_ANTHROPIC_API_KEY` available.
@@ -742,6 +784,51 @@ This test plan covers all milestones (M0 through M3):
      Expected: Consent dialog appears for Anthropic (new provider). Grant consent. The assistant response arrives. Timeout: 90 seconds.
   4. Verify both responses are in the conversation history.
      Expected: Two assistant messages are visible, from different providers.
+
+#### TC-093: OpenAI Codex OAuth connect via browser callback `[MANUAL ONLY]`
+- Priority: P1
+- Runner: Human only
+- Preconditions: Settings screen open. OpenAI Codex shows "Not connected".
+- Steps:
+  1. Click Connect on OpenAI Codex (`AppKeys.settingsOAuthConnectButton('openai-codex')`).
+     Expected: Browser authorization flow starts.
+  2. Complete authentication and consent in the browser.
+     Expected: The app captures callback automatically when available.
+  3. Return to Settings and verify OpenAI Codex status text (`AppKeys.settingsOAuthStatusText('openai-codex')`).
+     Expected: Status shows connected state ("Connected" or "Connected as <account>").
+
+#### TC-094: OpenAI Codex OAuth manual redirect fallback `[MANUAL ONLY]`
+- Priority: P1
+- Runner: Human only
+- Preconditions: Settings screen open. OpenAI Codex disconnected.
+- Steps:
+  1. Start OpenAI Codex Connect flow and force manual completion path (for example, when callback capture is unavailable or times out).
+     Expected: A dialog asks for redirect URL paste.
+  2. Complete browser auth and paste the full redirect URL into the app dialog (`AppKeys.settingsOAuthRedirectField('openai-codex')`), then submit (`AppKeys.settingsOAuthCompleteButton('openai-codex')`).
+     Expected: Connection completes successfully.
+  3. Verify status text.
+     Expected: OpenAI Codex status shows connected.
+
+#### TC-095: OpenAI Codex OAuth disconnect `[MANUAL ONLY]`
+- Priority: P1
+- Runner: Human only
+- Preconditions: OpenAI Codex is connected.
+- Steps:
+  1. Click Disconnect (`AppKeys.settingsOAuthDisconnectButton('openai-codex')`).
+     Expected: Disconnect completes without error.
+  2. Verify status text.
+     Expected: OpenAI Codex shows "Not connected".
+
+#### TC-096: OAuth provider-required dialog path
+- Priority: P1
+- Preconditions: OpenAI Codex is selected as active model in Workbench, but OpenAI Codex is not connected.
+- Steps:
+  1. Type any message and click Send.
+     Expected: Provider-required dialog appears (`AppKeys.providerRequiredDialog`).
+  2. Inspect dialog title and body.
+     Expected: Dialog indicates OAuth auth is required for OpenAI Codex (authentication required / connect in Settings), not API key entry.
+  3. Click "Open Settings" (`AppKeys.providerRequiredOpenSettings`).
+     Expected: Settings screen opens.
 
 ---
 
@@ -815,14 +902,14 @@ These tests use `cuentas_octubre_2024_anonymized_draft.xlsx` to validate real-wo
   3. Re-enable the provider.
      Expected: Provider is re-enabled. Subsequent messages can be sent normally.
 
-#### TC-113: Missing provider key blocks Workshop
+#### TC-113: Missing provider credentials blocks Workshop
 - Priority: P0
-- Preconditions: No provider key configured (fresh state or key cleared).
+- Preconditions: Selected provider is not configured (API key missing/cleared, or OAuth provider disconnected).
 - Steps:
   1. Create a workbench and add a file.
      Expected: Workbench created with file.
   2. Type a message in the composer and click Send.
-     Expected: A dialog appears (`AppKeys.providerRequiredDialog`) indicating a provider key is required. The dialog has an "Open Settings" button.
+     Expected: A dialog appears (`AppKeys.providerRequiredDialog`) indicating the selected provider needs configuration. API-key providers should show key-required wording; OAuth providers should show authentication-required wording. The dialog has an "Open Settings" button.
   3. Click "Open Settings" (`AppKeys.providerRequiredOpenSettings`).
      Expected: The settings screen opens.
 
@@ -890,6 +977,17 @@ These tests use `cuentas_octubre_2024_anonymized_draft.xlsx` to validate real-wo
      Expected: Draft created. Timeout: 120 seconds.
   3. Verify the draft XLSX.
      Expected: An "Annual" sheet exists. It has the specified column headers. At least 2 data rows. The Grand_Total column equals Q1+Q2+Q3+Q4 for each row (within rounding tolerance). The Q-totals match the known sums from each sheet.
+
+#### TC-132: New XLSX workbook avoids empty default sheet leakage `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has no existing `report.xlsx` draft file. No Draft.
+- Steps:
+  1. Send a prompt that creates a new workbook with one intended sheet (for example: "Create report.xlsx with one sheet named Summary and set A1='Metric', B1='Value'.").
+     Expected: Draft created with `report.xlsx`. Timeout: 120 seconds.
+  2. Inspect the workbook in review and/or via local workbook inspection.
+     Expected: Only intended sheet(s) are present. No extra unintended empty default sheet remains.
+  3. Validate first sheet name and basic content.
+     Expected: `Summary` sheet exists and includes requested header cells.
 
 ---
 
@@ -1362,13 +1460,16 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
 | Egress consent before model call | PRD SR2/SR3 | TC-020 through TC-025, TC-171 |
 | Real models only (no fake AI) | CLAUDE.md testing policy | All `[AI]` tests |
 | Workbench file add semantics (limits, duplicates, symlinks) | Workbench design | TC-011 through TC-014 |
+| Workbench extraction collision auto-rename | Workbench design | TC-018 |
 | Draft lifecycle (single draft, blocked actions) | Draft-publish design | TC-016, TC-033, TC-082, TC-167 |
+| Workshop ask/agent mode toggle and in-flight cancel | Workshop UX/workflow | TC-034, TC-035 |
 | Conversation persistence | Workshop design | TC-032 |
 | Provider key management | ADR-0004 | TC-003, TC-004, TC-006 |
 | Provider enable/disable gating | Multi-model design | TC-005, TC-112, TC-113 |
-| Multi-provider support | M2 plan | TC-090 through TC-092 |
+| Multi-provider support | M2 plan | TC-090 through TC-096 |
+| OpenAI Codex OAuth connect/disconnect (manual browser auth) | OAuth implementation plan | TC-093 through TC-095 |
 | Checkpoints create/restore | M2 plan | TC-073, TC-074, TC-080 through TC-082 |
-| Office file read/write (DOCX/XLSX/PPTX) | M1 plan | TC-050 through TC-053, TC-130, TC-140, TC-150 |
+| Office file read/write (DOCX/XLSX/PPTX) | M1 plan | TC-050 through TC-053, TC-130, TC-132, TC-140, TC-150 |
 | Read-only files (PDF, images, ODT) | M1 plan | TC-009, TC-121 |
 | Opaque file support | M1 plan | TC-010 |
 | Review offline (no model calls during review) | M0 plan | TC-064 |
@@ -1391,3 +1492,4 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
 - AI test timeouts should be generous (60-120s per model call). If a test consistently times out, investigate model latency rather than reducing assertion quality.
 - When a test fails on assertion, capture the actual draft file content for debugging. Do not make the assertion looser — investigate why the model produced unexpected output.
 - Run the full test suite with `KEENBENCH_DEBUG=1` to capture engine logs for failure investigation.
+- AI/manual-agent runs must skip `[MANUAL ONLY]` cases and record: `Skipped: manual browser OAuth required (OpenAI Codex auth callback flow).`

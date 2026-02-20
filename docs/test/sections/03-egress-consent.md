@@ -69,7 +69,7 @@ Key elements for this section:
   2. Click Send (`AppKeys.workbenchSendButton`).
      Expected: The consent dialog appears (`AppKeys.consentDialog`) with title "Consent required".
   3. Verify the dialog shows the provider name ("OpenAI") and model name in the description text.
-     Expected: The text reads "KeenBench will send Workbench content to OpenAI (gpt-4o-mini) to generate responses." (model name may vary).
+     Expected: The text indicates KeenBench will send Workbench content to OpenAI and includes the active model display name (for example, GPT-5.2).
   4. Verify the file list (`AppKeys.consentFileList`) shows both files with sizes.
      Expected: Two entries: "notes.txt (N bytes)" and "data.csv (N bytes)" where N reflects actual file sizes.
   5. Verify the scope hash (`AppKeys.consentScopeHash`) is displayed.

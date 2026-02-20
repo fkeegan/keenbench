@@ -12,7 +12,7 @@ See `CLAUDE.md` for the full testing policy.
 ## Test Environment
 
 - Linux desktop (X11). E2E harness targets `flutter test integration_test -d linux`.
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
+- Network access to: `api.openai.com`, `auth.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
@@ -26,6 +26,8 @@ See `CLAUDE.md` for the full testing policy.
 - **Priority:** P0 = must-pass, P1 = important, P2 = nice-to-have.
 - **IDs:** `TC-###`. No milestone prefix — test cases apply across milestones.
 - **AI tests:** Marked with `[AI]` tag. These MUST use real model calls.
+- **Manual-only tests:** Marked with `[MANUAL ONLY]` and `Runner: Human only`.
+- **Manual-only skip rule for AI agents:** Skip these cases with reason `Skipped: manual browser OAuth required (OpenAI Codex auth callback flow).`
 - **Steps format:** Each step is an atomic action followed by `Expected:` with the verifiable result.
 - **Timeout convention:** AI-driven steps use 60-120s timeouts unless noted.
 
@@ -41,7 +43,7 @@ Key elements for this section:
 - **Sandbox:** Draft writes are confined to `workbenches/<id>/draft/`. Path traversal (`../`) is blocked.
 - **Egress allowlist:** Only configured provider APIs can be contacted.
 - **Error codes:** Structured error codes per ADR-0006 (e.g., `SANDBOX_VIOLATION`, `VALIDATION_FAILED`).
-- **Provider gating:** Missing or disabled provider key blocks workshop sends with a dialog.
+- **Provider gating:** Missing or disabled provider credentials (API key or OAuth connection) block workshop sends with a dialog.
 - Proposals live in `meta/workshop/proposals/` and are validated before apply.
 
 ---
@@ -79,14 +81,14 @@ Key elements for this section:
   3. Re-enable the provider.
      Expected: Provider is re-enabled. Subsequent messages can be sent normally.
 
-#### TC-113: Missing provider key blocks Workshop
+#### TC-113: Missing provider credentials blocks Workshop
 - Priority: P0
-- Preconditions: No provider key configured (fresh state or key cleared).
+- Preconditions: Selected provider is not configured (API key missing/cleared, or OAuth provider disconnected).
 - Steps:
   1. Create a workbench and add a file.
      Expected: Workbench created with file.
   2. Type a message in the composer and click Send.
-     Expected: A dialog appears (`AppKeys.providerRequiredDialog`) indicating a provider key is required. The dialog has an "Open Settings" button.
+     Expected: A dialog appears (`AppKeys.providerRequiredDialog`) indicating the selected provider needs configuration. API-key providers should show key-required wording; OAuth providers should show authentication-required wording. The dialog has an "Open Settings" button.
   3. Click "Open Settings" (`AppKeys.providerRequiredOpenSettings`).
      Expected: The settings screen opens.
 

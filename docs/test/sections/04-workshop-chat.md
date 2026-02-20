@@ -12,7 +12,7 @@ See `CLAUDE.md` for the full testing policy.
 ## Test Environment
 
 - Linux desktop (X11). E2E harness targets `flutter test integration_test -d linux`.
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
+- Network access to: `api.openai.com`, `auth.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
@@ -34,6 +34,8 @@ See `CLAUDE.md` for the full testing policy.
 - **Priority:** P0 = must-pass, P1 = important, P2 = nice-to-have.
 - **IDs:** `TC-###`. No milestone prefix — test cases apply across milestones.
 - **AI tests:** Marked with `[AI]` tag. These MUST use real model calls.
+- **Manual-only tests:** Marked with `[MANUAL ONLY]` and `Runner: Human only`.
+- **Manual-only skip rule for AI agents:** Skip these cases with reason `Skipped: manual browser OAuth required (OpenAI Codex auth callback flow).`
 - **Steps format:** Each step is an atomic action followed by `Expected:` with the verifiable result.
 - **Timeout convention:** AI-driven steps use 60-120s timeouts unless noted.
 
@@ -41,6 +43,7 @@ See `CLAUDE.md` for the full testing policy.
 
 Key elements for this section:
 - `AppKeys.workbenchComposerField`, `AppKeys.workbenchSendButton`
+- `AppKeys.workbenchChatModeToggle`
 - `AppKeys.workbenchMessageList`
 - `AppKeys.workbenchDraftBanner`, `AppKeys.workbenchReviewButton`, `AppKeys.workbenchDiscardButton`
 
@@ -90,6 +93,28 @@ Key elements for this section:
 - Preconditions: A Draft exists for the current workbench.
 - Steps:
   1. Verify the composer field (`AppKeys.workbenchComposerField`) is NOT visible.
-     Expected: Instead of the composer, the draft status area is shown with text "Draft in progress" and buttons for "Open Review" (`AppKeys.workbenchReviewButton`) and "Discard" (`AppKeys.workbenchDiscardButton`).
+     Expected: Instead of the composer, the draft status area is shown with text "Draft in progress" and buttons for "Open review" (`AppKeys.workbenchReviewButton`) and "Discard" (`AppKeys.workbenchDiscardButton`).
   2. Verify there is no send button visible.
      Expected: `AppKeys.workbenchSendButton` is not found in the widget tree.
+
+#### TC-034: Chat mode toggle changes composer intent
+- Priority: P1
+- Preconditions: Workbench open, no Draft, no active run.
+- Steps:
+  1. Verify chat mode toggle (`AppKeys.workbenchChatModeToggle`) is visible with options "Ask" and "Agent".
+     Expected: Toggle renders both options and one is selected.
+  2. Select "Agent".
+     Expected: Composer placeholder reads "Describe a task...".
+  3. Select "Ask".
+     Expected: Composer placeholder reads "Ask a question...".
+
+#### TC-035: In-flight run can be canceled from Send button `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has at least one file. No Draft.
+- Steps:
+  1. Send a prompt that takes long enough to observe an active run (for example: "Analyze all files step by step and explain your approach before the final answer.").
+     Expected: Run starts and the Send button changes to "Cancel".
+  2. Click the "Cancel" button (`AppKeys.workbenchSendButton`) while the run is in progress.
+     Expected: A cancellation notice appears (for example, "Run canceled." or "Cancel requested. Stopping run..."), and the app remains responsive.
+  3. Wait for completion of cancellation.
+     Expected: The button returns to "Send". No crash occurs. Conversation state remains intact.
