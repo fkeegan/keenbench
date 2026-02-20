@@ -1,45 +1,60 @@
 # KeenBench
 
-[![CI](https://github.com/KeenBench/keenbench/actions/workflows/ci.yml/badge.svg)](https://github.com/KeenBench/keenbench/actions/workflows/ci.yml)
+<p align="center">
+  <img src="docs/assets/repo_banner.png" alt="KeenBench — IDE for office files" width="800" />
+</p>
 
-KeenBench is a desktop app for safe, reviewable AI-assisted file analysis and editing.
+<p align="center">
+  <a href="https://github.com/fkeegan/keenbench/actions/workflows/ci.yml"><img src="https://github.com/fkeegan/keenbench/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+</p>
 
-It combines:
-- A Flutter desktop UI.
-- A Go engine over JSON-RPC (stdio).
-- A local Python tool worker for office and document operations.
+<p align="center">
+  <a href="#get-started">Get started</a> · <a href="#key-concepts">Key concepts</a> · <a href="#safety-model">Safety model</a> · <a href="#what-the-app-supports-today">Features</a> · <a href="#quick-start-build-from-source">Quick start</a> · <a href="#architecture">Architecture</a> · <a href="#documentation">Documentation</a>
+</p>
 
-The core loop is:
-**Workbench -> Workshop -> Draft -> Review -> Publish/Discard**, with explicit egress consent and local review gates.
+Safe, reviewable AI-assisted **file analysis and editing** on your desktop — with a Draft → Review → Publish workflow.
 
-## Current status (2026-02-17 snapshot)
+> Early/rough edges, but usable: connect a provider, open a Workbench, run a Workshop, review diffs, then publish.
 
-Implemented plan milestones include:
-- `docs/plans/m0-implementation-plan.md`
-- `docs/plans/m2-implementation-plan.md`
-- `docs/plans/m2.1-review-auto-summary-checkpoints.md`
-- `docs/plans/m2.2-workbench-extract-and-ui-polish.md`
-- `docs/plans/m3-implementation-plan.md`
-- `docs/plans/workbench-context-implementation-plan.md`
-- `docs/plans/document-styling-v1-workshop-implementation-plan.md`
-- `docs/plans/fixes/table-update-from-export-implementation-plan.md`
-- `docs/plans/open-source-readiness-checklist.md`
+## Get started
 
-In progress:
-- `docs/plans/m4-implementation-plan.md`
+- **Download:** GitHub Releases (if no release is available yet, build from source below)
+- **Build from source:** see **Quick start**
 
-Planned:
-- `docs/plans/m5-implementation-plan.md`
+### What KeenBench is
+
+KeenBench is a desktop app designed to make AI-assisted work on local files **auditable and hard to mess up**:
+
+- Models can't write directly to your files — they write to a **Draft**.
+- You **review diffs/previews locally** before anything is applied.
+- Publishing changes is always an explicit action.
+
+### Key concepts
+
+- **Workbench**: a folder-like workspace that contains files + context.
+- **Workshop**: a guided agent loop (Research → Plan → Implement → Summary).
+- **Draft**: where all model-produced changes go.
+- **Review**: diffs + document previews (offline).
+- **Publish/Discard**: explicitly apply or discard Draft changes.
+
+## Safety model
+
+- Egress consent is explicit per Workbench and provider/model scope.
+- Network egress is allowlisted at provider endpoints.
+- AI operations write to Draft only; publish/discard is explicit.
+- Review/diff flows are offline and do not trigger model calls.
+- Context mutations and file extraction are blocked while a Draft exists.
 
 ## What the app supports today
 
 - Workbench lifecycle: create/open/delete, add/remove files, extract published files.
-- Provider/model stack:
-  - `openai` (API key)
-  - `openai-codex` (OAuth connect flow)
-  - `anthropic` (API key)
-  - `google` (API key)
-- RPI Workshop agent workflow (Research -> Plan -> Implement -> Summary) with tool progress events.
+- Providers / models:
+  - OpenAI `gpt-5.2` (API key)
+  - OpenAI `gpt-5.3-codex` (Codex OAuth)
+  - Anthropic Claude Sonnet 4.6 / Opus 4.6 (API key or Claude Code setup token)
+  - Google Gemini 3 Pro (API key)
+  - Mistral `mistral-large-latest` (API key)
+- RPI Workshop agent workflow (Research → Plan → Implement → Summary) with tool progress events.
 - Draft safety model: model output writes to Draft only, then explicit Publish/Discard.
 - Checkpoints: create/list/restore, plus publish/restore timeline events.
 - Workbench Context (4 categories): `company-context`, `department-context`, `situation`, `document-style`.
@@ -55,7 +70,14 @@ Planned:
   - Structured DOCX/PPTX review with fallback handling.
   - Opaque file change tracking.
 
-## Repository layout
+## Architecture
+
+KeenBench combines:
+- Flutter desktop UI (`app/`)
+- Go engine over JSON-RPC (stdio) (`engine/`)
+- Local Python tool worker for office/document operations
+
+Repository layout:
 
 ```
 /
@@ -65,13 +87,13 @@ Planned:
   scripts/  # Packaging and E2E helpers
 ```
 
-## Prerequisites
+## Prerequisites (build from source)
 
 - Go 1.22+ (engine)
 - Flutter desktop + Dart SDK (app)
 - Python 3 with `venv` support (tool worker packaging)
 
-## Quick start
+## Quick start (build from source)
 
 1. Create `.env` from `.env.example` and set at minimum:
    - `KEENBENCH_OPENAI_API_KEY=...`
@@ -87,21 +109,31 @@ macOS:
 make run-macos
 ```
 
-`make run`/`make run-macos` will fetch dependencies, build the engine, set up the Python worker wrapper, and launch Flutter.
+`make run` / `make run-macos` fetch dependencies, build the engine, set up the Python worker wrapper, and launch Flutter.
 
 ## Common commands
 
 ```
-make run                       # Linux dev run
-make run-macos                 # macOS dev run
-make engine                    # Build Go engine
-make package-worker            # Build Python worker wrapper + venv
-make check-worker              # Worker health check
-make fmt                       # gofmt + dart format
-make test                      # Go tests + Flutter tests
-scripts/e2e/run_e2e_serial.sh # Linux E2E (serial)
-scripts/e2e/run_e2e.sh         # Linux E2E wrapper
+make run                        # Linux dev run
+make run-macos                  # macOS dev run
+make engine                     # Build Go engine
+make package-worker             # Build Python worker wrapper + venv
+make check-worker               # Worker health check
+make fmt                        # gofmt + dart format
+make test                       # Go tests + Flutter tests
+scripts/e2e/run_e2e_serial.sh   # Linux E2E (serial)
+scripts/e2e/run_e2e.sh          # Linux E2E wrapper
 ```
+
+## Runtime configuration
+
+- Overrides:
+  - `KEENBENCH_ENGINE_PATH` (override engine binary path)
+  - `KEENBENCH_TOOL_WORKER_PATH` (override worker wrapper path)
+  - `KEENBENCH_DATA_DIR` (override app data root)
+  - `KEENBENCH_ENV_PATH` (override `.env` location)
+- Debug:
+  - `KEENBENCH_DEBUG=1` (enable debug logging)
 
 ## Testing policy (real models only)
 
@@ -122,23 +154,6 @@ See:
 - Screenshots are written to `artifacts/screenshots/` (gitignored).
 - `KEENBENCH_FAKE_OPENAI=1` is rejected by E2E scripts.
 
-## Runtime configuration
-
-- `KEENBENCH_OPENAI_API_KEY`, `KEENBENCH_ANTHROPIC_API_KEY`, `KEENBENCH_GEMINI_API_KEY`
-- `KEENBENCH_ENGINE_PATH` (override engine binary path)
-- `KEENBENCH_TOOL_WORKER_PATH` (override worker wrapper path)
-- `KEENBENCH_DATA_DIR` (override app data root)
-- `KEENBENCH_ENV_PATH` (override `.env` location)
-- `KEENBENCH_DEBUG=1` (enable debug logging)
-
-## Safety model
-
-- Egress consent is explicit per Workbench and provider/model scope.
-- Network egress is allowlisted at provider endpoints.
-- AI operations write to Draft only; publish/discard is explicit.
-- Review/diff flows are offline and do not trigger model calls.
-- Context mutations and file extraction are blocked while a Draft exists.
-
 ## Packaging (macOS)
 
 ```
@@ -150,7 +165,7 @@ make notarize-macos-universal
 
 See `Makefile` and `scripts/notarize_macos.sh` for signing/notarization env vars.
 
-## Documentation links
+## Documentation
 
 - Contribution guide: `CONTRIBUTING.md`
 - Governance: `GOVERNANCE.md`
@@ -159,7 +174,7 @@ See `Makefile` and `scripts/notarize_macos.sh` for signing/notarization env vars
 - Code of Conduct: `CODE_OF_CONDUCT.md`
 - Release process: `RELEASING.md`
 - Design/style: `docs/design/style-guide.md`
-- Milestone plans: `docs/plans/`
+- Plans / roadmap: `docs/plans/`
 - Test plan: `docs/test/test-plan.md`
 
 ## Open-source policy
@@ -167,3 +182,7 @@ See `Makefile` and `scripts/notarize_macos.sh` for signing/notarization env vars
 - Code in this repository is licensed under MIT (`LICENSE`).
 - KeenBench name and logos are trademarks of the project maintainers and are not granted by the MIT license.
 - Enterprise-only features may be developed in a separate proprietary repository/distribution.
+
+## License
+
+MIT — see `LICENSE`.
