@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml/badge.svg)](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml)
 
+<p align="center">
+  <a href="#get-started">Get started</a> · <a href="#key-concepts">Key concepts</a> · <a href="#safety-model">Safety model</a> · <a href="#what-the-app-supports-today">Features</a> · <a href="#quick-start-build-from-source">Quick start</a> · <a href="#architecture">Architecture</a> · <a href="#documentation">Documentation</a>
+</p>
+
 Safe, reviewable AI-assisted **file analysis and editing** on your desktop — with a Draft → Review → Publish workflow.
 
 > Early/rough edges, but usable: connect a provider, open a Workbench, run a Workshop, review diffs, then publish.
