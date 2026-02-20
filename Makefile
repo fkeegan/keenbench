@@ -9,7 +9,7 @@ TOOL_WORKER_BIN_ABS := $(abspath $(TOOL_WORKER_BIN))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run run-macos engine fmt test package-worker deps stop clean check-worker package-macos package-macos-universal notarize-macos notarize-macos-universal toolworker-macos toolworker-macos-universal iconset-macos linux-desktop-dev
+.PHONY: help run run-macos engine fmt test version-check package-worker deps stop clean check-worker package-macos package-macos-universal notarize-macos notarize-macos-universal toolworker-macos toolworker-macos-universal iconset-macos linux-desktop-dev
 
 LINUX_APP_ID ?= com.keenbench.app
 LINUX_APP_BINARY ?= keenbench
@@ -77,6 +77,9 @@ fmt: ## Format Go + Dart code
 test: ## Run Go + Flutter tests
 	cd engine && go test ./... -coverprofile=coverage.out
 	cd app && $(FLUTTER_BIN) test
+
+version-check: ## Validate app/engine/changelog versions are consistent
+	scripts/check_version_consistency.sh
 
 stop: ## Stop running app/engine/tool-worker processes for this repo
 	@echo "Stopping KeenBench processes..."

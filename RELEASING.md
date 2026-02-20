@@ -12,17 +12,19 @@
 2. Run local verification:
    - `make fmt`
    - `make test`
+   - `make version-check`
 3. Update `CHANGELOG.md`:
    - Move relevant entries from `[Unreleased]` to the new version section.
-4. Create release tag:
-   - `git tag v0.x.y`
+4. Create annotated release tag:
+   - `git tag -a v0.x.y -m "Release v0.x.y"`
    - `git push origin v0.x.y`
-5. Create GitHub release using the release template.
-6. Attach build artifacts (if applicable) and publish release notes.
+5. GitHub Actions automatically creates a GitHub Release from the tag.
+6. Verify the release notes and edit details in GitHub if needed.
+7. Current policy: no release binary assets are attached yet.
 
 ## Release Notes Template
 
-Use this structure in each release:
+Auto-generated notes use `.github/release.yml` categories. If manual edits are needed, use this structure:
 
 - Summary
 - Highlights
