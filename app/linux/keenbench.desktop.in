@@ -6,6 +6,6 @@ Comment=KeenBench desktop app
 Exec=@BINARY_NAME@
 Icon=@APP_ICON_NAME@
 Terminal=false
-Categories=Office;Productivity;
+Categories=Office;
 StartupNotify=true
 StartupWMClass=@APPLICATION_ID@

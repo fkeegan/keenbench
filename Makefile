@@ -9,7 +9,7 @@ TOOL_WORKER_BIN_ABS := $(abspath $(TOOL_WORKER_BIN))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run run-macos engine fmt test version-check package-worker deps stop clean check-worker package-macos package-macos-universal notarize-macos notarize-macos-universal toolworker-macos toolworker-macos-universal iconset-macos linux-desktop-dev
+.PHONY: help run run-macos engine fmt test version-check package-worker deps stop clean check-worker package-macos package-macos-universal notarize-macos notarize-macos-universal toolworker-macos toolworker-macos-universal toolworker-linux package-linux package-linux-appimage iconset-macos linux-desktop-dev
 
 LINUX_APP_ID ?= com.keenbench.app
 LINUX_APP_BINARY ?= keenbench
@@ -99,6 +99,15 @@ toolworker-macos: deps ## Build a standalone macOS tool worker binary (PyInstall
 
 toolworker-macos-universal: deps ## Build a universal2 macOS tool worker binary (requires Rosetta/x86_64 Python)
 	scripts/build_toolworker_macos.sh universal2
+
+toolworker-linux: deps ## Build a standalone Linux tool worker binary (PyInstaller)
+	scripts/build_toolworker_linux.sh
+
+package-linux: deps ## Build Linux package artifact (AppImage)
+	scripts/package_linux_appimage.sh
+
+package-linux-appimage: deps ## Build Linux AppImage package (native arch)
+	scripts/package_linux_appimage.sh
 
 package-macos: deps ## Build and package a macOS .dmg (unsigned)
 	scripts/package_macos.sh
