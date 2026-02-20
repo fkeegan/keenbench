@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/repo_banner.png" alt="KeenBench — IDE for office files" width="800" />
+</p>
+
 # KeenBench
 
 [![CI](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml/badge.svg)](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml)
