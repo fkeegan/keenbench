@@ -997,12 +997,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final oauthHint = _oauthStatusHint(provider);
 
     return Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(24),
+      margin: const EdgeInsets.only(bottom: 24),
       decoration: BoxDecoration(
         color: KeenBenchTheme.colorBackgroundElevated,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+        boxShadow: const [
+          BoxShadow(
+            color: Color.fromRGBO(100, 90, 80, 0.08),
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

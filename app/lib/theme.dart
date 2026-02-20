@@ -9,7 +9,7 @@ class KeenBenchTheme {
 
   static const colorSurfaceSubtle = Color(0xFFFAF8F6);
   static const colorSurfaceMuted = Color(0xFFF3F0ED);
-  static const colorSurfaceOverlay = Color(0xF2FDFCFB);
+  static const colorSurfaceOverlay = Color(0x661F1F1F);
 
   static const colorTextPrimary = Color(0xFF1F1F1F);
   static const colorTextSecondary = Color(0xFF6B6560);
@@ -26,10 +26,13 @@ class KeenBenchTheme {
   static const colorAccentSecondary = Color(0xFF7B9FD4);
 
   static const colorSuccessBackground = Color(0xFFF0F7F0);
+  static const colorSuccessBorder = Color(0xFFA8D4A8);
   static const colorSuccessText = Color(0xFF2E7D32);
   static const colorWarningBackground = Color(0xFFFFF8E6);
+  static const colorWarningBorder = Color(0xFFF5D88C);
   static const colorWarningText = Color(0xFFB8860B);
   static const colorErrorBackground = Color(0xFFFDF2F2);
+  static const colorErrorBorder = Color(0xFFF5B0AC);
   static const colorErrorText = Color(0xFFC53030);
   static const colorInfoBackground = Color(0xFFF0F5FA);
   static const colorInfoBorder = Color(0xFFA3C4E8);
@@ -67,6 +70,10 @@ class KeenBenchTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colorSurfaceSubtle,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(6),
           borderSide: const BorderSide(color: colorBorderDefault),
@@ -77,32 +84,97 @@ class KeenBenchTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: colorBorderFocus, width: 1.5),
+          borderSide: const BorderSide(color: colorAccentPrimary, width: 1.5),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: colorAccentPrimary,
-          foregroundColor: colorBackgroundPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        style: ButtonStyle(
+          backgroundColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.disabled)) {
+              return colorAccentPrimary.withOpacity(0.5);
+            }
+            if (states.contains(MaterialState.pressed)) {
+              return colorAccentPrimaryActive;
+            }
+            if (states.contains(MaterialState.hovered)) {
+              return colorAccentPrimaryHover;
+            }
+            return colorAccentPrimary;
+          }),
+          foregroundColor: const MaterialStatePropertyAll(Colors.white),
+          shadowColor: const MaterialStatePropertyAll(
+            Color.fromRGBO(100, 90, 80, 0.1),
+          ),
+          elevation: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.pressed)) {
+              return 0;
+            }
+            if (states.contains(MaterialState.hovered)) {
+              return 2;
+            }
+            return 1;
+          }),
+          padding: const MaterialStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          ),
+          shape: MaterialStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          ),
+          textStyle: const MaterialStatePropertyAll(
+            TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: colorAccentPrimary,
-          side: const BorderSide(color: colorBorderDefault),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        style: ButtonStyle(
+          foregroundColor: const MaterialStatePropertyAll(colorAccentPrimary),
+          side: const MaterialStatePropertyAll(
+            BorderSide(color: colorBorderDefault),
+          ),
+          backgroundColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.hovered) ||
+                states.contains(MaterialState.focused)) {
+              return colorBackgroundHover;
+            }
+            return Colors.transparent;
+          }),
+          padding: const MaterialStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          ),
+          shape: MaterialStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: colorAccentPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        style: ButtonStyle(
+          foregroundColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.hovered) ||
+                states.contains(MaterialState.focused)) {
+              return colorTextPrimary;
+            }
+            return colorTextSecondary;
+          }),
+          backgroundColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.hovered) ||
+                states.contains(MaterialState.focused)) {
+              return colorBackgroundHover;
+            }
+            return Colors.transparent;
+          }),
+          padding: const MaterialStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+          textStyle: const MaterialStatePropertyAll(
+            TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: colorBackgroundElevated,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 0,
+        shadowColor: const Color.fromRGBO(100, 90, 80, 0.12),
       ),
     );
   }

@@ -42,7 +42,7 @@ class KeenBenchAppBar extends StatelessWidget implements PreferredSizeWidget {
                     Expanded(
                       child: Text(
                         title,
-                        style: Theme.of(context).textTheme.headlineMedium,
+                        style: Theme.of(context).textTheme.headlineLarge,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -59,7 +59,7 @@ class KeenBenchAppBar extends StatelessWidget implements PreferredSizeWidget {
                     Expanded(
                       child: Text(
                         title,
-                        style: Theme.of(context).textTheme.headlineMedium,
+                        style: Theme.of(context).textTheme.headlineLarge,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
