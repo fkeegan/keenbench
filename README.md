@@ -119,9 +119,11 @@ make run                        # Linux dev run
 make run-macos                  # macOS dev run
 make engine                     # Build Go engine
 make package-worker             # Build Python worker wrapper + venv
+make toolworker-linux           # Build Linux standalone tool worker (PyInstaller)
 make check-worker               # Worker health check
 make fmt                        # gofmt + dart format
 make test                       # Go tests + Flutter tests
+make package-linux-appimage     # Build Linux AppImage package
 scripts/e2e/run_e2e_serial.sh   # Linux E2E (serial)
 scripts/e2e/run_e2e.sh          # Linux E2E wrapper
 ```
@@ -155,7 +157,19 @@ See:
 - Screenshots are written to `artifacts/screenshots/` (gitignored).
 - `KEENBENCH_FAKE_OPENAI=1` is rejected by E2E scripts.
 
-## Packaging (macOS)
+## Packaging
+
+Linux (AppImage):
+```
+make package-linux-appimage
+```
+
+Notes:
+- Runs on Linux only.
+- Builds Flutter Linux release + Go engine + standalone Python tool worker, then bundles into an AppImage.
+- Requires `flutter`, `go`, and either `appimagetool` in `PATH` or `curl`/`wget` to download it automatically.
+
+macOS:
 
 ```
 make package-macos
