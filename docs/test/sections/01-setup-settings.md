@@ -12,7 +12,7 @@ See `CLAUDE.md` for the full testing policy.
 ## Test Environment
 
 - Linux desktop (X11). E2E harness targets `flutter test integration_test -d linux`.
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
+- Network access to: `api.openai.com`, `auth.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
@@ -26,6 +26,8 @@ See `CLAUDE.md` for the full testing policy.
 - **Priority:** P0 = must-pass, P1 = important, P2 = nice-to-have.
 - **IDs:** `TC-###`. No milestone prefix — test cases apply across milestones.
 - **AI tests:** Marked with `[AI]` tag. These MUST use real model calls.
+- **Manual-only tests:** Marked with `[MANUAL ONLY]` and `Runner: Human only`.
+- **Manual-only skip rule for AI agents:** Skip these cases with reason `Skipped: manual browser OAuth required (OpenAI Codex auth callback flow).`
 - **Steps format:** Each step is an atomic action followed by `Expected:` with the verifiable result.
 - **Timeout convention:** AI-driven steps use 60-120s timeouts unless noted.
 
@@ -136,3 +138,8 @@ All testable elements use AppKeys from `app/lib/app_keys.dart`. Key elements for
      Expected: The Settings screen opens.
   5. Read the provider status text (`AppKeys.settingsProviderStatus`).
      Expected: The status reads "Configured". The key was persisted (encrypted at rest) and does not need re-entry.
+
+### OpenAI Codex OAuth Coverage
+
+OpenAI Codex OAuth setup/connect/disconnect is covered in `TC-093` through `TC-095` in `docs/test/sections/09-checkpoints-multiprovider.md`.
+Those tests are marked `[MANUAL ONLY]` because browser authentication is required.

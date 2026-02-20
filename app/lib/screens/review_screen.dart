@@ -105,6 +105,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   static const int _maxAccessibilityErrors = 6;
 
+  double _sidebarWidthFor(double width) {
+    if (width >= 3840) return 280;
+    if (width >= 2560) return 260;
+    if (width >= 1920) return 240;
+    return 200;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -631,7 +638,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   Widget _buildDetailPane(BuildContext context) {
     final change = _selected!;
     final hasDiff = _shouldLoadDiff(change);
-    final hasPreview = change.previewKind != 'none' || change.isOpaque;
+    final hasPreview = _canRenderPreview(change);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -649,6 +656,22 @@ class _ReviewScreenState extends State<ReviewScreen> {
           const Expanded(child: Center(child: Text('No preview available.'))),
       ],
     );
+  }
+
+  bool _canRenderPreview(ChangeItem change) {
+    if (change.isOpaque) {
+      return true;
+    }
+    if (change.previewKind == 'image') {
+      return true;
+    }
+    final kind = change.fileKind;
+    return kind == 'image' ||
+        kind == 'xlsx' ||
+        kind == 'pdf' ||
+        kind == 'docx' ||
+        kind == 'odt' ||
+        kind == 'pptx';
   }
 
   Widget _buildSummaryPanel(ChangeItem change) {
@@ -685,9 +708,16 @@ class _ReviewScreenState extends State<ReviewScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: KeenBenchTheme.colorBackgroundSecondary,
+        color: KeenBenchTheme.colorBackgroundElevated,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+        boxShadow: const [
+          BoxShadow(
+            color: Color.fromRGBO(100, 90, 80, 0.08),
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -783,7 +813,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           decoration: BoxDecoration(
             color: KeenBenchTheme.colorInfoBackground,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+            border: Border.all(color: KeenBenchTheme.colorInfoBorder),
           ),
           child: Text(
             warning,
@@ -826,10 +856,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
     Color? accent;
     if (line.type == 'added') {
       background = KeenBenchTheme.colorDiffAdded;
-      accent = KeenBenchTheme.colorPublishedIndicator;
+      accent = KeenBenchTheme.colorSuccessBorder;
     } else if (line.type == 'removed') {
       background = KeenBenchTheme.colorDiffRemoved;
-      accent = KeenBenchTheme.colorErrorText;
+      accent = KeenBenchTheme.colorErrorBorder;
     }
     return Container(
       color: background,
@@ -847,6 +877,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     width: 48,
                     child: Text(
                       line.oldLine?.toString() ?? '',
+                      textAlign: TextAlign.right,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: KeenBenchTheme.colorTextTertiary,
                       ),
@@ -856,6 +887,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     width: 48,
                     child: Text(
                       line.newLine?.toString() ?? '',
+                      textAlign: TextAlign.right,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: KeenBenchTheme.colorTextTertiary,
                       ),
@@ -2095,12 +2127,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
             child: InkWell(
               onTap: () => _selectChange(change),
               child: Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: selected
                       ? KeenBenchTheme.colorBackgroundSelected
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(6),
+                  border: selected
+                      ? const Border(
+                          left: BorderSide(
+                            color: KeenBenchTheme.colorAccentPrimary,
+                            width: 3,
+                          ),
+                        )
+                      : null,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2160,6 +2203,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sidebarWidth = _sidebarWidthFor(MediaQuery.of(context).size.width);
     return Shortcuts(
       shortcuts: reviewShortcutMap(),
       child: Actions(
@@ -2198,11 +2242,27 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   child: const Text('Publish'),
                 ),
                 const SizedBox(width: 8),
-                TextButton(
+                ElevatedButton(
                   key: AppKeys.reviewDiscardButton,
                   onPressed: _discardActionCallback,
-                  style: TextButton.styleFrom(
-                    foregroundColor: KeenBenchTheme.colorErrorText,
+                  style: ButtonStyle(
+                    backgroundColor: MaterialStateProperty.resolveWith((
+                      states,
+                    ) {
+                      if (states.contains(MaterialState.disabled)) {
+                        return KeenBenchTheme.colorErrorText.withOpacity(0.5);
+                      }
+                      if (states.contains(MaterialState.pressed)) {
+                        return const Color(0xFF9F2727);
+                      }
+                      if (states.contains(MaterialState.hovered)) {
+                        return const Color(0xFFAF2B2B);
+                      }
+                      return KeenBenchTheme.colorErrorText;
+                    }),
+                    foregroundColor: const MaterialStatePropertyAll(
+                      Colors.white,
+                    ),
                   ),
                   child: const Text('Discard'),
                 ),
@@ -2233,7 +2293,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                     key: AppKeys.reviewFileListFocusTarget,
                                     focusNode: _fileListFocusNode,
                                     child: Container(
-                                      width: 260,
+                                      width: sidebarWidth,
                                       decoration: const BoxDecoration(
                                         border: Border(
                                           right: BorderSide(
@@ -2296,18 +2356,28 @@ class _ChangeBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final normalized = changeType.toLowerCase();
     final isAdded = normalized == 'added';
+    final isDeleted = normalized == 'removed' || normalized == 'deleted';
     final background = isAdded
         ? KeenBenchTheme.colorDiffAdded
-        : KeenBenchTheme.colorInfoBackground;
+        : isDeleted
+        ? KeenBenchTheme.colorDiffRemoved
+        : KeenBenchTheme.colorWarningBackground;
     final textColor = isAdded
         ? KeenBenchTheme.colorSuccessText
-        : KeenBenchTheme.colorInfoText;
+        : isDeleted
+        ? KeenBenchTheme.colorErrorText
+        : KeenBenchTheme.colorWarningText;
+    final borderColor = isAdded
+        ? KeenBenchTheme.colorSuccessBorder
+        : isDeleted
+        ? KeenBenchTheme.colorErrorBorder
+        : KeenBenchTheme.colorWarningBorder;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: KeenBenchTheme.colorBorderSubtle),
+        border: Border.all(color: borderColor),
       ),
       child: Text(
         normalized.toUpperCase(),

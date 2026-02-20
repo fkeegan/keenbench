@@ -12,7 +12,7 @@ See `CLAUDE.md` for the full testing policy.
 ## Test Environment
 
 - Linux desktop (X11). E2E harness targets `flutter test integration_test -d linux`.
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
+- Network access to: `api.openai.com`, `auth.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
@@ -45,6 +45,8 @@ See `CLAUDE.md` for the full testing policy.
 - **Priority:** P0 = must-pass, P1 = important, P2 = nice-to-have.
 - **IDs:** `TC-###`. No milestone prefix — test cases apply across milestones.
 - **AI tests:** Marked with `[AI]` tag. These MUST use real model calls.
+- **Manual-only tests:** Marked with `[MANUAL ONLY]` and `Runner: Human only`.
+- **Manual-only skip rule for AI agents:** Skip these cases with reason `Skipped: manual browser OAuth required (OpenAI Codex auth callback flow).`
 - **Steps format:** Each step is an atomic action followed by `Expected:` with the verifiable result.
 - **Timeout convention:** AI-driven steps use 60-120s timeouts unless noted.
 
@@ -117,6 +119,17 @@ The engine uses a Python tool worker (`engine/tools/pyworker/`) for office file 
      Expected: Draft created. Timeout: 120 seconds.
   3. Verify the draft XLSX.
      Expected: An "Annual" sheet exists. It has the specified column headers. At least 2 data rows. The Grand_Total column equals Q1+Q2+Q3+Q4 for each row (within rounding tolerance). The Q-totals match the known sums from each sheet.
+
+#### TC-132: New XLSX workbook avoids empty default sheet leakage `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has no existing `report.xlsx` draft file. No Draft.
+- Steps:
+  1. Send a prompt that creates a new workbook with one intended sheet (for example: "Create report.xlsx with one sheet named Summary and set A1='Metric', B1='Value'.").
+     Expected: Draft created with `report.xlsx`. Timeout: 120 seconds.
+  2. Inspect the workbook in review and/or via local workbook inspection.
+     Expected: Only intended sheet(s) are present. No extra unintended empty default sheet remains.
+  3. Validate first sheet name and basic content.
+     Expected: `Summary` sheet exists and includes requested header cells.
 
 ---
 

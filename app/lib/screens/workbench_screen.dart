@@ -122,6 +122,13 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     return state.hasDraft ? '__draft__' : '';
   }
 
+  double _sidebarWidthFor(double width) {
+    if (width >= 3840) return 280;
+    if (width >= 2560) return 260;
+    if (width >= 1920) return 240;
+    return 200;
+  }
+
   void _announce(String message, {bool force = false}) {
     if (!mounted) {
       return;
@@ -1014,6 +1021,9 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
         final draftMetadataText = _buildDraftMetadataText(state);
         final canRunConversationAction =
             !state.isApplyingDraft && !state.isConversationBusy;
+        final sidebarWidth = _sidebarWidthFor(
+          MediaQuery.of(context).size.width,
+        );
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) {
             return;
@@ -1158,6 +1168,13 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                           size: 20,
                           color: KeenBenchTheme.colorTextSecondary,
                         ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        splashRadius: 18,
+                        hoverColor: KeenBenchTheme.colorBackgroundHover,
                       ),
                     ),
                   ],
@@ -1226,7 +1243,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                         child: Row(
                           children: [
                             Container(
-                              width: 320,
+                              width: sidebarWidth,
                               decoration: const BoxDecoration(
                                 border: Border(
                                   right: BorderSide(
@@ -1319,75 +1336,73 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                           ),
                                         ],
                                         const SizedBox(height: 12),
-                                        Row(
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
                                           children: [
-                                            Expanded(
-                                              child: Tooltip(
-                                                message: state.hasDraft
-                                                    ? 'Publish or discard the Draft to add files.'
-                                                    : 'Add files to the Workbench.',
-                                                child: SizedBox(
-                                                  width: double.infinity,
-                                                  child: ElevatedButton.icon(
-                                                    key: AppKeys
-                                                        .workbenchAddFilesButton,
-                                                    onPressed: state.hasDraft
-                                                        ? null
-                                                        : () async {
-                                                            final files =
-                                                                await openFiles();
-                                                            final paths = files
-                                                                .map(
-                                                                  (file) =>
-                                                                      file.path,
-                                                                )
-                                                                .toList();
-                                                            if (paths
-                                                                .isNotEmpty) {
-                                                              try {
-                                                                await state
-                                                                    .addFiles(
-                                                                      paths,
-                                                                    );
-                                                              } catch (err) {
-                                                                if (!context
-                                                                    .mounted) {
-                                                                  return;
-                                                                }
-                                                                _showMessage(
-                                                                  err.toString(),
-                                                                  isError: true,
-                                                                );
+                                            Tooltip(
+                                              message: state.hasDraft
+                                                  ? 'Publish or discard the Draft to add files.'
+                                                  : 'Add files to the Workbench.',
+                                              child: SizedBox(
+                                                width: double.infinity,
+                                                child: ElevatedButton.icon(
+                                                  key: AppKeys
+                                                      .workbenchAddFilesButton,
+                                                  onPressed: state.hasDraft
+                                                      ? null
+                                                      : () async {
+                                                          final files =
+                                                              await openFiles();
+                                                          final paths = files
+                                                              .map(
+                                                                (file) =>
+                                                                    file.path,
+                                                              )
+                                                              .toList();
+                                                          if (paths
+                                                              .isNotEmpty) {
+                                                            try {
+                                                              await state
+                                                                  .addFiles(
+                                                                    paths,
+                                                                  );
+                                                            } catch (err) {
+                                                              if (!context
+                                                                  .mounted) {
+                                                                return;
                                                               }
+                                                              _showMessage(
+                                                                err.toString(),
+                                                                isError: true,
+                                                              );
                                                             }
-                                                          },
-                                                    icon: const Icon(Icons.add),
-                                                    label: const Text(
-                                                      'Add files',
-                                                    ),
+                                                          }
+                                                        },
+                                                  icon: const Icon(Icons.add),
+                                                  label: const Text(
+                                                    'Add files',
                                                   ),
                                                 ),
                                               ),
                                             ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Tooltip(
-                                                message: state.hasDraft
-                                                    ? 'View context. Add/edit/delete are blocked while a Draft exists.'
-                                                    : 'Add or edit workbench context.',
-                                                child: SizedBox(
-                                                  width: double.infinity,
-                                                  child: OutlinedButton.icon(
-                                                    key: AppKeys
-                                                        .workbenchAddContextButton,
-                                                    onPressed:
-                                                        _openContextOverview,
-                                                    icon: const Icon(
-                                                      Icons.auto_awesome,
-                                                    ),
-                                                    label: const Text(
-                                                      'Add Context',
-                                                    ),
+                                            const SizedBox(height: 8),
+                                            Tooltip(
+                                              message: state.hasDraft
+                                                  ? 'View context. Add/edit/delete are blocked while a Draft exists.'
+                                                  : 'Add or edit workbench context.',
+                                              child: SizedBox(
+                                                width: double.infinity,
+                                                child: OutlinedButton.icon(
+                                                  key: AppKeys
+                                                      .workbenchAddContextButton,
+                                                  onPressed:
+                                                      _openContextOverview,
+                                                  icon: const Icon(
+                                                    Icons.auto_awesome,
+                                                  ),
+                                                  label: const Text(
+                                                    'Add context',
                                                   ),
                                                 ),
                                               ),
@@ -1468,16 +1483,18 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                           icon: const Icon(
                                             Icons.settings_outlined,
                                           ),
-                                          iconSize: 40,
+                                          iconSize: 20,
+                                          padding: EdgeInsets.zero,
                                           constraints:
                                               const BoxConstraints.tightFor(
-                                                width: 72,
-                                                height: 72,
+                                                width: 32,
+                                                height: 32,
                                               ),
                                           color:
                                               KeenBenchTheme.colorTextSecondary,
                                           hoverColor: KeenBenchTheme
                                               .colorBackgroundHover,
+                                          splashRadius: 18,
                                         ),
                                       ),
                                     ),
@@ -1805,17 +1822,21 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                               ),
                                             if (!state.hasDraft)
                                               Container(
-                                                padding: const EdgeInsets.all(
-                                                  12,
-                                                ),
-                                                decoration: BoxDecoration(
+                                                padding:
+                                                    const EdgeInsets.fromLTRB(
+                                                      12,
+                                                      12,
+                                                      12,
+                                                      0,
+                                                    ),
+                                                decoration: const BoxDecoration(
                                                   color: KeenBenchTheme
-                                                      .colorBackgroundElevated,
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                  border: Border.all(
-                                                    color: KeenBenchTheme
-                                                        .colorBorderSubtle,
+                                                      .colorBackgroundPrimary,
+                                                  border: Border(
+                                                    top: BorderSide(
+                                                      color: KeenBenchTheme
+                                                          .colorBorderSubtle,
+                                                    ),
                                                   ),
                                                 ),
                                                 child: Row(
@@ -1892,17 +1913,21 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                               )
                                             else
                                               Container(
-                                                padding: const EdgeInsets.all(
-                                                  12,
-                                                ),
-                                                decoration: BoxDecoration(
+                                                padding:
+                                                    const EdgeInsets.fromLTRB(
+                                                      12,
+                                                      12,
+                                                      12,
+                                                      0,
+                                                    ),
+                                                decoration: const BoxDecoration(
                                                   color: KeenBenchTheme
-                                                      .colorBackgroundElevated,
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                  border: Border.all(
-                                                    color: KeenBenchTheme
-                                                        .colorBorderSubtle,
+                                                      .colorBackgroundPrimary,
+                                                  border: Border(
+                                                    top: BorderSide(
+                                                      color: KeenBenchTheme
+                                                          .colorBorderSubtle,
+                                                    ),
                                                   ),
                                                 ),
                                                 child: Row(
@@ -2192,6 +2217,13 @@ class _ChatMessageBubble extends StatefulWidget {
 class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
   bool _hovered = false;
 
+  double _chatMaxWidthFor(double width) {
+    if (width >= 3840) return 880;
+    if (width >= 2560) return 800;
+    if (width >= 1920) return 720;
+    return 640;
+  }
+
   String _messageToken() {
     if (widget.message.id.isNotEmpty) {
       return widget.message.id;
@@ -2249,24 +2281,25 @@ class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
     final footerText = footerMetadata.isEmpty
         ? null
         : footerMetadata.join(' · ');
+    final maxBubbleWidth = _chatMaxWidthFor(MediaQuery.of(context).size.width);
     final bubbleColor = widget.isUser
-        ? KeenBenchTheme.colorInfoBackground
-        : KeenBenchTheme.colorSurfaceSubtle;
-    final borderColor = widget.isUser
-        ? KeenBenchTheme.colorInfoBorder
-        : KeenBenchTheme.colorBorderSubtle;
+        ? KeenBenchTheme.colorAccentPrimary.withOpacity(0.1)
+        : KeenBenchTheme.colorBackgroundElevated;
+    final border = widget.isUser
+        ? null
+        : Border.all(color: KeenBenchTheme.colorBorderSubtle);
     return Align(
       alignment: widget.isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: MouseRegion(
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          constraints: const BoxConstraints(maxWidth: 520),
+          margin: const EdgeInsets.symmetric(vertical: 12),
+          constraints: BoxConstraints(maxWidth: maxBubbleWidth),
           decoration: BoxDecoration(
             color: bubbleColor,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: borderColor),
+            border: border,
           ),
           child: Stack(
             children: [
@@ -2276,7 +2309,7 @@ class _ChatMessageBubbleState extends State<_ChatMessageBubble> {
                   child: widget.isUser
                       ? Text(
                           widget.message.text,
-                          style: Theme.of(context).textTheme.bodyMedium,
+                          style: Theme.of(context).textTheme.bodyLarge,
                         )
                       : MarkdownBody(
                           data: widget.message.text,

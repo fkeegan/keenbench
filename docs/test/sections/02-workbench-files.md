@@ -12,7 +12,7 @@ See `CLAUDE.md` for the full testing policy.
 ## Test Environment
 
 - Linux desktop (X11). E2E harness targets `flutter test integration_test -d linux`.
-- Network access to: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
+- Network access to: `api.openai.com`, `auth.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.mistral.ai`.
 - Valid API keys in `.env`:
   - `KEENBENCH_OPENAI_API_KEY` (required for all AI tests)
   - `KEENBENCH_ANTHROPIC_API_KEY` (required for multi-provider tests)
@@ -49,6 +49,8 @@ See `CLAUDE.md` for the full testing policy.
 - **Priority:** P0 = must-pass, P1 = important, P2 = nice-to-have.
 - **IDs:** `TC-###`. No milestone prefix — test cases apply across milestones.
 - **AI tests:** Marked with `[AI]` tag. These MUST use real model calls.
+- **Manual-only tests:** Marked with `[MANUAL ONLY]` and `Runner: Human only`.
+- **Manual-only skip rule for AI agents:** Skip these cases with reason `Skipped: manual browser OAuth required (OpenAI Codex auth callback flow).`
 - **Steps format:** Each step is an atomic action followed by `Expected:` with the verifiable result.
 - **Timeout convention:** AI-driven steps use 60-120s timeouts unless noted.
 
@@ -89,8 +91,8 @@ Key elements for this section:
      Expected: The text "Financial Analysis" appears in the field.
   3. Click "Create" (`AppKeys.newWorkbenchCreateButton`).
      Expected: The dialog closes. The workbench screen (`AppKeys.workbenchScreen`) opens with title "Financial Analysis". The file list (`AppKeys.workbenchFileList`) is empty. The scope description text is visible (`AppKeys.workbenchScopeLimits`).
-  4. Verify the composer field (`AppKeys.workbenchComposerField`) is visible with placeholder "Ask the Workshop...".
-     Expected: The composer is present and enabled.
+  4. Verify the composer field (`AppKeys.workbenchComposerField`) is visible.
+     Expected: The composer is present and enabled. Placeholder is mode-dependent: "Describe a task..." in Agent mode, "Ask a question..." in Ask mode.
 
 #### TC-008: Add text and CSV files
 - Priority: P0
@@ -195,3 +197,14 @@ Key elements for this section:
      Expected: The dialog closes. The workbench tile is still visible.
   4. Repeat steps 1-2, then click the red confirm button (`AppKeys.homeDeleteWorkbenchConfirm`).
      Expected: The dialog closes. The workbench tile is removed from the grid.
+
+#### TC-018: Extract destination collision auto-renames output
+- Priority: P1
+- Preconditions: Workbench has `notes.txt`, no Draft, and a writable destination folder already containing `notes.txt`.
+- Steps:
+  1. Click extract on `notes.txt` (`AppKeys.workbenchFileExtractButton('notes.txt')`) and choose the destination folder that already has a file with the same name.
+     Expected: Extraction succeeds instead of failing.
+  2. Verify destination folder contents.
+     Expected: A new file is created with collision suffix naming (`notes(1).txt`, then `notes(2).txt` on repeated extracts).
+  3. Verify extraction feedback message in the app.
+     Expected: The message indicates the file was extracted with the renamed path (for example, `Extracted "notes.txt" as "notes(1).txt".`).
