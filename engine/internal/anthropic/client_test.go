@@ -11,6 +11,128 @@ import (
 	"keenbench/engine/internal/llm"
 )
 
+func TestAPIKeyClientUsesXAPIKeyHeader(t *testing.T) {
+	t.Helper()
+
+	var gotAuthorization string
+	var gotXAPIKey string
+	var gotVersion string
+	var gotBeta string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthorization = r.Header.Get("Authorization")
+		gotXAPIKey = r.Header.Get("x-api-key")
+		gotVersion = r.Header.Get("anthropic-version")
+		gotBeta = r.Header.Get("anthropic-beta")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	resp, err := client.Chat(context.Background(), "sk-ant-api-test", "claude-sonnet-4-6", []llm.Message{
+		{Role: "user", Content: "Hello"},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp != "ok" {
+		t.Fatalf("expected response %q, got %q", "ok", resp)
+	}
+	if gotAuthorization != "" {
+		t.Fatalf("expected Authorization header to be empty, got %q", gotAuthorization)
+	}
+	if gotXAPIKey != "sk-ant-api-test" {
+		t.Fatalf("expected x-api-key header, got %q", gotXAPIKey)
+	}
+	if gotVersion != defaultVersion {
+		t.Fatalf("expected anthropic-version=%q, got %q", defaultVersion, gotVersion)
+	}
+	if gotBeta != "" {
+		t.Fatalf("expected anthropic-beta to be empty for api key auth, got %q", gotBeta)
+	}
+}
+
+func TestSetupTokenClientUsesOAuthHeaders(t *testing.T) {
+	t.Helper()
+
+	var gotAuthorization string
+	var gotXAPIKey string
+	var gotVersion string
+	var gotBeta string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthorization = r.Header.Get("Authorization")
+		gotXAPIKey = r.Header.Get("x-api-key")
+		gotVersion = r.Header.Get("anthropic-version")
+		gotBeta = r.Header.Get("anthropic-beta")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:        server.URL,
+		client:         server.Client(),
+		setupTokenAuth: true,
+	}
+
+	resp, err := client.Chat(context.Background(), "sk-ant-oat01-test-token", "claude-sonnet-4-6", []llm.Message{
+		{Role: "user", Content: "Hello"},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp != "ok" {
+		t.Fatalf("expected response %q, got %q", "ok", resp)
+	}
+	if gotAuthorization != "Bearer sk-ant-oat01-test-token" {
+		t.Fatalf("expected bearer Authorization header, got %q", gotAuthorization)
+	}
+	if gotXAPIKey != "" {
+		t.Fatalf("expected x-api-key header to be empty, got %q", gotXAPIKey)
+	}
+	if gotVersion != defaultVersion {
+		t.Fatalf("expected anthropic-version=%q, got %q", defaultVersion, gotVersion)
+	}
+	if gotBeta != setupTokenBetaHeader {
+		t.Fatalf("expected anthropic-beta=%q, got %q", setupTokenBetaHeader, gotBeta)
+	}
+}
+
+func TestSetupTokenClientValidateKeyRequiresNonEmptyToken(t *testing.T) {
+	t.Helper()
+
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:        server.URL,
+		client:         server.Client(),
+		setupTokenAuth: true,
+	}
+
+	if err := client.ValidateKey(context.Background(), "sk-ant-oat01-test-token"); err != nil {
+		t.Fatalf("expected setup token validation to pass for non-empty token, got %v", err)
+	}
+	if called {
+		t.Fatalf("expected setup token validation to avoid network requests")
+	}
+
+	if err := client.ValidateKey(context.Background(), "   "); err != llm.ErrUnauthorized {
+		t.Fatalf("expected llm.ErrUnauthorized for empty setup token, got %v", err)
+	}
+	if called {
+		t.Fatalf("expected setup token validation to avoid network requests")
+	}
+}
+
 func TestChatUsesTopLevelSystemParameter(t *testing.T) {
 	t.Helper()
 

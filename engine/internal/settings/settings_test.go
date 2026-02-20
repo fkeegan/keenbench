@@ -55,6 +55,20 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("expected anthropic implement reasoning effort to default to medium, got %q", anthropic.RPIImplementReasoningEffort)
 	}
 
+	anthropicClaude := settings.Providers[providerAnthropicClaude]
+	if anthropicClaude.Enabled != true {
+		t.Fatalf("expected anthropic-claude enabled by default")
+	}
+	if anthropicClaude.RPIResearchReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic-claude research reasoning effort to default to medium, got %q", anthropicClaude.RPIResearchReasoningEffort)
+	}
+	if anthropicClaude.RPIPlanReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic-claude plan reasoning effort to default to medium, got %q", anthropicClaude.RPIPlanReasoningEffort)
+	}
+	if anthropicClaude.RPIImplementReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic-claude implement reasoning effort to default to medium, got %q", anthropicClaude.RPIImplementReasoningEffort)
+	}
+
 	mistral := settings.Providers[providerMistral]
 	if mistral.Enabled != true {
 		t.Fatalf("expected mistral enabled by default")
@@ -177,6 +191,23 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
 	}
 	if anthropic.RPIImplementReasoningEffort != reasoningEffortMedium {
 		t.Fatalf("expected anthropic implement reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropic.RPIImplementReasoningEffort)
+	}
+
+	anthropicClaude, ok := settings.Providers[providerAnthropicClaude]
+	if !ok {
+		t.Fatalf("expected anthropic-claude provider to be backfilled")
+	}
+	if !anthropicClaude.Enabled {
+		t.Fatalf("expected anthropic-claude provider to default to enabled")
+	}
+	if anthropicClaude.RPIResearchReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic-claude research reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropicClaude.RPIResearchReasoningEffort)
+	}
+	if anthropicClaude.RPIPlanReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic-claude plan reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropicClaude.RPIPlanReasoningEffort)
+	}
+	if anthropicClaude.RPIImplementReasoningEffort != reasoningEffortMedium {
+		t.Fatalf("expected anthropic-claude implement reasoning effort to default to %q, got %q", reasoningEffortMedium, anthropicClaude.RPIImplementReasoningEffort)
 	}
 
 	mistral, ok := settings.Providers[providerMistral]

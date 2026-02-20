@@ -589,6 +589,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       }
     }
     if (normalizedId == 'openai-codex') return 'oauth';
+    if (normalizedId == 'anthropic-claude') return 'setup_token';
     return 'api_key';
   }
 
@@ -599,12 +600,18 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     final label = providerName.trim().isEmpty
         ? 'Provider'
         : providerName.trim();
-    final isOAuth = _providerAuthModeFor(providerId) == 'oauth';
+    final authMode = _providerAuthModeFor(providerId);
+    final isOAuth = authMode == 'oauth';
+    final isSetupToken = authMode == 'setup_token';
     final title = isOAuth
         ? '$label authentication required'
+        : isSetupToken
+        ? '$label token required'
         : '$label key required';
     final content = isOAuth
         ? 'Connect $label in Settings before continuing.'
+        : isSetupToken
+        ? 'Configure a valid $label setup token before continuing.'
         : 'Configure a valid $label API key before continuing.';
     _setErrorSummary(content, announce: true);
     final open = await showDialog<bool>(

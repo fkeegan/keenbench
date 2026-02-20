@@ -148,7 +148,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ? consentModeAllowAll
           : consentModeAsk;
       for (final provider in _providers) {
-        if (provider.authMode == 'api_key') {
+        if (provider.authMode == 'api_key' ||
+            provider.authMode == 'setup_token') {
           _controllers.putIfAbsent(provider.id, () => TextEditingController());
         }
       }
@@ -164,10 +165,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final engine = context.read<EngineApi>();
     final controller = _controllers[provider.id];
     final key = controller?.text.trim() ?? '';
+    final credentialLabel = provider.authMode == 'setup_token'
+        ? 'setup token'
+        : 'API key';
+    final savedLabel = provider.authMode == 'setup_token' ? 'token' : 'key';
     if (key.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Enter an API key.')));
+      ).showSnackBar(SnackBar(content: Text('Enter a $credentialLabel.')));
       return;
     }
     try {
@@ -185,10 +190,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${provider.displayName} key saved.')),
+        SnackBar(content: Text('${provider.displayName} $savedLabel saved.')),
       );
     } on EngineError catch (err) {
       AppLog.warn('settings.save_api_key_failed', {
+        'provider_id': provider.id,
+        'error_code': err.errorCode,
+        'message': err.message,
+      });
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(err.message)));
+    }
+  }
+
+  Future<void> _clearCredential(ProviderStatus provider) async {
+    if (provider.authMode == 'oauth') {
+      await _disconnectOAuth(provider);
+      return;
+    }
+
+    final engine = context.read<EngineApi>();
+    final clearedLabel = provider.authMode == 'setup_token' ? 'token' : 'key';
+    try {
+      AppLog.info('settings.clear_api_key', {'provider_id': provider.id});
+      await engine.call('ProvidersClearApiKey', {'provider_id': provider.id});
+      _controllers[provider.id]?.clear();
+      await _load();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${provider.displayName} $clearedLabel cleared.'),
+        ),
+      );
+    } on EngineError catch (err) {
+      AppLog.warn('settings.clear_api_key_failed', {
         'provider_id': provider.id,
         'error_code': err.errorCode,
         'message': err.message,
@@ -214,7 +255,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _supportsReasoningEffort(ProviderStatus provider) =>
       provider.id == 'openai' ||
       provider.id == 'openai-codex' ||
-      provider.id == 'anthropic';
+      provider.id == 'anthropic' ||
+      provider.id == 'anthropic-claude';
 
   List<_ReasoningEffortOption> _reasoningEffortOptionsForProvider(
     String providerId,
@@ -225,6 +267,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 'openai-codex':
         return _openAICodexReasoningEffortOptions;
       case 'anthropic':
+      case 'anthropic-claude':
         return _anthropicReasoningEffortOptions;
       default:
         return const [];
@@ -828,6 +871,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       provider.id,
       () => TextEditingController(),
     );
+    final isSetupToken = provider.authMode == 'setup_token';
+    final credentialLabel = isSetupToken ? 'Setup Token' : 'API Key';
+    final clearLabel = isSetupToken ? 'Clear Token' : 'Clear Key';
+    final helperText = isSetupToken
+        ? 'Setup tokens are stored locally and encrypted at rest by the engine.'
+        : 'Keys are stored locally and encrypted at rest by the engine.';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -836,39 +885,113 @@ class _SettingsScreenState extends State<SettingsScreen> {
           controller: controller,
           obscureText: true,
           decoration: InputDecoration(
-            labelText: '${provider.displayName} API Key',
+            labelText: '${provider.displayName} $credentialLabel',
           ),
         ),
         const SizedBox(height: 12),
-        ElevatedButton(
-          key: provider.id == 'openai' ? AppKeys.settingsSaveButton : null,
-          onPressed: () => _saveKey(provider),
-          child: const Text('Save & Validate'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ElevatedButton(
+              key: provider.id == 'openai' ? AppKeys.settingsSaveButton : null,
+              onPressed: () => _saveKey(provider),
+              child: const Text('Save & Validate'),
+            ),
+            OutlinedButton(
+              key: AppKeys.settingsClearCredentialButton(provider.id),
+              onPressed: () => _clearCredential(provider),
+              child: Text(clearLabel),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Text(
-          'Keys are stored locally and encrypted at rest by the engine.',
+          helperText,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: KeenBenchTheme.colorTextSecondary,
           ),
         ),
+        if (isSetupToken) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: KeenBenchTheme.colorInfoBackground,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: KeenBenchTheme.colorInfoBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'How to connect',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: KeenBenchTheme.colorInfoText,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '1. Run this command on any machine where Claude Code is signed in.\n'
+                  '2. Copy the setup token it prints.\n'
+                  '3. Paste it above and click Save & Validate.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: KeenBenchTheme.colorInfoText,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: KeenBenchTheme.colorSurfaceSubtle,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: KeenBenchTheme.colorBorderDefault,
+                    ),
+                  ),
+                  child: Text(
+                    'claude setup-token',
+                    style: KeenBenchTheme.mono.copyWith(
+                      color: KeenBenchTheme.colorTextPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
 
   Widget _buildOAuthControls(ProviderStatus provider) {
     final connected = provider.oauthConnected == true;
-    if (!connected) {
-      return ElevatedButton(
-        key: AppKeys.settingsOAuthConnectButton(provider.id),
-        onPressed: () => _connectOAuth(provider),
-        child: const Text('Connect'),
-      );
-    }
-    return OutlinedButton(
-      key: AppKeys.settingsOAuthDisconnectButton(provider.id),
-      onPressed: () => _disconnectOAuth(provider),
-      child: const Text('Disconnect'),
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (!connected)
+          ElevatedButton(
+            key: AppKeys.settingsOAuthConnectButton(provider.id),
+            onPressed: () => _connectOAuth(provider),
+            child: const Text('Connect'),
+          )
+        else
+          OutlinedButton(
+            key: AppKeys.settingsOAuthDisconnectButton(provider.id),
+            onPressed: () => _disconnectOAuth(provider),
+            child: const Text('Disconnect'),
+          ),
+        OutlinedButton(
+          key: AppKeys.settingsClearCredentialButton(provider.id),
+          onPressed: () => _clearCredential(provider),
+          child: const Text('Clear Token'),
+        ),
+      ],
     );
   }
 
@@ -989,12 +1112,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? 'Configured'
         : 'Not configured';
     final isOAuthProvider = provider.authMode == 'oauth';
+    final isSetupTokenProvider = provider.authMode == 'setup_token';
     final oauthLabel = provider.oauthAccountLabel?.trim() ?? '';
     final oauthConnected = provider.oauthConnected == true;
     final oauthStatusText = oauthConnected
         ? (oauthLabel.isEmpty ? 'Connected' : 'Connected as $oauthLabel')
         : 'Not connected';
     final oauthHint = _oauthStatusHint(provider);
+    final tokenLabel = provider.tokenAccountLabel?.trim() ?? '';
+    final tokenConnected =
+        provider.tokenConnected == true || provider.configured;
+    final tokenStatusText = tokenConnected
+        ? (tokenLabel.isEmpty ? 'Connected' : 'Connected as $tokenLabel')
+        : 'Not connected';
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -1052,6 +1182,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ],
+          ] else if (isSetupTokenProvider) ...[
+            Text(
+              tokenStatusText,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: tokenConnected
+                    ? KeenBenchTheme.colorSuccessText
+                    : KeenBenchTheme.colorWarningText,
+              ),
+            ),
           ] else
             Text(
               configuredText,

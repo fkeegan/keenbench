@@ -31,12 +31,13 @@ type OpenAICodexOAuthCredentials struct {
 }
 
 type Secrets struct {
-	SchemaVersion    int                          `json:"schema_version"`
-	OpenAIKey        string                       `json:"openai_api_key,omitempty"`
-	AnthropicKey     string                       `json:"anthropic_api_key,omitempty"`
-	GoogleKey        string                       `json:"google_api_key,omitempty"`
-	MistralKey       string                       `json:"mistral_api_key,omitempty"`
-	OpenAICodexOAuth *OpenAICodexOAuthCredentials `json:"openai_codex_oauth,omitempty"`
+	SchemaVersion             int                          `json:"schema_version"`
+	OpenAIKey                 string                       `json:"openai_api_key,omitempty"`
+	AnthropicKey              string                       `json:"anthropic_api_key,omitempty"`
+	AnthropicClaudeSetupToken string                       `json:"anthropic_claude_setup_token,omitempty"`
+	GoogleKey                 string                       `json:"google_api_key,omitempty"`
+	MistralKey                string                       `json:"mistral_api_key,omitempty"`
+	OpenAICodexOAuth          *OpenAICodexOAuthCredentials `json:"openai_codex_oauth,omitempty"`
 }
 
 type encryptedPayload struct {
@@ -80,6 +81,23 @@ func (s *Store) SetAnthropicKey(key string) error {
 		return err
 	}
 	secrets.AnthropicKey = key
+	return s.save(secrets)
+}
+
+func (s *Store) GetAnthropicClaudeSetupToken() (string, error) {
+	secrets, err := s.load()
+	if err != nil {
+		return "", err
+	}
+	return secrets.AnthropicClaudeSetupToken, nil
+}
+
+func (s *Store) SetAnthropicClaudeSetupToken(token string) error {
+	secrets, err := s.load()
+	if err != nil {
+		return err
+	}
+	secrets.AnthropicClaudeSetupToken = token
 	return s.save(secrets)
 }
 
@@ -153,6 +171,8 @@ func (s *Store) ClearProviderKey(providerID string) error {
 		secrets.OpenAIKey = ""
 	case "anthropic":
 		secrets.AnthropicKey = ""
+	case "anthropic-claude":
+		secrets.AnthropicClaudeSetupToken = ""
 	case "google":
 		secrets.GoogleKey = ""
 	case "mistral":

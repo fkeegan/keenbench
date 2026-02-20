@@ -18,14 +18,24 @@ import (
 const defaultBaseURL = "https://api.anthropic.com"
 const defaultVersion = "2023-06-01"
 const defaultReasoningEffort = "high"
+const setupTokenBetaHeader = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14"
 
 // Client implements Anthropic Messages API (minimal v1 support).
 type Client struct {
-	baseURL string
-	client  *http.Client
+	baseURL        string
+	client         *http.Client
+	setupTokenAuth bool
 }
 
 func NewClient() *Client {
+	return newClient(false)
+}
+
+func NewSetupTokenClient() *Client {
+	return newClient(true)
+}
+
+func newClient(setupTokenAuth bool) *Client {
 	transport := egress.NewAllowlistRoundTripper(http.DefaultTransport, []string{"api.anthropic.com"})
 	return &Client{
 		baseURL: defaultBaseURL,
@@ -33,16 +43,26 @@ func NewClient() *Client {
 			Timeout:   120 * time.Second,
 			Transport: transport,
 		},
+		setupTokenAuth: setupTokenAuth,
 	}
 }
 
 func (c *Client) ValidateKey(ctx context.Context, apiKey string) error {
+	key := strings.TrimSpace(apiKey)
+	if c.setupTokenAuth {
+		// setup_token credentials are bearer OAuth tokens; validating by attempting
+		// inference can produce provider-specific false negatives, so only enforce
+		// non-empty input here.
+		if key == "" {
+			return llm.ErrUnauthorized
+		}
+		return nil
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", defaultVersion)
+	c.applyAuthHeaders(req, key)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		if errors.Is(err, llm.ErrEgressBlocked) {
@@ -171,8 +191,7 @@ func (c *Client) post(ctx context.Context, apiKey string, body []byte) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", defaultVersion)
+	c.applyAuthHeaders(req, apiKey)
 	req.Header.Set("content-type", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -196,6 +215,16 @@ func (c *Client) post(ctx context.Context, apiKey string, body []byte) ([]byte, 
 		return nil, fmt.Errorf("anthropic error: %s - %s", resp.Status, string(errorBody))
 	}
 	return io.ReadAll(resp.Body)
+}
+
+func (c *Client) applyAuthHeaders(req *http.Request, apiKey string) {
+	req.Header.Set("anthropic-version", defaultVersion)
+	if c.setupTokenAuth {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+		req.Header.Set("anthropic-beta", setupTokenBetaHeader)
+		return
+	}
+	req.Header.Set("x-api-key", strings.TrimSpace(apiKey))
 }
 
 type anthropicRequestMessage struct {

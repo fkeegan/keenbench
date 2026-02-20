@@ -91,6 +91,8 @@ class AppKeys {
       ValueKey<String>('settings_oauth_redirect_$providerId');
   static ValueKey<String> settingsOAuthCompleteButton(String providerId) =>
       ValueKey<String>('settings_oauth_complete_$providerId');
+  static ValueKey<String> settingsClearCredentialButton(String providerId) =>
+      ValueKey<String>('settings_clear_credential_$providerId');
   static ValueKey<String> settingsReasoningResearchDropdown(
     String providerId,
   ) => ValueKey<String>('settings_reasoning_research_$providerId');
