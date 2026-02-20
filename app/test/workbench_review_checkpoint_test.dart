@@ -1640,7 +1640,7 @@ void main() {
       expect(tester.widget<IconButton>(checkpoints).onPressed, isNotNull);
       expect(tester.widget<IconButton>(settings).onPressed, isNotNull);
       expect(tester.widget<IconButton>(extract).onPressed, isNotNull);
-      expect(tester.widget<IconButton>(settings).iconSize, 40);
+      expect(tester.widget<IconButton>(settings).iconSize, 20);
     },
   );
 
