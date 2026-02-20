@@ -88,6 +88,7 @@ func main() {
 	register("WorkbenchSetDefaultModel", eng.WorkbenchSetDefaultModel)
 
 	register("WorkbenchCreate", eng.WorkbenchCreate)
+	register("WorkbenchFork", eng.WorkbenchFork)
 	register("WorkbenchOpen", eng.WorkbenchOpen)
 	register("WorkbenchList", eng.WorkbenchList)
 	register("WorkbenchGetScope", eng.WorkbenchGetScope)
