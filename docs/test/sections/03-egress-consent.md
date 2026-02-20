@@ -43,6 +43,7 @@ Key elements for this section:
 - `AppKeys.consentDialog`, `AppKeys.consentFileList`, `AppKeys.consentScopeHash`
 - `AppKeys.consentCancelButton`, `AppKeys.consentContinueButton`
 - `AppKeys.workbenchMessageList`
+- `AppKeys.settingsConsentModeToggle`
 
 ## Egress Consent Behavior
 
@@ -51,6 +52,7 @@ Key elements for this section:
 - Consent persists for the same scope (same files) and same provider/model.
 - Adding/removing files changes the scope hash and invalidates prior consent.
 - Switching provider or model also requires new consent.
+- Global consent mode is opt-in in Settings. Default remains prompt-per-scope (`ask`).
 
 ---
 
@@ -123,3 +125,23 @@ Key elements for this section:
      Expected: The consent dialog reappears showing "Anthropic" as the provider name and the new model name. The file list and scope hash are displayed.
   3. Click "Continue".
      Expected: The message sends. The assistant response arrives from the Anthropic model. Timeout: 90 seconds.
+
+#### TC-026: Global consent mode skips prompt in Workshop `[AI]`
+- Priority: P1
+- Preconditions: Valid provider key configured. Workbench has files. No prior scoped consent.
+- Steps:
+  1. Open Settings and enable `AppKeys.settingsConsentModeToggle`.
+     Expected: Confirmation dialog appears. Confirm enable.
+  2. Return to Workbench. Type "Summarize the files." and click Send.
+     Expected: No consent dialog appears. Message sends immediately and assistant response arrives.
+
+#### TC-027: Disabling global consent mode restores prompt behavior `[AI]`
+- Priority: P1
+- Preconditions: TC-026 completed and global consent mode is enabled.
+- Steps:
+  1. Open Settings and disable `AppKeys.settingsConsentModeToggle`.
+     Expected: Toggle turns off without extra confirmation.
+  2. Add or remove a file to force a new scope hash.
+     Expected: Workbench scope changes.
+  3. Send a new message.
+     Expected: Consent dialog appears again before model call.

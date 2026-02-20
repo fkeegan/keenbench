@@ -298,6 +298,116 @@ func TestUserSetDefaultModelCanonicalizesLegacyAnthropicModel(t *testing.T) {
 	}
 }
 
+func TestUserConsentModeDefaultsToAsk(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	resp, errInfo := eng.UserGetConsentMode(ctx, nil)
+	if errInfo != nil {
+		t.Fatalf("get user consent mode: %v", errInfo)
+	}
+	if got := resp.(map[string]any)["mode"]; got != "ask" {
+		t.Fatalf("expected mode=%q, got %#v", "ask", got)
+	}
+}
+
+func TestUserSetConsentModeRequiresExplicitApproval(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	if _, errInfo := eng.UserSetConsentMode(ctx, mustJSON(t, map[string]any{
+		"mode": "allow_all",
+	})); errInfo == nil {
+		t.Fatalf("expected explicit approval error")
+	}
+	if _, errInfo := eng.UserSetConsentMode(ctx, mustJSON(t, map[string]any{
+		"mode":     "allow_all",
+		"approved": true,
+	})); errInfo != nil {
+		t.Fatalf("set consent mode allow_all: %v", errInfo)
+	}
+	resp, errInfo := eng.UserGetConsentMode(ctx, nil)
+	if errInfo != nil {
+		t.Fatalf("get user consent mode: %v", errInfo)
+	}
+	if got := resp.(map[string]any)["mode"]; got != "allow_all" {
+		t.Fatalf("expected mode=%q, got %#v", "allow_all", got)
+	}
+}
+
+func TestEgressGetConsentStatusRespectsConsentMode(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "ConsentModeStatus"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	status, errInfo := eng.EgressGetConsentStatus(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("consent status: %v", errInfo)
+	}
+	statusMap := status.(map[string]any)
+	if got := statusMap["mode"]; got != "ask" {
+		t.Fatalf("expected mode=%q, got %#v", "ask", got)
+	}
+	if got := statusMap["consented"]; got != false {
+		t.Fatalf("expected consented=false in ask mode without consent, got %#v", got)
+	}
+
+	if _, errInfo := eng.UserSetConsentMode(ctx, mustJSON(t, map[string]any{
+		"mode":     "allow_all",
+		"approved": true,
+	})); errInfo != nil {
+		t.Fatalf("set consent mode allow_all: %v", errInfo)
+	}
+
+	status, errInfo = eng.EgressGetConsentStatus(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("consent status in allow_all mode: %v", errInfo)
+	}
+	statusMap = status.(map[string]any)
+	if got := statusMap["mode"]; got != "allow_all" {
+		t.Fatalf("expected mode=%q, got %#v", "allow_all", got)
+	}
+	if got := statusMap["consented"]; got != true {
+		t.Fatalf("expected consented=true in allow_all mode, got %#v", got)
+	}
+}
+
 func TestWorkshopGetStateMigratesLegacyAnthropicModelIDs(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

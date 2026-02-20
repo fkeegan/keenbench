@@ -9,6 +9,7 @@ import '../accessibility/a11y_focus.dart';
 import '../accessibility/a11y_shortcuts.dart';
 import '../accessibility/skip_links.dart';
 import '../app_keys.dart';
+import '../egress_consent.dart';
 import '../engine/engine_client.dart';
 import '../logging.dart';
 import '../models/models.dart';
@@ -36,13 +37,6 @@ class WorkbenchScreen extends StatelessWidget {
       child: const _WorkbenchView(),
     );
   }
-}
-
-class _ConsentDecision {
-  const _ConsentDecision({required this.granted, required this.persist});
-
-  final bool granted;
-  final bool persist;
 }
 
 enum _ErrorActionChoice {
@@ -473,35 +467,33 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
   Future<bool> _ensureConsent() async {
     final state = context.read<WorkbenchState>();
     final engine = context.read<EngineApi>();
-    final status = await engine.call('EgressGetConsentStatus', {
-      'workbench_id': state.workbenchId,
-    });
-    final consented = status['consented'] == true;
-    final scopeHash = status['scope_hash'] as String? ?? '';
-    final providerId = status['provider_id'] as String? ?? '';
-    final modelId = status['model_id'] as String? ?? '';
+    final status = await fetchEgressConsentStatus(engine, state.workbenchId);
     AppLog.debug('workbench.consent_status', {
       'workbench_id': state.workbenchId,
-      'consented': consented,
-      'scope_hash': scopeHash,
+      'consented': status.consented,
+      'scope_hash': status.scopeHash,
+      'mode': status.mode,
     });
-    if (consented) {
+    if (status.consented) {
       return true;
     }
-    final decision = await _showConsentDialog(
-      state.files,
-      scopeHash,
-      providerId,
-      modelId,
+    final decision = await showEgressConsentDialog(
+      context,
+      files: state.files,
+      scopeHash: status.scopeHash,
+      providerId: status.providerId,
+      modelId: status.modelId,
+      models: state.models,
+      providers: state.providers,
     );
     if (decision == null || !decision.granted) {
       return false;
     }
     await engine.call('EgressGrantWorkshopConsent', {
       'workbench_id': state.workbenchId,
-      'provider_id': providerId,
-      'model_id': modelId,
-      'scope_hash': scopeHash,
+      'provider_id': status.providerId,
+      'model_id': status.modelId,
+      'scope_hash': status.scopeHash,
       'persist': decision.persist,
     });
     return true;
@@ -674,15 +666,19 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
         'workbench_id': context.read<WorkbenchState>().workbenchId,
         'scope_hash': err.scopeHash ?? '',
       });
-      final decision = await _showConsentDialog(
-        context.read<WorkbenchState>().files,
-        err.scopeHash ?? '',
-        err.providerId ?? '',
-        err.modelId ?? '',
+      final state = context.read<WorkbenchState>();
+      final decision = await showEgressConsentDialog(
+        context,
+        files: state.files,
+        scopeHash: err.scopeHash ?? '',
+        providerId: err.providerId ?? '',
+        modelId: err.modelId ?? '',
+        models: state.models,
+        providers: state.providers,
       );
       if (decision != null && decision.granted) {
         await context.read<EngineApi>().call('EgressGrantWorkshopConsent', {
-          'workbench_id': context.read<WorkbenchState>().workbenchId,
+          'workbench_id': state.workbenchId,
           'provider_id': err.providerId ?? '',
           'model_id': err.modelId ?? '',
           'scope_hash': err.scopeHash ?? '',
@@ -974,129 +970,6 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       }
       _showMessage(err.message, isError: true);
     }
-  }
-
-  Future<_ConsentDecision?> _showConsentDialog(
-    List<WorkbenchFile> files,
-    String scopeHash,
-    String providerId,
-    String modelId,
-  ) async {
-    final state = context.read<WorkbenchState>();
-    final providerName = state.providers
-        .firstWhere(
-          (p) => p.id == providerId,
-          orElse: () => ProviderStatus(
-            id: providerId,
-            displayName: providerId,
-            enabled: true,
-            configured: true,
-            models: const [],
-          ),
-        )
-        .displayName;
-    final modelName = state.models
-        .firstWhere(
-          (m) => m.id == modelId,
-          orElse: () => ModelInfo(
-            id: modelId,
-            providerId: providerId,
-            displayName: modelId,
-            contextTokensEstimate: 0,
-            supportsFileRead: true,
-            supportsFileWrite: true,
-          ),
-        )
-        .displayName;
-    bool persist = true;
-    return await showDialog<_ConsentDecision>(
-      context: context,
-      barrierColor: KeenBenchTheme.colorSurfaceOverlay,
-      builder: (context) => StatefulBuilder(
-        builder: (dialogContext, setState) {
-          void cancel() => Navigator.of(
-            dialogContext,
-          ).pop(const _ConsentDecision(granted: false, persist: false));
-
-          void submit() => Navigator.of(
-            dialogContext,
-          ).pop(_ConsentDecision(granted: true, persist: persist));
-
-          return DialogKeyboardShortcuts(
-            onCancel: cancel,
-            onSubmit: submit,
-            child: AlertDialog(
-              key: AppKeys.consentDialog,
-              title: const Text('Consent required'),
-              content: SizedBox(
-                width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'KeenBench will send Workbench content to $providerName ($modelName) to generate responses.',
-                      style: Theme.of(dialogContext).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Files in scope',
-                      style: Theme.of(dialogContext).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 180,
-                      child: ListView.builder(
-                        key: AppKeys.consentFileList,
-                        itemCount: files.length,
-                        itemBuilder: (context, index) {
-                          final file = files[index];
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Text(
-                              '${file.path} (${file.size} bytes)',
-                              style: Theme.of(
-                                dialogContext,
-                              ).textTheme.bodySmall,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      key: AppKeys.consentScopeHash,
-                      'Scope hash: $scopeHash',
-                      style: Theme.of(dialogContext).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 12),
-                    CheckboxListTile(
-                      value: persist,
-                      onChanged: (value) =>
-                          setState(() => persist = value ?? true),
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text("Don't ask again for this Workbench"),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                OutlinedButton(
-                  key: AppKeys.consentCancelButton,
-                  onPressed: cancel,
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  key: AppKeys.consentContinueButton,
-                  onPressed: submit,
-                  child: const Text('Continue'),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
   }
 
   @override

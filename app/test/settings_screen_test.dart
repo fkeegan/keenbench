@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'package:keenbench/app_keys.dart';
 import 'package:keenbench/engine/engine_client.dart';
+import 'package:keenbench/egress_consent.dart';
 import 'package:keenbench/screens/settings_screen.dart';
 import 'package:keenbench/theme.dart';
 
@@ -58,6 +59,7 @@ class _FakeSettingsEngine implements EngineApi {
   String anthropicPlanEffort;
   String anthropicImplementEffort;
   String defaultModelId = 'openai/gpt-4o-mini';
+  String userConsentMode = consentModeAsk;
 
   int _nextFlow = 1;
   String? lastFlowId;
@@ -194,6 +196,18 @@ class _FakeSettingsEngine implements EngineApi {
         return {'model_id': defaultModelId};
       case 'UserSetDefaultModel':
         defaultModelId = params?['model_id'] as String? ?? defaultModelId;
+        return {};
+      case 'UserGetConsentMode':
+        return {'mode': userConsentMode};
+      case 'UserSetConsentMode':
+        final mode = (params?['mode'] as String? ?? '').trim();
+        if (mode == consentModeAllowAll && params?['approved'] != true) {
+          throw EngineError(
+            'explicit approval required for allow_all mode',
+            const {'error_code': 'VALIDATION_FAILED'},
+          );
+        }
+        userConsentMode = mode;
         return {};
       case 'ProvidersSetEnabled':
         return {};
@@ -721,6 +735,63 @@ void main() {
     expect(payload?['research_effort'], 'low');
     expect(payload?['plan_effort'], 'medium');
     expect(payload?['implement_effort'], 'max');
+  });
+
+  testWidgets(
+    'consent mode toggle enables allow_all after explicit confirmation',
+    (tester) async {
+      final engine = _FakeSettingsEngine();
+      await _pumpSettingsScreen(tester, engine);
+
+      final toggleFinder = find.byKey(AppKeys.settingsConsentModeToggle);
+      expect(toggleFinder, findsOneWidget);
+      expect(tester.widget<SwitchListTile>(toggleFinder).value, isFalse);
+
+      await tester.tap(toggleFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(AppKeys.settingsConsentAllowAllDialog), findsOneWidget);
+      await tester.tap(find.byKey(AppKeys.settingsConsentAllowAllConfirm));
+      await tester.pumpAndSettle();
+
+      expect(engine.callCount('UserSetConsentMode'), 1);
+      expect(engine.lastParams('UserSetConsentMode')?['mode'], 'allow_all');
+      expect(engine.lastParams('UserSetConsentMode')?['approved'], true);
+      expect(tester.widget<SwitchListTile>(toggleFinder).value, isTrue);
+    },
+  );
+
+  testWidgets('consent mode enable can be canceled', (tester) async {
+    final engine = _FakeSettingsEngine();
+    await _pumpSettingsScreen(tester, engine);
+
+    final toggleFinder = find.byKey(AppKeys.settingsConsentModeToggle);
+    await tester.tap(toggleFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(AppKeys.settingsConsentAllowAllDialog), findsOneWidget);
+    await tester.tap(find.byKey(AppKeys.settingsConsentAllowAllCancel));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('UserSetConsentMode'), 0);
+    expect(tester.widget<SwitchListTile>(toggleFinder).value, isFalse);
+  });
+
+  testWidgets('consent mode toggle disables allow_all directly', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine()..userConsentMode = consentModeAllowAll;
+    await _pumpSettingsScreen(tester, engine);
+
+    final toggleFinder = find.byKey(AppKeys.settingsConsentModeToggle);
+    expect(tester.widget<SwitchListTile>(toggleFinder).value, isTrue);
+
+    await tester.tap(toggleFinder);
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('UserSetConsentMode'), 1);
+    expect(engine.lastParams('UserSetConsentMode')?['mode'], 'ask');
+    expect(tester.widget<SwitchListTile>(toggleFinder).value, isFalse);
   });
 
   testWidgets('OpenAI API key controls still render and save', (tester) async {

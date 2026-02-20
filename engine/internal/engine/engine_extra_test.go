@@ -99,6 +99,58 @@ func TestConsentRequiredWhenMissing(t *testing.T) {
 	}
 }
 
+func TestGlobalConsentModeAllowsWorkshopWithoutGrant(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	eng.providers[ProviderOpenAI] = &testOpenAI{
+		chatResponse: `{"summary":"Summary","writes":[{"path":"summary.md","content":"Done"}]}`,
+	}
+
+	if _, errInfo := eng.ProvidersSetApiKey(ctx, mustJSON(t, map[string]any{
+		"provider_id": "openai",
+		"api_key":     "sk-test",
+	})); errInfo != nil {
+		t.Fatalf("set key: %v", errInfo)
+	}
+	if _, errInfo := eng.UserSetConsentMode(ctx, mustJSON(t, map[string]any{
+		"mode":     "allow_all",
+		"approved": true,
+	})); errInfo != nil {
+		t.Fatalf("set consent mode: %v", errInfo)
+	}
+
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "Test"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+	filePath := filepath.Join(dataDir, "notes.txt")
+	if err := os.WriteFile(filePath, []byte("note"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, errInfo := eng.WorkbenchFilesAdd(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"source_paths": []string{filePath},
+	})); errInfo != nil {
+		t.Fatalf("add: %v", errInfo)
+	}
+
+	if _, errInfo := eng.WorkshopProposeChanges(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+	})); errInfo != nil {
+		t.Fatalf("proposal should succeed in allow_all mode: %v", errInfo)
+	}
+}
+
 func TestWorkshopProposalFallbackOnInvalidJSON(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

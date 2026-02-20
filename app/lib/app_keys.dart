@@ -66,6 +66,16 @@ class AppKeys {
   static const settingsProviderToggle = Key('settings_provider_toggle');
   static const settingsApiKeyField = Key('settings_api_key');
   static const settingsSaveButton = Key('settings_save_button');
+  static const settingsConsentModeToggle = Key('settings_consent_mode_toggle');
+  static const settingsConsentAllowAllDialog = Key(
+    'settings_consent_allow_all_dialog',
+  );
+  static const settingsConsentAllowAllConfirm = Key(
+    'settings_consent_allow_all_confirm',
+  );
+  static const settingsConsentAllowAllCancel = Key(
+    'settings_consent_allow_all_cancel',
+  );
   static ValueKey<String> settingsOAuthStatusText(String providerId) =>
       ValueKey<String>('settings_oauth_status_$providerId');
   static ValueKey<String> settingsOAuthConnectButton(String providerId) =>

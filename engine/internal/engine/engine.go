@@ -1135,9 +1135,14 @@ func (e *Engine) EgressGetConsentStatus(ctx context.Context, params json.RawMess
 		sessionConsent.ModelID = canonicalSessionModelID
 		e.sessionConsent[req.WorkbenchID] = sessionConsent
 	}
+	consentMode, errInfo := e.userConsentMode()
+	if errInfo != nil {
+		return nil, errInfo
+	}
+	allowAll := consentMode == settings.UserConsentModeAllowAll
 	persistedConsent := consent.Workshop.ScopeHash != "" && consent.Workshop.ScopeHash == scope && consent.Workshop.ProviderID == model.ProviderID && consent.Workshop.ModelID == modelID
 	sessionOk := sessionConsent.ScopeHash != "" && sessionConsent.ScopeHash == scope && sessionConsent.ProviderID == model.ProviderID && sessionConsent.ModelID == modelID
-	consented := persistedConsent || sessionOk
+	consented := allowAll || persistedConsent || sessionOk
 	e.logger.Debug("egress.get_consent", "workbench_id", req.WorkbenchID, "consented", consented)
 	return map[string]any{
 		"consented":   consented,
@@ -1145,6 +1150,7 @@ func (e *Engine) EgressGetConsentStatus(ctx context.Context, params json.RawMess
 		"model_id":    modelID,
 		"scope_hash":  scope,
 		"persisted":   persistedConsent,
+		"mode":        consentMode,
 	}, nil
 }
 
@@ -4210,6 +4216,13 @@ func (e *Engine) DraftDiscard(ctx context.Context, params json.RawMessage) (any,
 }
 
 func (e *Engine) ensureConsent(workbenchID string) *errinfo.ErrorInfo {
+	consentMode, errInfo := e.userConsentMode()
+	if errInfo != nil {
+		return errInfo
+	}
+	if consentMode == settings.UserConsentModeAllowAll {
+		return nil
+	}
 	scope, err := e.workbenches.ComputeScopeHash(workbenchID)
 	if err != nil {
 		return errinfo.FileReadFailed(errinfo.PhaseWorkshop, err.Error())
@@ -4235,6 +4248,14 @@ func (e *Engine) ensureConsent(workbenchID string) *errinfo.ErrorInfo {
 		return errInfo
 	}
 	return nil
+}
+
+func (e *Engine) userConsentMode() (string, *errinfo.ErrorInfo) {
+	settingsData, err := e.settings.Load()
+	if err != nil {
+		return "", errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
+	}
+	return settings.NormalizeUserConsentMode(settingsData.UserConsentMode), nil
 }
 
 func (e *Engine) ensureWorkshopUnlocked(workbenchID string) *errinfo.ErrorInfo {

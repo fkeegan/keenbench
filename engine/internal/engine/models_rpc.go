@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"keenbench/engine/internal/errinfo"
 	"keenbench/engine/internal/settings"
@@ -56,6 +57,43 @@ func (e *Engine) UserSetDefaultModel(ctx context.Context, params json.RawMessage
 	}
 	_, err := e.settings.Update(func(s *settings.Settings) {
 		s.UserDefaultModelID = req.ModelID
+	})
+	if err != nil {
+		return nil, errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())
+	}
+	return map[string]any{}, nil
+}
+
+func (e *Engine) UserGetConsentMode(ctx context.Context, _ json.RawMessage) (any, *errinfo.ErrorInfo) {
+	settingsData, err := e.settings.Load()
+	if err != nil {
+		return nil, errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
+	}
+	return map[string]any{
+		"mode": settings.NormalizeUserConsentMode(settingsData.UserConsentMode),
+	}, nil
+}
+
+func (e *Engine) UserSetConsentMode(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	var req struct {
+		Mode     string `json:"mode"`
+		Approved bool   `json:"approved"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
+	}
+	mode := strings.ToLower(strings.TrimSpace(req.Mode))
+	switch mode {
+	case settings.UserConsentModeAsk:
+	case settings.UserConsentModeAllowAll:
+		if !req.Approved {
+			return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "explicit approval required for allow_all mode")
+		}
+	default:
+		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported consent mode")
+	}
+	_, err := e.settings.Update(func(s *settings.Settings) {
+		s.UserConsentMode = mode
 	})
 	if err != nil {
 		return nil, errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())

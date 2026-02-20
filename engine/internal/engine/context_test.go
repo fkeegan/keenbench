@@ -203,6 +203,22 @@ func TestContextProcessEmitsAddedThenUpdatedAction(t *testing.T) {
 	})); errInfo != nil {
 		t.Fatalf("set enabled: %v", errInfo)
 	}
+	status, errInfo := eng.EgressGetConsentStatus(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("consent status: %v", errInfo)
+	}
+	statusMap := status.(map[string]any)
+	if _, errInfo := eng.EgressGrantWorkshopConsent(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"provider_id":  statusMap["provider_id"],
+		"model_id":     statusMap["model_id"],
+		"scope_hash":   statusMap["scope_hash"],
+		"persist":      false,
+	})); errInfo != nil {
+		t.Fatalf("grant consent: %v", errInfo)
+	}
 
 	contextActions := []string{}
 	eng.SetNotifier(func(method string, params any) {
@@ -249,6 +265,77 @@ func TestContextProcessEmitsAddedThenUpdatedAction(t *testing.T) {
 	}
 	if contextActions[1] != "updated" {
 		t.Fatalf("expected second action=updated, got %q", contextActions[1])
+	}
+}
+
+func TestContextProcessRequiresConsentWhenAskMode(t *testing.T) {
+	ctx := context.Background()
+	eng, workbenchID := newContextTestEngine(t)
+	eng.providers[ProviderOpenAI] = &testOpenAI{
+		chatResponse: `{"summary":"Company context summary","files":[{"path":"SKILL.md","content":"---\nname: company-context\ndescription: Company context skill.\n---\n\n# Company Context\n\nSee [summary](references/summary.md)."},{"path":"references/summary.md","content":"Company summary facts."}]}`,
+	}
+
+	if _, errInfo := eng.ProvidersSetApiKey(ctx, mustJSON(t, map[string]any{
+		"provider_id": "openai",
+		"api_key":     "sk-test",
+	})); errInfo != nil {
+		t.Fatalf("set key: %v", errInfo)
+	}
+	if _, errInfo := eng.ProvidersSetEnabled(ctx, mustJSON(t, map[string]any{
+		"provider_id": "openai",
+		"enabled":     true,
+	})); errInfo != nil {
+		t.Fatalf("set enabled: %v", errInfo)
+	}
+
+	_, errInfo := eng.ContextProcess(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"category":     contextCategoryCompany,
+		"input": map[string]any{
+			"mode": "text",
+			"text": "Initial company context source",
+		},
+	}))
+	if errInfo == nil || errInfo.ErrorCode != "EGRESS_CONSENT_REQUIRED" {
+		t.Fatalf("expected consent required error, got %#v", errInfo)
+	}
+}
+
+func TestContextProcessAllowsWhenGlobalConsentModeEnabled(t *testing.T) {
+	ctx := context.Background()
+	eng, workbenchID := newContextTestEngine(t)
+	eng.providers[ProviderOpenAI] = &testOpenAI{
+		chatResponse: `{"summary":"Company context summary","files":[{"path":"SKILL.md","content":"---\nname: company-context\ndescription: Company context skill.\n---\n\n# Company Context\n\nSee [summary](references/summary.md)."},{"path":"references/summary.md","content":"Company summary facts."}]}`,
+	}
+
+	if _, errInfo := eng.ProvidersSetApiKey(ctx, mustJSON(t, map[string]any{
+		"provider_id": "openai",
+		"api_key":     "sk-test",
+	})); errInfo != nil {
+		t.Fatalf("set key: %v", errInfo)
+	}
+	if _, errInfo := eng.ProvidersSetEnabled(ctx, mustJSON(t, map[string]any{
+		"provider_id": "openai",
+		"enabled":     true,
+	})); errInfo != nil {
+		t.Fatalf("set enabled: %v", errInfo)
+	}
+	if _, errInfo := eng.UserSetConsentMode(ctx, mustJSON(t, map[string]any{
+		"mode":     "allow_all",
+		"approved": true,
+	})); errInfo != nil {
+		t.Fatalf("set consent mode: %v", errInfo)
+	}
+
+	if _, errInfo := eng.ContextProcess(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"category":     contextCategoryCompany,
+		"input": map[string]any{
+			"mode": "text",
+			"text": "Initial company context source",
+		},
+	})); errInfo != nil {
+		t.Fatalf("process with allow_all mode: %v", errInfo)
 	}
 }
 

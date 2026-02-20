@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_keys.dart';
+import '../egress_consent.dart';
 import '../engine/engine_client.dart';
 import '../logging.dart';
 import '../models/models.dart';
@@ -99,9 +100,11 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _loading = true;
+  bool _updatingConsentMode = false;
   List<ProviderStatus> _providers = [];
   List<ModelInfo> _models = [];
   String? _userDefaultModelId;
+  String _userConsentMode = consentModeAsk;
   final Map<String, TextEditingController> _controllers = {};
 
   @override
@@ -119,6 +122,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) {
+      return;
+    }
     final engine = context.read<EngineApi>();
     final providersResponse = await engine.call('ProvidersGetStatus');
     final providerList =
@@ -128,6 +134,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final modelList = (modelsResponse['models'] as List<dynamic>? ?? [])
         .cast<Map<String, dynamic>>();
     final userDefault = await engine.call('UserGetDefaultModel');
+    final consentModeResponse = await engine.call('UserGetConsentMode');
+    final consentMode =
+        (consentModeResponse['mode'] as String? ?? consentModeAsk).trim();
     if (!mounted) {
       return;
     }
@@ -135,6 +144,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _providers = providerList.map(ProviderStatus.fromJson).toList();
       _models = modelList.map(ModelInfo.fromJson).toList();
       _userDefaultModelId = userDefault['model_id'] as String?;
+      _userConsentMode = consentMode == consentModeAllowAll
+          ? consentModeAllowAll
+          : consentModeAsk;
       for (final provider in _providers) {
         if (provider.authMode == 'api_key') {
           _controllers.putIfAbsent(provider.id, () => TextEditingController());
@@ -165,6 +177,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'api_key': key,
       });
       await engine.call('ProvidersValidate', {'provider_id': provider.id});
+      if (!mounted) {
+        return;
+      }
       await _load();
       if (!mounted) {
         return;
@@ -273,6 +288,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _userDefaultModelId = value;
     });
+  }
+
+  Future<bool> _confirmEnableGlobalConsentMode() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop(false);
+
+        void submit() => Navigator.of(dialogContext).pop(true);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.settingsConsentAllowAllDialog,
+            title: const Text('Enable consent-all mode?'),
+            content: const Text(
+              'When enabled, KeenBench will not prompt for egress consent before Workshop or Context model actions across all Workbenches. You can disable this any time in Settings.',
+            ),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.settingsConsentAllowAllCancel,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.settingsConsentAllowAllConfirm,
+                onPressed: submit,
+                child: const Text('Enable'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _setConsentModeAllowAll(bool enabled) async {
+    if (_updatingConsentMode) {
+      return;
+    }
+    final engine = context.read<EngineApi>();
+    setState(() {
+      _updatingConsentMode = true;
+    });
+    try {
+      if (enabled) {
+        final confirmed = await _confirmEnableGlobalConsentMode();
+        if (!confirmed) {
+          return;
+        }
+        await engine.call('UserSetConsentMode', {
+          'mode': consentModeAllowAll,
+          'approved': true,
+        });
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _userConsentMode = consentModeAllowAll;
+        });
+        return;
+      }
+      await engine.call('UserSetConsentMode', {'mode': consentModeAsk});
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _userConsentMode = consentModeAsk;
+      });
+    } on EngineError catch (err) {
+      AppLog.warn('settings.set_consent_mode_failed', {
+        'error_code': err.errorCode,
+        'message': err.message,
+      });
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(err.message)));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingConsentMode = false;
+        });
+      } else {
+        _updatingConsentMode = false;
+      }
+    }
   }
 
   List<ModelInfo> _availableModels() {
@@ -1007,6 +1113,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             .toList(),
                         onChanged: _setDefaultModel,
                       ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Egress Consent',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      key: AppKeys.settingsConsentModeToggle,
+                      value: _userConsentMode == consentModeAllowAll,
+                      onChanged: _updatingConsentMode
+                          ? null
+                          : _setConsentModeAllowAll,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Allow all model actions'),
+                      subtitle: Text(
+                        _userConsentMode == consentModeAllowAll
+                            ? 'Enabled: no consent prompts for Workshop or Context model actions.'
+                            : 'Default: prompt for consent before model actions.',
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     Text(
                       'Model Providers',

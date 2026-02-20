@@ -69,7 +69,12 @@ void main() {
           tester,
           timeout: const Duration(seconds: 30),
         );
-        expect(successToast, 'Key saved and validated.');
+        expect(
+          successToast == 'Key saved and validated.' ||
+              successToast == 'OpenAI key saved.',
+          isTrue,
+          reason: 'Expected OpenAI save/validate success message.',
+        );
         var configuredStatus = tester
             .widget<Text>(find.byKey(AppKeys.settingsProviderStatus))
             .data;
