@@ -1,6 +1,6 @@
 # KeenBench
 
-[![CI](https://github.com/KeenBench/keenbench/actions/workflows/ci.yml/badge.svg)](https://github.com/KeenBench/keenbench/actions/workflows/ci.yml)
+[![CI](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml/badge.svg)](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml)
 
 Safe, reviewable AI-assisted **file analysis and editing** on your desktop — with a Draft → Review → Publish workflow.
 
