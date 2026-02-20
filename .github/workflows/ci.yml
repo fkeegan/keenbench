@@ -38,6 +38,16 @@ jobs:
           cd app
           dart format --set-exit-if-changed .
 
+  version-consistency:
+    name: version-consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: |
+          bash scripts/check_version_consistency.sh
+
   go-test:
     name: go-test
     runs-on: ubuntu-latest
