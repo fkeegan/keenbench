@@ -3,18 +3,21 @@ package engine
 import "strings"
 
 const (
-	ProviderOpenAI      = "openai"
-	ProviderOpenAICodex = "openai-codex"
-	ProviderAnthropic   = "anthropic"
-	ProviderGoogle      = "google"
-	ProviderMistral     = "mistral"
+	ProviderOpenAI          = "openai"
+	ProviderOpenAICodex     = "openai-codex"
+	ProviderAnthropic       = "anthropic"
+	ProviderAnthropicClaude = "anthropic-claude"
+	ProviderGoogle          = "google"
+	ProviderMistral         = "mistral"
 )
 
 const (
-	ModelOpenAIID            = "openai:gpt-5.2"
-	ModelOpenAICodexID       = "openai-codex:gpt-5.3-codex"
-	ModelAnthropicSonnet46ID = "anthropic:claude-sonnet-4-6"
-	ModelAnthropicOpus46ID   = "anthropic:claude-opus-4-6"
+	ModelOpenAIID                  = "openai:gpt-5.2"
+	ModelOpenAICodexID             = "openai-codex:gpt-5.3-codex"
+	ModelAnthropicSonnet46ID       = "anthropic:claude-sonnet-4-6"
+	ModelAnthropicOpus46ID         = "anthropic:claude-opus-4-6"
+	ModelAnthropicClaudeSonnet46ID = "anthropic-claude:claude-sonnet-4-6"
+	ModelAnthropicClaudeOpus46ID   = "anthropic-claude:claude-opus-4-6"
 	// ModelAnthropicID is kept as a compatibility alias for older internal references.
 	ModelAnthropicID = ModelAnthropicSonnet46ID
 	ModelGoogleID    = "google:gemini-3-pro"
@@ -75,6 +78,26 @@ var modelRegistry = map[string]ModelInfo{
 		CanBeSecondary:    true,
 		RequiresKey:       true,
 	},
+	ModelAnthropicClaudeSonnet46ID: {
+		ModelID:           ModelAnthropicClaudeSonnet46ID,
+		ProviderID:        ProviderAnthropicClaude,
+		DisplayName:       "Anthropic Claude Sonnet 4.6 (Setup Token)",
+		ContextTokens:     200000,
+		SupportsFileRead:  true,
+		SupportsFileWrite: true,
+		CanBeSecondary:    true,
+		RequiresKey:       true,
+	},
+	ModelAnthropicClaudeOpus46ID: {
+		ModelID:           ModelAnthropicClaudeOpus46ID,
+		ProviderID:        ProviderAnthropicClaude,
+		DisplayName:       "Anthropic Claude Opus 4.6 (Setup Token)",
+		ContextTokens:     200000,
+		SupportsFileRead:  true,
+		SupportsFileWrite: true,
+		CanBeSecondary:    true,
+		RequiresKey:       true,
+	},
 	ModelGoogleID: {
 		ModelID:           ModelGoogleID,
 		ProviderID:        ProviderGoogle,
@@ -103,6 +126,8 @@ func listSupportedModels() []ModelInfo {
 		modelRegistry[ModelOpenAICodexID],
 		modelRegistry[ModelAnthropicSonnet46ID],
 		modelRegistry[ModelAnthropicOpus46ID],
+		modelRegistry[ModelAnthropicClaudeSonnet46ID],
+		modelRegistry[ModelAnthropicClaudeOpus46ID],
 		modelRegistry[ModelGoogleID],
 		modelRegistry[ModelMistralID],
 	}

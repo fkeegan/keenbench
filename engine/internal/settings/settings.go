@@ -11,11 +11,12 @@ import (
 const schemaVersion = 1
 
 const (
-	providerOpenAI      = "openai"
-	providerOpenAICodex = "openai-codex"
-	providerAnthropic   = "anthropic"
-	providerGoogle      = "google"
-	providerMistral     = "mistral"
+	providerOpenAI          = "openai"
+	providerOpenAICodex     = "openai-codex"
+	providerAnthropic       = "anthropic"
+	providerAnthropicClaude = "anthropic-claude"
+	providerGoogle          = "google"
+	providerMistral         = "mistral"
 
 	reasoningEffortNone   = "none"
 	reasoningEffortLow    = "low"
@@ -95,11 +96,12 @@ func defaultSettings() *Settings {
 	return &Settings{
 		SchemaVersion: schemaVersion,
 		Providers: map[string]ProviderSettings{
-			providerOpenAI:      defaultProviderSettings(providerOpenAI),
-			providerOpenAICodex: defaultProviderSettings(providerOpenAICodex),
-			providerAnthropic:   defaultProviderSettings(providerAnthropic),
-			providerGoogle:      defaultProviderSettings(providerGoogle),
-			providerMistral:     defaultProviderSettings(providerMistral),
+			providerOpenAI:          defaultProviderSettings(providerOpenAI),
+			providerOpenAICodex:     defaultProviderSettings(providerOpenAICodex),
+			providerAnthropic:       defaultProviderSettings(providerAnthropic),
+			providerAnthropicClaude: defaultProviderSettings(providerAnthropicClaude),
+			providerGoogle:          defaultProviderSettings(providerGoogle),
+			providerMistral:         defaultProviderSettings(providerMistral),
 		},
 		UserDefaultModelID: defaultUserModelID,
 		UserConsentMode:    UserConsentModeAsk,
@@ -125,6 +127,7 @@ func backfillSettings(settings *Settings) {
 	backfillProvider(settings.Providers, providerOpenAI)
 	backfillProvider(settings.Providers, providerOpenAICodex)
 	backfillProvider(settings.Providers, providerAnthropic)
+	backfillProvider(settings.Providers, providerAnthropicClaude)
 	backfillProvider(settings.Providers, providerGoogle)
 	backfillProvider(settings.Providers, providerMistral)
 	if settings.UserDefaultModelID == "" {
@@ -179,7 +182,7 @@ func backfillProviderSettings(providerID string, entry ProviderSettings) Provide
 }
 
 func supportsRPIReasoningEffort(providerID string) bool {
-	return providerID == providerOpenAI || providerID == providerOpenAICodex || providerID == providerAnthropic
+	return providerID == providerOpenAI || providerID == providerOpenAICodex || providerID == providerAnthropic || providerID == providerAnthropicClaude
 }
 
 func normalizeProviderReasoningEffort(providerID, value string) string {
@@ -196,6 +199,11 @@ func normalizeProviderReasoningEffort(providerID, value string) string {
 			return effort
 		}
 	case providerAnthropic:
+		switch effort {
+		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortMax:
+			return effort
+		}
+	case providerAnthropicClaude:
 		switch effort {
 		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortMax:
 			return effort

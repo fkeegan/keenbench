@@ -35,6 +35,7 @@ func TestEngineMetadataMethods(t *testing.T) {
 	foundOpenAI := false
 	foundOpenAICodex := false
 	foundAnthropic := false
+	foundAnthropicClaude := false
 	foundMistral := false
 	for _, provider := range providers {
 		if provider["provider_id"] == ProviderOpenAI {
@@ -50,6 +51,13 @@ func TestEngineMetadataMethods(t *testing.T) {
 		}
 		if provider["provider_id"] == ProviderAnthropic {
 			foundAnthropic = true
+			assertProviderRPIReasoning(t, provider, "medium", "medium", "medium")
+		}
+		if provider["provider_id"] == ProviderAnthropicClaude {
+			foundAnthropicClaude = true
+			if provider["auth_mode"] != "setup_token" {
+				t.Fatalf("expected anthropic-claude auth_mode setup_token, got %#v", provider["auth_mode"])
+			}
 			assertProviderRPIReasoning(t, provider, "medium", "medium", "medium")
 		}
 		if provider["provider_id"] == ProviderMistral {
@@ -70,6 +78,9 @@ func TestEngineMetadataMethods(t *testing.T) {
 	}
 	if !foundAnthropic {
 		t.Fatalf("expected anthropic provider in status")
+	}
+	if !foundAnthropicClaude {
+		t.Fatalf("expected anthropic-claude provider in status")
 	}
 	if !foundMistral {
 		t.Fatalf("expected mistral provider in status")
@@ -189,6 +200,96 @@ func TestEngineMetadataMethods(t *testing.T) {
 	}
 }
 
+func TestAnthropicClaudeCredentialStorageIsSeparateFromAnthropicAPIKey(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	if _, errInfo := eng.ProvidersSetApiKey(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderAnthropic,
+		"api_key":     "sk-ant-api-key",
+	})); errInfo != nil {
+		t.Fatalf("set anthropic api key: %v", errInfo)
+	}
+	if _, errInfo := eng.ProvidersSetApiKey(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderAnthropicClaude,
+		"api_key":     "sk-ant-setup-token",
+	})); errInfo != nil {
+		t.Fatalf("set anthropic-claude setup token: %v", errInfo)
+	}
+
+	anthropicKey, errInfo := eng.providerKey(ctx, ProviderAnthropic)
+	if errInfo != nil {
+		t.Fatalf("read anthropic api key: %v", errInfo)
+	}
+	if anthropicKey != "sk-ant-api-key" {
+		t.Fatalf("expected anthropic api key to remain isolated, got %q", anthropicKey)
+	}
+	anthropicClaudeToken, errInfo := eng.providerKey(ctx, ProviderAnthropicClaude)
+	if errInfo != nil {
+		t.Fatalf("read anthropic-claude setup token: %v", errInfo)
+	}
+	if anthropicClaudeToken != "sk-ant-setup-token" {
+		t.Fatalf("expected anthropic-claude setup token, got %q", anthropicClaudeToken)
+	}
+
+	if _, errInfo := eng.ProvidersClearApiKey(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderAnthropicClaude,
+	})); errInfo != nil {
+		t.Fatalf("clear anthropic-claude setup token: %v", errInfo)
+	}
+
+	anthropicKey, errInfo = eng.providerKey(ctx, ProviderAnthropic)
+	if errInfo != nil {
+		t.Fatalf("read anthropic api key after anthropic-claude clear: %v", errInfo)
+	}
+	if anthropicKey != "sk-ant-api-key" {
+		t.Fatalf("expected anthropic api key to remain after anthropic-claude clear, got %q", anthropicKey)
+	}
+	anthropicClaudeToken, errInfo = eng.providerKey(ctx, ProviderAnthropicClaude)
+	if errInfo != nil {
+		t.Fatalf("read anthropic-claude setup token after clear: %v", errInfo)
+	}
+	if anthropicClaudeToken != "" {
+		t.Fatalf("expected anthropic-claude setup token to be cleared, got %q", anthropicClaudeToken)
+	}
+}
+
+func TestProvidersValidateAnthropicClaudeAcceptsNonEmptySetupToken(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	if _, errInfo := eng.ProvidersSetApiKey(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderAnthropicClaude,
+		"api_key":     "sk-ant-oat01-test-token",
+	})); errInfo != nil {
+		t.Fatalf("set anthropic-claude setup token: %v", errInfo)
+	}
+
+	if _, errInfo := eng.ProvidersValidate(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderAnthropicClaude,
+	})); errInfo != nil {
+		t.Fatalf("validate anthropic-claude setup token: %v", errInfo)
+	}
+}
+
 func TestWorkbenchFilesRemoveRPC(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -249,12 +350,20 @@ func TestModelsListSupportedIncludesAnthropic46Variants(t *testing.T) {
 	}
 	sonnetIndex := -1
 	opusIndex := -1
+	sonnetSetupTokenIndex := -1
+	opusSetupTokenIndex := -1
 	for i, model := range modelsRaw {
 		if model.ModelID == ModelAnthropicSonnet46ID {
 			sonnetIndex = i
 		}
 		if model.ModelID == ModelAnthropicOpus46ID {
 			opusIndex = i
+		}
+		if model.ModelID == ModelAnthropicClaudeSonnet46ID {
+			sonnetSetupTokenIndex = i
+		}
+		if model.ModelID == ModelAnthropicClaudeOpus46ID {
+			opusSetupTokenIndex = i
 		}
 		if model.ModelID == modelAnthropicLegacyOpus45ID {
 			t.Fatalf("did not expect legacy anthropic model in supported list")
@@ -266,8 +375,21 @@ func TestModelsListSupportedIncludesAnthropic46Variants(t *testing.T) {
 	if opusIndex == -1 {
 		t.Fatalf("expected %q in supported list", ModelAnthropicOpus46ID)
 	}
+	if sonnetSetupTokenIndex == -1 {
+		t.Fatalf("expected %q in supported list", ModelAnthropicClaudeSonnet46ID)
+	}
+	if opusSetupTokenIndex == -1 {
+		t.Fatalf("expected %q in supported list", ModelAnthropicClaudeOpus46ID)
+	}
 	if sonnetIndex >= opusIndex {
 		t.Fatalf("expected sonnet model before opus model, got sonnet=%d opus=%d", sonnetIndex, opusIndex)
+	}
+	if sonnetSetupTokenIndex >= opusSetupTokenIndex {
+		t.Fatalf(
+			"expected setup-token sonnet model before setup-token opus model, got sonnet=%d opus=%d",
+			sonnetSetupTokenIndex,
+			opusSetupTokenIndex,
+		)
 	}
 }
 

@@ -30,6 +30,17 @@ func TestSecretsRoundTrip(t *testing.T) {
 	if mistralKey != "mistral-test" {
 		t.Fatalf("expected mistral key roundtrip")
 	}
+
+	if err := store.SetAnthropicClaudeSetupToken("anthropic-setup-token"); err != nil {
+		t.Fatalf("set anthropic-claude setup token: %v", err)
+	}
+	setupToken, err := store.GetAnthropicClaudeSetupToken()
+	if err != nil {
+		t.Fatalf("get anthropic-claude setup token: %v", err)
+	}
+	if setupToken != "anthropic-setup-token" {
+		t.Fatalf("expected anthropic-claude setup token roundtrip")
+	}
 }
 
 func TestOpenAICodexOAuthRoundTrip(t *testing.T) {
@@ -107,5 +118,24 @@ func TestClearProviderKeyMistral(t *testing.T) {
 	}
 	if got != "" {
 		t.Fatalf("expected mistral key to be cleared, got %q", got)
+	}
+}
+
+func TestClearProviderKeyAnthropicClaude(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(root, "secrets.enc"), filepath.Join(root, "master.key"))
+
+	if err := store.SetAnthropicClaudeSetupToken("anthropic-setup-token"); err != nil {
+		t.Fatalf("set anthropic-claude setup token: %v", err)
+	}
+	if err := store.ClearProviderKey("anthropic-claude"); err != nil {
+		t.Fatalf("clear provider key: %v", err)
+	}
+	got, err := store.GetAnthropicClaudeSetupToken()
+	if err != nil {
+		t.Fatalf("get anthropic-claude setup token: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected anthropic-claude setup token to be cleared, got %q", got)
 	}
 }

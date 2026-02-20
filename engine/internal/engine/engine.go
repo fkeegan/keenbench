@@ -180,11 +180,12 @@ func New(opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 	providers := map[string]LLMClient{
-		ProviderOpenAI:      openai.NewClient(),
-		ProviderOpenAICodex: openai.NewCodexClient(),
-		ProviderAnthropic:   anthropic.NewClient(),
-		ProviderGoogle:      gemini.NewClient(),
-		ProviderMistral:     mistral.NewClient(),
+		ProviderOpenAI:          openai.NewClient(),
+		ProviderOpenAICodex:     openai.NewCodexClient(),
+		ProviderAnthropic:       anthropic.NewClient(),
+		ProviderAnthropicClaude: anthropic.NewSetupTokenClient(),
+		ProviderGoogle:          gemini.NewClient(),
+		ProviderMistral:         mistral.NewClient(),
 	}
 	if envutil.Bool("KEENBENCH_FAKE_OPENAI") {
 		fake := newFakeOpenAI()
@@ -277,6 +278,7 @@ func (e *Engine) ProvidersGetStatus(ctx context.Context, _ json.RawMessage) (any
 		{ProviderOpenAI, "OpenAI", "api_key"},
 		{ProviderOpenAICodex, "OpenAI Codex", "oauth"},
 		{ProviderAnthropic, "Anthropic", "api_key"},
+		{ProviderAnthropicClaude, "Anthropic Claude", "setup_token"},
 		{ProviderGoogle, "Google", "api_key"},
 		{ProviderMistral, "Mistral", "api_key"},
 	}
@@ -296,7 +298,8 @@ func (e *Engine) ProvidersGetStatus(ctx context.Context, _ json.RawMessage) (any
 				"implement_effort": normalizeProviderRPIReasoningEffort(provider.id, entry.RPIImplementReasoningEffort),
 			}
 		}
-		if provider.authMode == "oauth" {
+		switch provider.authMode {
+		case "oauth":
 			creds, err := e.secrets.GetOpenAICodexOAuthCredentials()
 			if err != nil {
 				return nil, errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
@@ -319,7 +322,15 @@ func (e *Engine) ProvidersGetStatus(ctx context.Context, _ json.RawMessage) (any
 					item["oauth_account_label"] = label
 				}
 			}
-		} else {
+		case "setup_token":
+			token, errInfo := e.providerKey(ctx, provider.id)
+			if errInfo != nil {
+				return nil, errInfo
+			}
+			connected := strings.TrimSpace(token) != ""
+			item["configured"] = connected
+			item["token_connected"] = connected
+		default:
 			key, errInfo := e.providerKey(ctx, provider.id)
 			if errInfo != nil {
 				return nil, errInfo
@@ -653,7 +664,7 @@ const (
 
 func supportsRPIReasoningEffortProvider(providerID string) bool {
 	switch strings.TrimSpace(providerID) {
-	case ProviderOpenAI, ProviderOpenAICodex, ProviderAnthropic:
+	case ProviderOpenAI, ProviderOpenAICodex, ProviderAnthropic, ProviderAnthropicClaude:
 		return true
 	default:
 		return false
@@ -678,6 +689,8 @@ func validateProviderRPIReasoningEffort(providerID, effort string) (string, bool
 			return effort, true
 		}
 	case ProviderAnthropic:
+		fallthrough
+	case ProviderAnthropicClaude:
 		switch effort {
 		case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortMax:
 			return effort, true

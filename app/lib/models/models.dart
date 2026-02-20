@@ -154,6 +154,8 @@ class ProviderStatus {
     this.oauthAccountLabel,
     this.oauthExpiresAt,
     this.oauthExpired,
+    this.tokenConnected,
+    this.tokenAccountLabel,
   });
 
   final String id;
@@ -167,8 +169,11 @@ class ProviderStatus {
   final String? oauthAccountLabel;
   final String? oauthExpiresAt;
   final bool? oauthExpired;
+  final bool? tokenConnected;
+  final String? tokenAccountLabel;
 
   bool get isOAuth => authMode == 'oauth';
+  bool get isSetupToken => authMode == 'setup_token';
 
   factory ProviderStatus.fromJson(Map<String, dynamic> json) {
     final reasoningJson = _asStringKeyedMap(json['rpi_reasoning']);
@@ -188,6 +193,8 @@ class ProviderStatus {
       oauthAccountLabel: _normalizedString(json['oauth_account_label']),
       oauthExpiresAt: _normalizedString(json['oauth_expires_at']),
       oauthExpired: json['oauth_expired'] as bool?,
+      tokenConnected: json['token_connected'] as bool?,
+      tokenAccountLabel: _normalizedString(json['token_account_label']),
     );
   }
 }

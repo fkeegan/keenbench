@@ -52,6 +52,12 @@ func (e *Engine) providerKey(ctx context.Context, providerID string) (string, *e
 			return "", withProviderID(errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error()), providerID)
 		}
 		return key, nil
+	case ProviderAnthropicClaude:
+		token, err := e.secrets.GetAnthropicClaudeSetupToken()
+		if err != nil {
+			return "", withProviderID(errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error()), providerID)
+		}
+		return token, nil
 	case ProviderGoogle:
 		key, err := e.secrets.GetGoogleKey()
 		if err != nil {
@@ -77,6 +83,10 @@ func (e *Engine) setProviderKey(providerID, apiKey string) *errinfo.ErrorInfo {
 		}
 	case ProviderAnthropic:
 		if err := e.secrets.SetAnthropicKey(strings.TrimSpace(apiKey)); err != nil {
+			return withProviderID(errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error()), providerID)
+		}
+	case ProviderAnthropicClaude:
+		if err := e.secrets.SetAnthropicClaudeSetupToken(strings.TrimSpace(apiKey)); err != nil {
 			return withProviderID(errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error()), providerID)
 		}
 	case ProviderGoogle:

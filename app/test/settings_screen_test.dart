@@ -28,6 +28,9 @@ class _FakeSettingsEngine implements EngineApi {
     this.anthropicResearchEffort = 'medium',
     this.anthropicPlanEffort = 'medium',
     this.anthropicImplementEffort = 'medium',
+    this.anthropicClaudeResearchEffort = 'medium',
+    this.anthropicClaudePlanEffort = 'medium',
+    this.anthropicClaudeImplementEffort = 'medium',
   }) : oauthStatusResponses = List<Map<String, dynamic>>.from(
          oauthStatusResponses ?? const <Map<String, dynamic>>[],
        ),
@@ -41,6 +44,7 @@ class _FakeSettingsEngine implements EngineApi {
 
   bool openAIConfigured = false;
   bool anthropicConfigured = false;
+  bool anthropicClaudeConfigured = false;
   bool mistralConfigured = false;
   bool openAICodexConnected;
   bool openAICodexExpired;
@@ -58,6 +62,9 @@ class _FakeSettingsEngine implements EngineApi {
   String anthropicResearchEffort;
   String anthropicPlanEffort;
   String anthropicImplementEffort;
+  String anthropicClaudeResearchEffort;
+  String anthropicClaudePlanEffort;
+  String anthropicClaudeImplementEffort;
   String defaultModelId = 'openai/gpt-4o-mini';
   String userConsentMode = consentModeAsk;
 
@@ -138,6 +145,23 @@ class _FakeSettingsEngine implements EngineApi {
               },
             },
             {
+              'provider_id': 'anthropic-claude',
+              'display_name': 'Anthropic Claude',
+              'enabled': true,
+              'configured': anthropicClaudeConfigured,
+              'models': [
+                'anthropic-claude:claude-sonnet-4-6',
+                'anthropic-claude:claude-opus-4-6',
+              ],
+              'auth_mode': 'setup_token',
+              'token_connected': anthropicClaudeConfigured,
+              'rpi_reasoning': {
+                'research_effort': anthropicClaudeResearchEffort,
+                'plan_effort': anthropicClaudePlanEffort,
+                'implement_effort': anthropicClaudeImplementEffort,
+              },
+            },
+            {
               'provider_id': 'mistral',
               'display_name': 'Mistral',
               'enabled': true,
@@ -190,6 +214,22 @@ class _FakeSettingsEngine implements EngineApi {
               'supports_file_read': true,
               'supports_file_write': true,
             },
+            {
+              'model_id': 'anthropic-claude:claude-sonnet-4-6',
+              'provider_id': 'anthropic-claude',
+              'display_name': 'Anthropic Claude Sonnet 4.6 (Setup Token)',
+              'context_tokens_estimate': 200000,
+              'supports_file_read': true,
+              'supports_file_write': true,
+            },
+            {
+              'model_id': 'anthropic-claude:claude-opus-4-6',
+              'provider_id': 'anthropic-claude',
+              'display_name': 'Anthropic Claude Opus 4.6 (Setup Token)',
+              'context_tokens_estimate': 200000,
+              'supports_file_read': true,
+              'supports_file_write': true,
+            },
           ],
         };
       case 'UserGetDefaultModel':
@@ -217,8 +257,22 @@ class _FakeSettingsEngine implements EngineApi {
           openAIConfigured = true;
         } else if (providerId == 'anthropic') {
           anthropicConfigured = true;
+        } else if (providerId == 'anthropic-claude') {
+          anthropicClaudeConfigured = true;
         } else if (providerId == 'mistral') {
           mistralConfigured = true;
+        }
+        return {};
+      case 'ProvidersClearApiKey':
+        final providerId = params?['provider_id'] as String? ?? '';
+        if (providerId == 'openai') {
+          openAIConfigured = false;
+        } else if (providerId == 'anthropic') {
+          anthropicConfigured = false;
+        } else if (providerId == 'anthropic-claude') {
+          anthropicClaudeConfigured = false;
+        } else if (providerId == 'mistral') {
+          mistralConfigured = false;
         }
         return {};
       case 'ProvidersSetReasoningEffort':
@@ -255,6 +309,16 @@ class _FakeSettingsEngine implements EngineApi {
           }
           if (implement != null) {
             anthropicImplementEffort = implement;
+          }
+        } else if (providerId == 'anthropic-claude') {
+          if (research != null) {
+            anthropicClaudeResearchEffort = research;
+          }
+          if (plan != null) {
+            anthropicClaudePlanEffort = plan;
+          }
+          if (implement != null) {
+            anthropicClaudeImplementEffort = implement;
           }
         }
         return {};
@@ -363,7 +427,10 @@ void main() {
       find.byKey(AppKeys.settingsOAuthStatusText('openai-codex')),
       findsOneWidget,
     );
-    expect(find.text('Not connected'), findsOneWidget);
+    final statusText = tester.widget<Text>(
+      find.byKey(AppKeys.settingsOAuthStatusText('openai-codex')),
+    );
+    expect(statusText.data, 'Not connected');
     expect(
       find.byKey(AppKeys.settingsOAuthConnectButton('openai-codex')),
       findsOneWidget,
@@ -541,7 +608,10 @@ void main() {
     expect(engine.callCount('ProvidersOAuthStart'), 1);
     expect(engine.callCount('ProvidersOAuthComplete'), 0);
     expect(launchedUrls, hasLength(1));
-    expect(find.text('Not connected'), findsOneWidget);
+    final statusText = tester.widget<Text>(
+      find.byKey(AppKeys.settingsOAuthStatusText('openai-codex')),
+    );
+    expect(statusText.data, 'Not connected');
   });
 
   testWidgets('OAuth disconnect calls disconnect RPC', (tester) async {
@@ -571,7 +641,10 @@ void main() {
       engine.lastParams('ProvidersOAuthDisconnect')?['provider_id'],
       'openai-codex',
     );
-    expect(find.text('Not connected'), findsOneWidget);
+    final statusText = tester.widget<Text>(
+      find.byKey(AppKeys.settingsOAuthStatusText('openai-codex')),
+    );
+    expect(statusText.data, 'Not connected');
   });
 
   testWidgets('OpenAI reasoning effort dropdowns expose expected options', (
@@ -661,6 +734,38 @@ void main() {
     expect(_dropdownValues(tester, planKey), expectedValues);
     expect(_dropdownValues(tester, implementKey), expectedValues);
   });
+
+  testWidgets(
+    'Anthropic Claude reasoning effort dropdowns expose expected options',
+    (tester) async {
+      final engine = _FakeSettingsEngine();
+
+      await _pumpSettingsScreen(tester, engine);
+
+      final researchKey = AppKeys.settingsReasoningResearchDropdown(
+        'anthropic-claude',
+      );
+      final planKey = AppKeys.settingsReasoningPlanDropdown('anthropic-claude');
+      final implementKey = AppKeys.settingsReasoningImplementDropdown(
+        'anthropic-claude',
+      );
+
+      expect(find.byKey(researchKey), findsOneWidget);
+      expect(find.byKey(planKey), findsOneWidget);
+      expect(find.byKey(implementKey), findsOneWidget);
+
+      const expectedLabels = ['Low', 'Medium', 'High', 'Max (Opus only)'];
+      const expectedValues = ['low', 'medium', 'high', 'max'];
+
+      expect(_dropdownLabels(tester, researchKey), expectedLabels);
+      expect(_dropdownLabels(tester, planKey), expectedLabels);
+      expect(_dropdownLabels(tester, implementKey), expectedLabels);
+
+      expect(_dropdownValues(tester, researchKey), expectedValues);
+      expect(_dropdownValues(tester, planKey), expectedValues);
+      expect(_dropdownValues(tester, implementKey), expectedValues);
+    },
+  );
 
   testWidgets('OpenAI reasoning effort change sends all phase literals', (
     tester,
@@ -811,6 +916,137 @@ void main() {
     expect(engine.lastParams('ProvidersSetApiKey')?['api_key'], 'sk-test');
     expect(engine.callCount('ProvidersValidate'), 1);
     expect(engine.lastParams('ProvidersValidate')?['provider_id'], 'openai');
+  });
+
+  testWidgets('clear credential button is shown on every provider card', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine();
+
+    await _pumpSettingsScreen(tester, engine);
+
+    const providerIds = [
+      'openai',
+      'openai-codex',
+      'anthropic',
+      'anthropic-claude',
+      'mistral',
+    ];
+    for (final providerId in providerIds) {
+      expect(
+        find.byKey(AppKeys.settingsClearCredentialButton(providerId)),
+        findsOneWidget,
+      );
+    }
+  });
+
+  testWidgets('OpenAI clear key button clears saved credential', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine()..openAIConfigured = true;
+
+    await _pumpSettingsScreen(tester, engine);
+
+    final clearButton = find.byKey(
+      AppKeys.settingsClearCredentialButton('openai'),
+    );
+    await tester.ensureVisible(clearButton);
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ProvidersClearApiKey'), 1);
+    expect(engine.lastParams('ProvidersClearApiKey')?['provider_id'], 'openai');
+    expect(engine.openAIConfigured, isFalse);
+  });
+
+  testWidgets('Anthropic Claude setup token controls render and save', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine();
+
+    await _pumpSettingsScreen(tester, engine);
+
+    expect(find.text('Anthropic Claude'), findsOneWidget);
+    expect(find.text('How to connect'), findsOneWidget);
+    expect(find.text('claude setup-token'), findsOneWidget);
+
+    final setupTokenField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == 'Anthropic Claude Setup Token',
+    );
+    expect(setupTokenField, findsOneWidget);
+
+    await tester.enterText(setupTokenField, 'sk-ant-setup-token');
+    final saveButtons = find.widgetWithText(ElevatedButton, 'Save & Validate');
+    final anthroClaudeSaveButton = saveButtons.at(2);
+    await tester.ensureVisible(anthroClaudeSaveButton);
+    await tester.tap(anthroClaudeSaveButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ProvidersSetApiKey'), 1);
+    expect(
+      engine.lastParams('ProvidersSetApiKey')?['provider_id'],
+      'anthropic-claude',
+    );
+    expect(
+      engine.lastParams('ProvidersSetApiKey')?['api_key'],
+      'sk-ant-setup-token',
+    );
+    expect(engine.callCount('ProvidersValidate'), 1);
+    expect(
+      engine.lastParams('ProvidersValidate')?['provider_id'],
+      'anthropic-claude',
+    );
+  });
+
+  testWidgets('Anthropic Claude clear token button clears saved token', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine()..anthropicClaudeConfigured = true;
+
+    await _pumpSettingsScreen(tester, engine);
+
+    final clearButton = find.byKey(
+      AppKeys.settingsClearCredentialButton('anthropic-claude'),
+    );
+    await tester.ensureVisible(clearButton);
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ProvidersClearApiKey'), 1);
+    expect(
+      engine.lastParams('ProvidersClearApiKey')?['provider_id'],
+      'anthropic-claude',
+    );
+    expect(engine.anthropicClaudeConfigured, isFalse);
+  });
+
+  testWidgets('OpenAI Codex clear token button disconnects OAuth', (
+    tester,
+  ) async {
+    final engine = _FakeSettingsEngine(
+      openAICodexConnected: true,
+      openAICodexExpired: false,
+      openAICodexAccountLabel: 'acct_test',
+      openAICodexExpiresAt: '2026-02-17T13:00:00Z',
+    );
+
+    await _pumpSettingsScreen(tester, engine);
+
+    final clearButton = find.byKey(
+      AppKeys.settingsClearCredentialButton('openai-codex'),
+    );
+    await tester.ensureVisible(clearButton);
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ProvidersOAuthDisconnect'), 1);
+    expect(
+      engine.lastParams('ProvidersOAuthDisconnect')?['provider_id'],
+      'openai-codex',
+    );
+    expect(engine.openAICodexConnected, isFalse);
   });
 
   testWidgets('Mistral API key controls render and save', (tester) async {
