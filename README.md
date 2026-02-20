@@ -1,10 +1,12 @@
+# KeenBench
+
 <p align="center">
   <img src="docs/assets/repo_banner.png" alt="KeenBench — IDE for office files" width="800" />
 </p>
 
-# KeenBench
-
-[![CI](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml/badge.svg)](https://github.com/fkeegan/keenbench/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://github.com/fkeegan/keenbench/actions/workflows/ci.yml"><img src="https://github.com/fkeegan/keenbench/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+</p>
 
 <p align="center">
   <a href="#get-started">Get started</a> · <a href="#key-concepts">Key concepts</a> · <a href="#safety-model">Safety model</a> · <a href="#what-the-app-supports-today">Features</a> · <a href="#quick-start-build-from-source">Quick start</a> · <a href="#architecture">Architecture</a> · <a href="#documentation">Documentation</a>
