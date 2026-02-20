@@ -663,6 +663,195 @@ func TestWorkbenchDeleteRPC(t *testing.T) {
 	}
 }
 
+func TestWorkbenchForkRPC(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "Source"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	sourceID := createResp.(map[string]any)["workbench_id"].(string)
+	sourceFile := filepath.Join(dataDir, "notes.txt")
+	if err := os.WriteFile(sourceFile, []byte("note"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	if _, errInfo := eng.WorkbenchFilesAdd(ctx, mustJSON(t, map[string]any{
+		"workbench_id": sourceID,
+		"source_paths": []string{sourceFile},
+	})); errInfo != nil {
+		t.Fatalf("add: %v", errInfo)
+	}
+	if _, errInfo := eng.WorkshopSendUserMessage(ctx, mustJSON(t, map[string]any{
+		"workbench_id": sourceID,
+		"text":         "keep this history",
+	})); errInfo != nil {
+		t.Fatalf("send user message: %v", errInfo)
+	}
+	if _, errInfo := eng.CheckpointCreate(ctx, mustJSON(t, map[string]any{
+		"workbench_id": sourceID,
+		"reason":       "manual",
+		"description":  "before fork",
+	})); errInfo != nil {
+		t.Fatalf("checkpoint create: %v", errInfo)
+	}
+	workbenchesDir := appdirs.WorkbenchesDir(dataDir)
+	contextDir := filepath.Join(workbenchesDir, sourceID, "meta", "context", "situation")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatalf("mkdir context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "context.md"), []byte("shared context"), 0o600); err != nil {
+		t.Fatalf("write context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "source.json"), []byte("{\"mode\":\"text\"}"), 0o600); err != nil {
+		t.Fatalf("write context source: %v", err)
+	}
+	if err := eng.workbenches.WriteConsent(sourceID, &workbench.Consent{
+		Workshop: workbench.WorkshopConsent{
+			ProviderID: "openai",
+			ModelID:    ModelOpenAIID,
+			ScopeHash:  "abc",
+			Persisted:  true,
+		},
+	}); err != nil {
+		t.Fatalf("write consent: %v", err)
+	}
+
+	forkAllResp, errInfo := eng.WorkbenchFork(ctx, mustJSON(t, map[string]any{
+		"source_workbench_id": sourceID,
+		"mode":                workbench.ForkModeCloneAll,
+		"name":                "Source (all)",
+		"from_message_id":     "u-anchor",
+	}))
+	if errInfo != nil {
+		t.Fatalf("fork all: %v", errInfo)
+	}
+	forkAllID := forkAllResp.(map[string]any)["workbench_id"].(string)
+	if forkAllID == "" || forkAllID == sourceID {
+		t.Fatalf("expected unique fork id, got %q", forkAllID)
+	}
+	forkAllOpenResp, errInfo := eng.WorkbenchOpen(ctx, mustJSON(t, map[string]any{
+		"workbench_id": forkAllID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("open fork all: %v", errInfo)
+	}
+	forkAllWB := forkAllOpenResp.(map[string]any)["workbench"].(*workbench.Workbench)
+	if forkAllWB.ParentWorkbenchID != sourceID {
+		t.Fatalf("expected parent workbench %q, got %q", sourceID, forkAllWB.ParentWorkbenchID)
+	}
+	if forkAllWB.ForkMode != workbench.ForkModeCloneAll {
+		t.Fatalf("expected fork mode %q, got %q", workbench.ForkModeCloneAll, forkAllWB.ForkMode)
+	}
+	if forkAllWB.ForkedFromMessageID != "u-anchor" {
+		t.Fatalf("expected from message id u-anchor, got %q", forkAllWB.ForkedFromMessageID)
+	}
+	convoAllResp, errInfo := eng.WorkshopGetConversation(ctx, mustJSON(t, map[string]any{
+		"workbench_id": forkAllID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("conversation all: %v", errInfo)
+	}
+	convoAll := convoAllResp.(map[string]any)["messages"].([]conversationMessage)
+	if len(convoAll) != 1 || convoAll[0].Role != "user" {
+		t.Fatalf("expected copied conversation, got %#v", convoAll)
+	}
+	cpAllResp, errInfo := eng.CheckpointsList(ctx, mustJSON(t, map[string]any{
+		"workbench_id": forkAllID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("checkpoints all: %v", errInfo)
+	}
+	cpAll := cpAllResp.(map[string]any)["checkpoints"].([]workbench.CheckpointMetadata)
+	if len(cpAll) == 0 {
+		t.Fatalf("expected copied checkpoints")
+	}
+	if _, err := os.Stat(filepath.Join(workbenchesDir, forkAllID, "meta", "egress_consent.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected consent not copied, got err=%v", err)
+	}
+
+	forkContextResp, errInfo := eng.WorkbenchFork(ctx, mustJSON(t, map[string]any{
+		"source_workbench_id": sourceID,
+		"mode":                workbench.ForkModeCloneFilesAndContextNoChat,
+	}))
+	if errInfo != nil {
+		t.Fatalf("fork context: %v", errInfo)
+	}
+	forkContextID := forkContextResp.(map[string]any)["workbench_id"].(string)
+	convoContextResp, errInfo := eng.WorkshopGetConversation(ctx, mustJSON(t, map[string]any{
+		"workbench_id": forkContextID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("conversation context: %v", errInfo)
+	}
+	convoContext := convoContextResp.(map[string]any)["messages"].([]conversationMessage)
+	if len(convoContext) != 0 {
+		t.Fatalf("expected empty conversation for no-chat fork, got %#v", convoContext)
+	}
+	cpContextResp, errInfo := eng.CheckpointsList(ctx, mustJSON(t, map[string]any{
+		"workbench_id": forkContextID,
+	}))
+	if errInfo != nil {
+		t.Fatalf("checkpoints context: %v", errInfo)
+	}
+	cpContext := cpContextResp.(map[string]any)["checkpoints"].([]workbench.CheckpointMetadata)
+	if len(cpContext) != 0 {
+		t.Fatalf("expected no checkpoints for no-chat fork, got %#v", cpContext)
+	}
+	if _, err := os.Stat(filepath.Join(workbenchesDir, forkContextID, "meta", "context", "situation", "context.md")); err != nil {
+		t.Fatalf("expected context copied to no-chat fork: %v", err)
+	}
+
+	forkFilesOnlyResp, errInfo := eng.WorkbenchFork(ctx, mustJSON(t, map[string]any{
+		"source_workbench_id": sourceID,
+		"mode":                workbench.ForkModeCloneFilesOnly,
+	}))
+	if errInfo != nil {
+		t.Fatalf("fork files-only: %v", errInfo)
+	}
+	forkFilesOnlyID := forkFilesOnlyResp.(map[string]any)["workbench_id"].(string)
+	if _, err := os.Stat(filepath.Join(workbenchesDir, forkFilesOnlyID, "meta", "context")); !os.IsNotExist(err) {
+		t.Fatalf("expected no context in files-only fork, got err=%v", err)
+	}
+}
+
+func TestWorkbenchForkBlockedByDraftRPC(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "Source"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	sourceID := createResp.(map[string]any)["workbench_id"].(string)
+	if _, err := eng.workbenches.CreateDraft(sourceID); err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	if _, errInfo := eng.WorkbenchFork(ctx, mustJSON(t, map[string]any{
+		"source_workbench_id": sourceID,
+		"mode":                workbench.ForkModeCloneAll,
+		"name":                "Should Fail",
+	})); errInfo == nil {
+		t.Fatalf("expected draft exists validation error")
+	}
+}
+
 func TestWorkbenchCreateUsesUserDefaultModelAsInitialActiveModel(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

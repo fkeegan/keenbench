@@ -11,6 +11,17 @@ class AppKeys {
     'home_delete_workbench_confirm',
   );
   static const homeDeleteWorkbenchCancel = Key('home_delete_workbench_cancel');
+  static const homeForkWorkbenchDialog = Key('home_fork_workbench_dialog');
+  static const homeForkWorkbenchNameField = Key('home_fork_workbench_name');
+  static const homeForkWorkbenchModeSelector = Key(
+    'home_fork_workbench_mode_selector',
+  );
+  static const homeForkWorkbenchModeNoChat = Key(
+    'home_fork_workbench_mode_no_chat',
+  );
+  static const homeForkWorkbenchModeAll = Key('home_fork_workbench_mode_all');
+  static const homeForkWorkbenchConfirm = Key('home_fork_workbench_confirm');
+  static const homeForkWorkbenchCancel = Key('home_fork_workbench_cancel');
 
   static const newWorkbenchDialog = Key('new_workbench_dialog');
   static const newWorkbenchNameField = Key('new_workbench_name');
@@ -32,6 +43,8 @@ class AppKeys {
   static const workbenchDraftMetadata = Key('workbench_draft_metadata');
   static const workbenchReviewButton = Key('workbench_review_button');
   static const workbenchDiscardButton = Key('workbench_discard_button');
+  static const workbenchForkNoChatButton = Key('workbench_fork_no_chat_button');
+  static const workbenchForkFullButton = Key('workbench_fork_full_button');
   static const workbenchCheckpointsButton = Key('workbench_checkpoints_button');
   static const workbenchClutterBar = Key('workbench_clutter_bar');
   static const workbenchSkipToMainLink = Key('workbench_skip_to_main_content');
@@ -160,6 +173,8 @@ class AppKeys {
       ValueKey<String>('workbench_tile_menu_$id');
   static ValueKey<String> workbenchTileDelete(String id) =>
       ValueKey<String>('workbench_tile_delete_$id');
+  static ValueKey<String> workbenchTileFork(String id) =>
+      ValueKey<String>('workbench_tile_fork_$id');
 
   static ValueKey<String> workbenchFileRow(String name) =>
       ValueKey<String>('workbench_file_$name');

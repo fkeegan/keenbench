@@ -13,6 +13,7 @@ import 'package:keenbench/theme.dart';
 class FakeEngine implements EngineApi {
   final _controller = StreamController<EngineNotification>.broadcast();
   final List<String> calls = [];
+  final Map<String, dynamic> lastCallParams = {};
 
   @override
   Stream<EngineNotification> get notifications => _controller.stream;
@@ -22,6 +23,9 @@ class FakeEngine implements EngineApi {
   @override
   Future<dynamic> call(String method, [Map<String, dynamic>? params]) async {
     calls.add(method);
+    if (params != null) {
+      lastCallParams[method] = params;
+    }
     if (method == 'WorkbenchList') {
       return {
         'workbenches': [
@@ -36,6 +40,9 @@ class FakeEngine implements EngineApi {
     }
     if (method == 'WorkbenchCreate') {
       return {'workbench_id': 'wb-2'};
+    }
+    if (method == 'WorkbenchFork') {
+      return {'workbench_id': 'wb-fork'};
     }
     if (method == 'WorkbenchOpen') {
       return {
@@ -180,6 +187,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(engine.callCount('WorkbenchCreate'), 1);
+    expect(find.byKey(AppKeys.workbenchScreen), findsOneWidget);
+  });
+
+  testWidgets('fork workbench dialog submits selected fork mode', (
+    tester,
+  ) async {
+    final engine = FakeEngine();
+    await pumpHome(tester, engine);
+
+    await tester.tap(find.byKey(AppKeys.workbenchTileMenu('wb-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(AppKeys.workbenchTileFork('wb-1')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(AppKeys.homeForkWorkbenchDialog), findsOneWidget);
+    await tester.tap(find.byKey(AppKeys.homeForkWorkbenchModeSelector));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(AppKeys.homeForkWorkbenchModeAll).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(AppKeys.homeForkWorkbenchConfirm));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('WorkbenchFork'), 1);
+    expect(
+      engine.lastCallParams['WorkbenchFork']['source_workbench_id'],
+      'wb-1',
+    );
+    expect(engine.lastCallParams['WorkbenchFork']['mode'], 'clone_all');
     expect(find.byKey(AppKeys.workbenchScreen), findsOneWidget);
   });
 }

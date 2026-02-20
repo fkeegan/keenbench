@@ -23,6 +23,9 @@ import 'checkpoints_screen.dart';
 import 'workbench_context_screen.dart';
 import '../widgets/keenbench_app_bar.dart';
 
+const _forkModeCloneFilesOnly = 'clone_files_only';
+const _forkModeCloneAll = 'clone_all';
+
 class WorkbenchScreen extends StatelessWidget {
   const WorkbenchScreen({super.key, required this.workbenchId});
 
@@ -874,6 +877,89 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     return confirm == true;
   }
 
+  Future<String?> _promptForkName(String sourceName) async {
+    final controller = TextEditingController(text: sourceName);
+    final result = await showDialog<String>(
+      context: context,
+      barrierColor: KeenBenchTheme.colorSurfaceOverlay,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        void submit() =>
+            Navigator.of(dialogContext).pop(controller.text.trim());
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.homeForkWorkbenchDialog,
+            title: const Text('Fork Workbench'),
+            content: TextField(
+              key: AppKeys.homeForkWorkbenchNameField,
+              controller: controller,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(),
+              decoration: const InputDecoration(
+                labelText: 'Forked workbench name',
+              ),
+            ),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.homeForkWorkbenchCancel,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.homeForkWorkbenchConfirm,
+                onPressed: submit,
+                child: const Text('Fork'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    return result;
+  }
+
+  Future<void> _forkCurrentWorkbench(String mode) async {
+    final state = context.read<WorkbenchState>();
+    if (state.hasDraft) {
+      _showMessage(
+        'Publish or discard your Draft before forking.',
+        isError: true,
+      );
+      return;
+    }
+    final engine = context.read<EngineApi>();
+    final navigator = Navigator.of(context);
+    final sourceName = state.workbench?.name ?? 'Workbench';
+    final name = await _promptForkName(sourceName);
+    if (name == null) {
+      return;
+    }
+    final payload = <String, dynamic>{
+      'source_workbench_id': state.workbenchId,
+      'mode': mode,
+      if (name.trim().isNotEmpty) 'name': name.trim(),
+    };
+    try {
+      _clearErrorSummary();
+      final response = await engine.call('WorkbenchFork', payload);
+      final workbenchId = response['workbench_id'] as String;
+      if (!mounted) {
+        return;
+      }
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (_) => WorkbenchScreen(workbenchId: workbenchId),
+        ),
+      );
+    } on EngineError catch (err) {
+      await _handleEngineError(err);
+    }
+  }
+
   Future<void> _confirmRemoveFile(WorkbenchFile file) async {
     final state = context.read<WorkbenchState>();
     if (state.hasDraft) {
@@ -1159,6 +1245,54 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                         level: state.clutter!.level,
                       ),
                     const SizedBox(width: 16),
+                    Tooltip(
+                      message: state.hasDraft
+                          ? 'Publish or discard the Draft before forking.'
+                          : 'Fork files only.',
+                      child: IconButton(
+                        key: AppKeys.workbenchForkNoChatButton,
+                        onPressed: state.hasDraft
+                            ? null
+                            : () => _forkCurrentWorkbench(
+                                _forkModeCloneFilesOnly,
+                              ),
+                        icon: const Icon(
+                          Icons.call_split,
+                          size: 20,
+                          color: KeenBenchTheme.colorTextSecondary,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        splashRadius: 18,
+                        hoverColor: KeenBenchTheme.colorBackgroundHover,
+                      ),
+                    ),
+                    Tooltip(
+                      message: state.hasDraft
+                          ? 'Publish or discard the Draft before forking.'
+                          : 'Fork everything, including chat history.',
+                      child: IconButton(
+                        key: AppKeys.workbenchForkFullButton,
+                        onPressed: state.hasDraft
+                            ? null
+                            : () => _forkCurrentWorkbench(_forkModeCloneAll),
+                        icon: const Icon(
+                          Icons.copy_all_outlined,
+                          size: 20,
+                          color: KeenBenchTheme.colorTextSecondary,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        splashRadius: 18,
+                        hoverColor: KeenBenchTheme.colorBackgroundHover,
+                      ),
+                    ),
                     Tooltip(
                       message: 'Checkpoints',
                       child: IconButton(

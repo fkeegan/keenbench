@@ -12,6 +12,9 @@ import '../widgets/keenbench_app_bar.dart';
 import 'settings_screen.dart';
 import 'workbench_screen.dart';
 
+const _forkModeCloneFilesOnly = 'clone_files_only';
+const _forkModeCloneAll = 'clone_all';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -152,6 +155,120 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _forkWorkbench(Workbench wb) async {
+    final engine = context.read<EngineApi>();
+    final controller = TextEditingController(text: wb.name);
+    var selectedMode = _forkModeCloneFilesOnly;
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      barrierColor: KeenBenchTheme.colorSurfaceOverlay,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        void submit() {
+          Navigator.of(
+            dialogContext,
+          ).pop({'mode': selectedMode, 'name': controller.text.trim()});
+        }
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return DialogKeyboardShortcuts(
+              onCancel: cancel,
+              onSubmit: submit,
+              child: AlertDialog(
+                key: AppKeys.homeForkWorkbenchDialog,
+                title: const Text('Fork Workbench'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      key: AppKeys.homeForkWorkbenchNameField,
+                      controller: controller,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => submit(),
+                      decoration: const InputDecoration(
+                        labelText: 'Forked workbench name',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      key: AppKeys.homeForkWorkbenchModeSelector,
+                      initialValue: selectedMode,
+                      decoration: const InputDecoration(labelText: 'Fork mode'),
+                      items: const [
+                        DropdownMenuItem<String>(
+                          key: AppKeys.homeForkWorkbenchModeNoChat,
+                          value: _forkModeCloneFilesOnly,
+                          child: Text('Clone files only'),
+                        ),
+                        DropdownMenuItem<String>(
+                          key: AppKeys.homeForkWorkbenchModeAll,
+                          value: _forkModeCloneAll,
+                          child: Text('Clone everything (files + history)'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() {
+                          selectedMode = value;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                actions: [
+                  OutlinedButton(
+                    key: AppKeys.homeForkWorkbenchCancel,
+                    onPressed: cancel,
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    key: AppKeys.homeForkWorkbenchConfirm,
+                    onPressed: submit,
+                    child: const Text('Fork'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (result == null) {
+      return;
+    }
+    final mode = result['mode'] ?? _forkModeCloneFilesOnly;
+    final name = result['name'] ?? '';
+    final payload = <String, dynamic>{
+      'source_workbench_id': wb.id,
+      'mode': mode,
+      if (name.isNotEmpty) 'name': name,
+    };
+    try {
+      AppLog.info('home.fork_workbench', {'workbench_id': wb.id, 'mode': mode});
+      final response = await engine.call('WorkbenchFork', payload);
+      final workbenchId = response['workbench_id'] as String;
+      if (!mounted) {
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => WorkbenchScreen(workbenchId: workbenchId),
+        ),
+      );
+      await _load();
+    } on EngineError catch (err) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(err.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -264,11 +381,27 @@ class _HomeScreenState extends State<HomeScreen> {
                                               KeenBenchTheme.colorTextSecondary,
                                         ),
                                         onSelected: (value) {
+                                          if (value == 'fork') {
+                                            _forkWorkbench(wb);
+                                            return;
+                                          }
                                           if (value == 'delete') {
                                             _deleteWorkbench(wb);
                                           }
                                         },
                                         itemBuilder: (context) => [
+                                          PopupMenuItem<String>(
+                                            key: AppKeys.workbenchTileFork(
+                                              wb.id,
+                                            ),
+                                            value: 'fork',
+                                            child: Text(
+                                              'Fork Workbench',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodyMedium,
+                                            ),
+                                          ),
                                           PopupMenuItem<String>(
                                             key: AppKeys.workbenchTileDelete(
                                               wb.id,
@@ -298,6 +431,20 @@ class _HomeScreenState extends State<HomeScreen> {
                                               KeenBenchTheme.colorTextSecondary,
                                         ),
                                   ),
+                                  if ((wb.parentWorkbenchId ?? '').isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(
+                                        'Forked from ${wb.parentWorkbenchId}',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: KeenBenchTheme
+                                                  .colorTextSecondary,
+                                            ),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),

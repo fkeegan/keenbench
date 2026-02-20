@@ -24,6 +24,12 @@ const (
 )
 
 const (
+	ForkModeCloneFilesOnly             = "clone_files_only"
+	ForkModeCloneFilesAndContextNoChat = "clone_files_and_context_no_chat"
+	ForkModeCloneAll                   = "clone_all"
+)
+
+const (
 	FileKindText   = "text"
 	FileKindDocx   = "docx"
 	FileKindOdt    = "odt"
@@ -97,11 +103,15 @@ var (
 
 // Workbench describes a workbench on disk.
 type Workbench struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-	DefaultModelID string `json:"default_model_id,omitempty"`
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	CreatedAt           string `json:"created_at"`
+	UpdatedAt           string `json:"updated_at"`
+	DefaultModelID      string `json:"default_model_id,omitempty"`
+	ParentWorkbenchID   string `json:"parent_workbench_id,omitempty"`
+	ForkMode            string `json:"fork_mode,omitempty"`
+	ForkedFromMessageID string `json:"forked_from_message_id,omitempty"`
+	ForkedAt            string `json:"forked_at,omitempty"`
 }
 
 type FileEntry struct {
@@ -282,6 +292,105 @@ func (m *Manager) Create(name, defaultModelID string) (*Workbench, error) {
 		return nil, err
 	}
 	return wb, nil
+}
+
+func (m *Manager) Fork(sourceID, mode, name, fromMessageID string) (*Workbench, error) {
+	if err := validateForkMode(mode); err != nil {
+		return nil, err
+	}
+	sourceRoot, err := m.workbenchRoot(sourceID)
+	if err != nil {
+		return nil, err
+	}
+	sourceWB, err := m.Open(sourceID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(filepath.Join(sourceRoot, "draft")); err == nil {
+		return nil, errors.New("draft exists")
+	}
+	if strings.TrimSpace(name) == "" {
+		name = sourceWB.Name
+	}
+	targetWB, err := m.Create(name, sourceWB.DefaultModelID)
+	if err != nil {
+		return nil, err
+	}
+	targetRoot, err := m.workbenchRoot(targetWB.ID)
+	if err != nil {
+		_ = os.RemoveAll(filepath.Join(m.baseDir, targetWB.ID))
+		return nil, err
+	}
+	if err := m.copyForkData(sourceRoot, targetRoot); err != nil {
+		_ = os.RemoveAll(targetRoot)
+		return nil, err
+	}
+	if err := m.cleanForkMetadata(targetRoot, mode); err != nil {
+		_ = os.RemoveAll(targetRoot)
+		return nil, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	targetWB.ParentWorkbenchID = sourceWB.ID
+	targetWB.ForkMode = mode
+	targetWB.ForkedAt = now
+	targetWB.UpdatedAt = now
+	if trimmed := strings.TrimSpace(fromMessageID); trimmed != "" {
+		targetWB.ForkedFromMessageID = trimmed
+	}
+	if err := writeJSON(filepath.Join(targetRoot, metaFolder, "workbench.json"), targetWB); err != nil {
+		_ = os.RemoveAll(targetRoot)
+		return nil, err
+	}
+	return targetWB, nil
+}
+
+func validateForkMode(mode string) error {
+	switch mode {
+	case ForkModeCloneFilesOnly, ForkModeCloneFilesAndContextNoChat, ForkModeCloneAll:
+		return nil
+	default:
+		return errors.New("invalid fork mode")
+	}
+}
+
+func (m *Manager) copyForkData(sourceRoot, targetRoot string) error {
+	sourcePublished := filepath.Join(sourceRoot, "published")
+	targetPublished := filepath.Join(targetRoot, "published")
+	_ = os.RemoveAll(targetPublished)
+	if err := copyDir(sourcePublished, targetPublished); err != nil {
+		return err
+	}
+	sourceMeta := filepath.Join(sourceRoot, metaFolder)
+	targetMeta := filepath.Join(targetRoot, metaFolder)
+	_ = os.RemoveAll(targetMeta)
+	return copyDir(sourceMeta, targetMeta)
+}
+
+func (m *Manager) cleanForkMetadata(targetRoot, mode string) error {
+	metaRoot := filepath.Join(targetRoot, metaFolder)
+	_ = os.RemoveAll(filepath.Join(targetRoot, "draft"))
+	_ = os.Remove(filepath.Join(metaRoot, "draft.json"))
+	_ = os.RemoveAll(filepath.Join(metaRoot, "review"))
+	// Consent is scoped per workbench and must be granted independently.
+	_ = os.Remove(filepath.Join(metaRoot, "egress_consent.json"))
+
+	if mode == ForkModeCloneFilesAndContextNoChat || mode == ForkModeCloneFilesOnly {
+		for _, rel := range []string{
+			"conversation.jsonl",
+			"workshop_state.json",
+			"workshop",
+			"checkpoints",
+			"jobs",
+			"workbench_events.jsonl",
+			"egress_events.jsonl",
+		} {
+			_ = os.RemoveAll(filepath.Join(metaRoot, rel))
+		}
+		if mode == ForkModeCloneFilesOnly {
+			_ = os.RemoveAll(filepath.Join(metaRoot, "context"))
+		}
+	}
+	return nil
 }
 
 func (m *Manager) List() ([]Workbench, error) {

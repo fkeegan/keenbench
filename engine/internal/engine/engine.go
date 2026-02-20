@@ -900,6 +900,49 @@ func (e *Engine) WorkbenchCreate(ctx context.Context, params json.RawMessage) (a
 	return map[string]any{"workbench_id": wb.ID}, nil
 }
 
+func (e *Engine) WorkbenchFork(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	var req struct {
+		SourceWorkbenchID string `json:"source_workbench_id"`
+		Mode              string `json:"mode"`
+		Name              string `json:"name"`
+		FromMessageID     string `json:"from_message_id,omitempty"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "invalid params")
+	}
+	req.SourceWorkbenchID = strings.TrimSpace(req.SourceWorkbenchID)
+	req.Mode = strings.TrimSpace(req.Mode)
+	if req.SourceWorkbenchID == "" {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "source_workbench_id is required")
+	}
+	wb, err := e.workbenches.Fork(req.SourceWorkbenchID, req.Mode, req.Name, req.FromMessageID)
+	if err != nil {
+		switch {
+		case err.Error() == "draft exists":
+			return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "draft exists; review or discard before continuing")
+		case err.Error() == "invalid fork mode":
+			return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, err.Error())
+		case errors.Is(err, workbench.ErrInvalidPath), strings.Contains(err.Error(), "invalid workbench id"):
+			return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, err.Error())
+		case os.IsNotExist(err):
+			return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "workbench not found")
+		default:
+			return nil, errinfo.FileWriteFailed(errinfo.PhaseWorkbench, err.Error())
+		}
+	}
+	e.logger.Info(
+		"workbench.fork",
+		"source_workbench_id",
+		req.SourceWorkbenchID,
+		"workbench_id",
+		wb.ID,
+		"mode",
+		req.Mode,
+	)
+	e.emitClutterChanged(wb.ID)
+	return map[string]any{"workbench_id": wb.ID}, nil
+}
+
 func (e *Engine) WorkbenchList(ctx context.Context, _ json.RawMessage) (any, *errinfo.ErrorInfo) {
 	items, err := e.workbenches.List()
 	if err != nil {

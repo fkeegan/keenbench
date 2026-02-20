@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -547,6 +548,241 @@ func TestWorkbenchDelete(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "workbenches", wb.ID)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected workbench to be deleted")
+	}
+}
+
+func TestWorkbenchForkCloneAllPreservesHistoryAndContext(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceFile := filepath.Join(root, "source.txt")
+	if err := os.WriteFile(sourceFile, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	if _, err := mgr.FilesAdd(source.ID, []string{sourceFile}); err != nil {
+		t.Fatalf("files add: %v", err)
+	}
+	if _, err := mgr.CheckpointCreate(source.ID, "manual", "before fork"); err != nil {
+		t.Fatalf("checkpoint create: %v", err)
+	}
+	conversationPath := filepath.Join(root, "workbenches", source.ID, "meta", "conversation.jsonl")
+	if err := os.WriteFile(conversationPath, []byte("{\"id\":\"u-1\"}\n"), 0o600); err != nil {
+		t.Fatalf("write conversation: %v", err)
+	}
+	contextDir := filepath.Join(root, "workbenches", source.ID, "meta", "context", "situation")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatalf("mkdir context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "context.md"), []byte("Current workbench context"), 0o600); err != nil {
+		t.Fatalf("write context file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "source.json"), []byte("{\"mode\":\"text\"}"), 0o600); err != nil {
+		t.Fatalf("write context source: %v", err)
+	}
+	consent := &Consent{
+		Workshop: WorkshopConsent{
+			ProviderID: "openai",
+			ModelID:    "openai:gpt-5.2",
+			ScopeHash:  "abc",
+		},
+	}
+	if err := mgr.WriteConsent(source.ID, consent); err != nil {
+		t.Fatalf("write consent: %v", err)
+	}
+
+	forked, err := mgr.Fork(source.ID, ForkModeCloneAll, "Source Fork", "u-1")
+	if err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	if forked.ID == source.ID {
+		t.Fatalf("expected different fork id")
+	}
+	if forked.ParentWorkbenchID != source.ID {
+		t.Fatalf("expected parent_workbench_id %q, got %q", source.ID, forked.ParentWorkbenchID)
+	}
+	if forked.ForkMode != ForkModeCloneAll {
+		t.Fatalf("expected fork mode %q, got %q", ForkModeCloneAll, forked.ForkMode)
+	}
+	if forked.ForkedFromMessageID != "u-1" {
+		t.Fatalf("expected forked_from_message_id u-1, got %q", forked.ForkedFromMessageID)
+	}
+	if forked.ForkedAt == "" {
+		t.Fatalf("expected forked_at to be set")
+	}
+
+	forkConversationPath := filepath.Join(root, "workbenches", forked.ID, "meta", "conversation.jsonl")
+	conversationData, err := os.ReadFile(forkConversationPath)
+	if err != nil {
+		t.Fatalf("read fork conversation: %v", err)
+	}
+	if string(conversationData) != "{\"id\":\"u-1\"}\n" {
+		t.Fatalf("expected conversation copy, got %q", string(conversationData))
+	}
+	forkContextPath := filepath.Join(root, "workbenches", forked.ID, "meta", "context", "situation", "context.md")
+	if _, err := os.Stat(forkContextPath); err != nil {
+		t.Fatalf("expected context copy: %v", err)
+	}
+	checkpoints, err := mgr.CheckpointsList(forked.ID)
+	if err != nil {
+		t.Fatalf("checkpoints list: %v", err)
+	}
+	if len(checkpoints) == 0 {
+		t.Fatalf("expected copied checkpoints")
+	}
+	if _, err := os.Stat(filepath.Join(root, "workbenches", forked.ID, "meta", "egress_consent.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected consent not copied, got err=%v", err)
+	}
+	files, err := mgr.FilesList(forked.ID)
+	if err != nil {
+		t.Fatalf("files list: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "source.txt" {
+		t.Fatalf("expected copied file manifest, got %#v", files)
+	}
+	if _, err := os.Stat(filepath.Join(root, "workbenches", forked.ID, "draft")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no draft in fork, got err=%v", err)
+	}
+}
+
+func TestWorkbenchForkCloneFilesAndContextNoChatClearsHistory(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceFile := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(sourceFile, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	if _, err := mgr.FilesAdd(source.ID, []string{sourceFile}); err != nil {
+		t.Fatalf("files add: %v", err)
+	}
+	if _, err := mgr.CheckpointCreate(source.ID, "manual", "before fork"); err != nil {
+		t.Fatalf("checkpoint create: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "workbenches", source.ID, "meta", "conversation.jsonl"), []byte("{\"id\":\"u-1\"}\n"), 0o600); err != nil {
+		t.Fatalf("write conversation: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "workbenches", source.ID, "meta", "workshop_state.json"), []byte("{\"active_model_id\":\"openai:gpt-5.2\"}"), 0o600); err != nil {
+		t.Fatalf("write workshop state: %v", err)
+	}
+	contextDir := filepath.Join(root, "workbenches", source.ID, "meta", "context", "situation")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatalf("mkdir context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "context.md"), []byte("kept context"), 0o600); err != nil {
+		t.Fatalf("write context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "workbenches", source.ID, "meta", "egress_consent.json"), []byte("{\"schema_version\":2}"), 0o600); err != nil {
+		t.Fatalf("write consent: %v", err)
+	}
+
+	forked, err := mgr.Fork(source.ID, ForkModeCloneFilesAndContextNoChat, "", "")
+	if err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	if forked.ParentWorkbenchID != source.ID {
+		t.Fatalf("expected parent_workbench_id %q, got %q", source.ID, forked.ParentWorkbenchID)
+	}
+	if forked.ForkMode != ForkModeCloneFilesAndContextNoChat {
+		t.Fatalf("expected fork mode %q, got %q", ForkModeCloneFilesAndContextNoChat, forked.ForkMode)
+	}
+	if !strings.Contains(strings.ToLower(forked.Name), strings.ToLower(source.Name)) {
+		t.Fatalf("expected generated fork name to include source name, got %q", forked.Name)
+	}
+
+	forkRoot := filepath.Join(root, "workbenches", forked.ID)
+	if _, err := os.Stat(filepath.Join(forkRoot, "meta", "conversation.jsonl")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected conversation removed, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(forkRoot, "meta", "workshop_state.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected workshop_state removed, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(forkRoot, "meta", "checkpoints")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected checkpoints removed, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(forkRoot, "meta", "context", "situation", "context.md")); err != nil {
+		t.Fatalf("expected context kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(forkRoot, "meta", "egress_consent.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected consent not copied, got err=%v", err)
+	}
+	files, err := mgr.FilesList(forked.ID)
+	if err != nil {
+		t.Fatalf("files list: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "notes.txt" {
+		t.Fatalf("expected copied files, got %#v", files)
+	}
+}
+
+func TestWorkbenchForkCloneFilesOnlyClearsContext(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceFile := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(sourceFile, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	if _, err := mgr.FilesAdd(source.ID, []string{sourceFile}); err != nil {
+		t.Fatalf("files add: %v", err)
+	}
+	contextDir := filepath.Join(root, "workbenches", source.ID, "meta", "context", "situation")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatalf("mkdir context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "context.md"), []byte("not copied"), 0o600); err != nil {
+		t.Fatalf("write context: %v", err)
+	}
+
+	forked, err := mgr.Fork(source.ID, ForkModeCloneFilesOnly, "", "")
+	if err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	forkRoot := filepath.Join(root, "workbenches", forked.ID)
+	if _, err := os.Stat(filepath.Join(forkRoot, "meta", "context")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected context removed, got err=%v", err)
+	}
+	files, err := mgr.FilesList(forked.ID)
+	if err != nil {
+		t.Fatalf("files list: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "notes.txt" {
+		t.Fatalf("expected copied files, got %#v", files)
+	}
+}
+
+func TestWorkbenchForkBlockedByDraft(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	if _, err := mgr.CreateDraft(source.ID); err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	if _, err := mgr.Fork(source.ID, ForkModeCloneAll, "fork", ""); err == nil {
+		t.Fatalf("expected draft exists error")
 	}
 }
 

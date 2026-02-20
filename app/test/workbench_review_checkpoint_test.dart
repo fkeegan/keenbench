@@ -144,6 +144,8 @@ class _FakeWorkbenchEngine implements EngineApi {
             'default_model_id': workbenchDefaultModelId,
           },
         };
+      case 'WorkbenchFork':
+        return {'workbench_id': 'wb-fork'};
       case 'WorkshopGetState':
         return {
           'active_model_id': effectiveActiveModelId,
@@ -1604,6 +1606,54 @@ void main() {
     expect(engine.lastParams['WorkshopRegenerate']?['message_id'], 'a-1');
   });
 
+  testWidgets('workbench fork no-chat action calls WorkbenchFork', (
+    tester,
+  ) async {
+    await useDesktopSurface(tester);
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      messages: const [],
+      reviewChanges: const [],
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(AppKeys.workbenchForkNoChatButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(AppKeys.homeForkWorkbenchConfirm));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('WorkbenchFork'), 1);
+    expect(engine.lastParams['WorkbenchFork']?['mode'], 'clone_files_only');
+    expect(engine.lastParams['WorkbenchFork']?['source_workbench_id'], 'wb-1');
+  });
+
+  testWidgets('workbench fork full action calls WorkbenchFork', (tester) async {
+    await useDesktopSurface(tester);
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: false,
+      draftId: '',
+      messages: const [],
+      reviewChanges: const [],
+    );
+    await tester.pumpWidget(
+      appForTest(engine, const WorkbenchScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(AppKeys.workbenchForkFullButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(AppKeys.homeForkWorkbenchConfirm));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('WorkbenchFork'), 1);
+    expect(engine.lastParams['WorkbenchFork']?['mode'], 'clone_all');
+    expect(engine.lastParams['WorkbenchFork']?['source_workbench_id'], 'wb-1');
+  });
+
   testWidgets(
     'workbench chrome uses icon actions and per-file extract control',
     (tester) async {
@@ -1629,15 +1679,21 @@ void main() {
       await tester.pumpAndSettle();
 
       final checkpoints = find.byKey(AppKeys.workbenchCheckpointsButton);
+      final forkNoChat = find.byKey(AppKeys.workbenchForkNoChatButton);
+      final forkFull = find.byKey(AppKeys.workbenchForkFullButton);
       final settings = find.byKey(AppKeys.workbenchSettingsButton);
       final extract = find.byKey(
         AppKeys.workbenchFileExtractButton('notes.txt'),
       );
 
       expect(checkpoints, findsOneWidget);
+      expect(forkNoChat, findsOneWidget);
+      expect(forkFull, findsOneWidget);
       expect(settings, findsOneWidget);
       expect(extract, findsOneWidget);
       expect(tester.widget<IconButton>(checkpoints).onPressed, isNotNull);
+      expect(tester.widget<IconButton>(forkNoChat).onPressed, isNotNull);
+      expect(tester.widget<IconButton>(forkFull).onPressed, isNotNull);
       expect(tester.widget<IconButton>(settings).onPressed, isNotNull);
       expect(tester.widget<IconButton>(extract).onPressed, isNotNull);
       expect(tester.widget<IconButton>(settings).iconSize, 20);

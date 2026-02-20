@@ -5,6 +5,10 @@ class Workbench {
     required this.createdAt,
     required this.updatedAt,
     required this.defaultModelId,
+    this.parentWorkbenchId,
+    this.forkMode,
+    this.forkedFromMessageId,
+    this.forkedAt,
   });
 
   final String id;
@@ -12,6 +16,10 @@ class Workbench {
   final String createdAt;
   final String updatedAt;
   final String defaultModelId;
+  final String? parentWorkbenchId;
+  final String? forkMode;
+  final String? forkedFromMessageId;
+  final String? forkedAt;
 
   factory Workbench.fromJson(Map<String, dynamic> json) {
     return Workbench(
@@ -20,6 +28,10 @@ class Workbench {
       createdAt: json['created_at'] as String? ?? '',
       updatedAt: json['updated_at'] as String? ?? '',
       defaultModelId: json['default_model_id'] as String? ?? '',
+      parentWorkbenchId: _normalizedString(json['parent_workbench_id']),
+      forkMode: _normalizedString(json['fork_mode']),
+      forkedFromMessageId: _normalizedString(json['forked_from_message_id']),
+      forkedAt: _normalizedString(json['forked_at']),
     );
   }
 }
