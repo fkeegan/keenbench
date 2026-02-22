@@ -32,3 +32,4 @@ Use a version bump whenever requirements meaningfully change. Use date-only upda
 - Onboarding: `docs/prd/capabilities/onboarding.md`
 - Accessibility: `docs/prd/capabilities/accessibility.md`
 - Document Styling: `docs/prd/capabilities/document-styling.md` *(inline style params, format style skills, style guide integration)*
+- Model Feedback: `docs/prd/capabilities/model-feedback.md` *(product-model-fit feedback loop for tooling quality)*

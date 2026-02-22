@@ -2590,7 +2590,7 @@ func (e *Engine) logCodexUnauthorizedDiagnostics() {
 
 // WorkshopRunAgent runs the Research → Plan → Implement workflow and then emits
 // a single user-visible summary response.
-func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (result any, outErr *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID string `json:"workbench_id"`
 		MessageID   string `json:"message_id"`
@@ -2608,6 +2608,46 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 		return nil, runErr
 	}
 	defer e.endWorkshopRun(req.WorkbenchID, runID)
+	runStartedAt := time.Now().UTC()
+	if e.now != nil {
+		runStartedAt = e.now().UTC()
+	}
+	toolLogSeqStart := e.currentToolLogSeq(req.WorkbenchID)
+	toolLogSeqEnd := toolLogSeqStart
+	var phaseStatus modelFeedbackPhaseStatus
+	var feedbackProviderID string
+	var feedbackModelID string
+	var feedbackAPIKey string
+	var feedbackClient LLMClient
+	var feedbackSummaryMessageID string
+	var feedbackSummaryText string
+	var feedbackHasDraft bool
+	if e.shouldCollectModelFeedback() {
+		defer func() {
+			runEndedAt := time.Now().UTC()
+			if e.now != nil {
+				runEndedAt = e.now().UTC()
+			}
+			e.collectModelFeedback(modelFeedbackCollectionInput{
+				Ctx:              runCtx,
+				WorkbenchID:      req.WorkbenchID,
+				RunID:            runID,
+				ProviderID:       feedbackProviderID,
+				ModelID:          feedbackModelID,
+				RunStartedAt:     runStartedAt,
+				RunEndedAt:       runEndedAt,
+				HasDraft:         feedbackHasDraft,
+				SummaryMessageID: feedbackSummaryMessageID,
+				SummaryText:      feedbackSummaryText,
+				PhaseStatus:      phaseStatus,
+				ToolLogSeqStart:  toolLogSeqStart,
+				ToolLogSeqEnd:    toolLogSeqEnd,
+				RunError:         outErr,
+				Client:           feedbackClient,
+				APIKey:           feedbackAPIKey,
+			})
+		}()
+	}
 	modelID, errInfo := e.resolveActiveModel(req.WorkbenchID)
 	if errInfo != nil {
 		return nil, errInfo
@@ -2616,25 +2656,25 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
+	feedbackModelID = modelID
+	feedbackProviderID = model.ProviderID
 	if err := e.ensureProviderReadyFor(runCtx, model.ProviderID); err != nil {
 		return nil, err
 	}
 	if err := e.ensureConsent(req.WorkbenchID); err != nil {
 		return nil, err
 	}
-	runStartedAt := time.Now()
-	if e.now != nil {
-		runStartedAt = e.now()
-	}
 
 	apiKey, errInfo := e.providerKey(runCtx, model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
+	feedbackAPIKey = apiKey
 	client, errInfo := e.clientForProvider(model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
+	feedbackClient = client
 	reasoningEffort, errInfo := e.loadProviderRPIReasoningEffort(model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
@@ -2646,7 +2686,10 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	}
 
 	state := e.readRPIState(req.WorkbenchID)
-	toolLogSeq := e.currentToolLogSeq(req.WorkbenchID)
+	toolLogSeq := toolLogSeqStart
+	phaseStatus.Research = state.HasResearch
+	phaseStatus.Plan = state.HasPlan
+	phaseStatus.Implement = state.HasPlan && state.AllDone
 	var focusHints map[string]map[string]any
 
 	if !state.HasResearch {
@@ -2661,9 +2704,11 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			toolLogSeq,
 		)
 		if errInfo != nil {
+			toolLogSeqEnd = toolLogSeq
 			return nil, errInfo
 		}
 		e.notifyPhaseComplete(req.WorkbenchID, "research")
+		phaseStatus.Research = true
 		state = e.readRPIState(req.WorkbenchID)
 	}
 
@@ -2679,10 +2724,14 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			toolLogSeq,
 		)
 		if errInfo != nil {
+			toolLogSeqEnd = toolLogSeq
 			return nil, errInfo
 		}
 		e.notifyPhaseComplete(req.WorkbenchID, "plan")
+		phaseStatus.Plan = true
 		state = e.readRPIState(req.WorkbenchID)
+	} else if state.HasPlan {
+		phaseStatus.Plan = true
 	}
 
 	if state.HasPlan && !state.AllDone {
@@ -2698,25 +2747,34 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			toolLogSeq,
 		)
 		if errInfo != nil {
+			toolLogSeqEnd = toolLogSeq
 			return nil, errInfo
 		}
 		if len(hints) > 0 {
 			focusHints = hints
 		}
 		e.notifyPhaseComplete(req.WorkbenchID, "implement")
+		phaseStatus.Implement = true
+	} else if state.HasPlan {
+		phaseStatus.Implement = state.AllDone
 	}
 
 	assistantID, summaryText, errInfo := e.runSummaryPhase(runCtx, req.WorkbenchID, client, apiKey, modelID)
 	if errInfo != nil {
+		toolLogSeqEnd = toolLogSeq
 		return nil, errInfo
 	}
+	phaseStatus.Summary = true
+	toolLogSeqEnd = toolLogSeq
+	feedbackSummaryMessageID = assistantID
+	feedbackSummaryText = summaryText
 
 	hasDraft := false
 	if ds, _ := e.workbenches.DraftState(req.WorkbenchID); ds != nil {
 		hasDraft = true
-		now := time.Now()
+		now := time.Now().UTC()
 		if e.now != nil {
-			now = e.now()
+			now = e.now().UTC()
 		}
 		elapsedMS := now.Sub(runStartedAt).Milliseconds()
 		if elapsedMS < 0 {
@@ -2739,6 +2797,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			}
 		}
 	}
+	feedbackHasDraft = hasDraft
 
 	return map[string]any{
 		"message_id": assistantID,

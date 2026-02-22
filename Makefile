@@ -9,7 +9,7 @@ TOOL_WORKER_BIN_ABS := $(abspath $(TOOL_WORKER_BIN))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run run-macos engine fmt test version-check package-worker deps stop clean check-worker package-macos package-macos-universal notarize-macos notarize-macos-universal toolworker-macos toolworker-macos-universal toolworker-linux package-linux package-linux-appimage iconset-macos linux-desktop-dev
+.PHONY: help run run-macos engine fmt test version-check package-worker deps stop clean check-worker package-macos package-macos-universal notarize-macos notarize-macos-universal toolworker-macos toolworker-macos-universal toolworker-linux package-linux package-linux-appimage iconset-macos linux-desktop-dev feedback-intake
 
 LINUX_APP_ID ?= com.keenbench.app
 LINUX_APP_BINARY ?= keenbench
@@ -77,6 +77,9 @@ fmt: ## Format Go + Dart code
 test: ## Run Go + Flutter tests
 	cd engine && go test ./... -coverprofile=coverage.out
 	cd app && $(FLUTTER_BIN) test
+
+feedback-intake: ## Export runtime model feedback records into docs/issues/model-feedback
+	cd engine && go run ./cmd/keenbench-model-feedback-export --out ../docs/issues/model-feedback
 
 version-check: ## Validate app/engine/changelog versions are consistent
 	scripts/check_version_consistency.sh

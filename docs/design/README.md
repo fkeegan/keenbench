@@ -34,6 +34,7 @@ Recommended layers:
   - Accessibility: `docs/design/capabilities/accessibility.md`
   - File Operations (Tabular Text): `docs/design/capabilities/file-operations-tabular-text.md`
   - Document Styling: `docs/design/capabilities/document-styling.md`
+  - Model Feedback: `docs/design/capabilities/model-feedback.md`
 - ADRs:
   - `docs/design/adr/ADR-0001-snapshot-store-for-checkpoints-and-drafts.md`
   - `docs/design/adr/ADR-0002-in-app-previews-for-review.md`
