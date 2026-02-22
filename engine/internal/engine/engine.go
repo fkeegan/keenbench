@@ -2301,6 +2301,10 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 	var loopWindow []string
 	agentStartTime := time.Now()
 	totalToolCalls := 0
+	completedWithTerminalResponse := false
+	lastTurn := -1
+	lastFinishReason := ""
+	lastContentLength := 0
 
 	var onDelta func(string)
 	if cfg.emitStreamDeltas {
@@ -2354,9 +2358,13 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 		apiElapsed := time.Since(apiStart)
 		e.logger.Info(logPrefix+"_api_response", "turn", turn, "elapsed_ms", apiElapsed.Milliseconds(),
 			"tool_call_count", len(resp.ToolCalls), "finish_reason", resp.FinishReason, "content_length", len(resp.Content))
+		lastTurn = turn
+		lastFinishReason = resp.FinishReason
+		lastContentLength = len(resp.Content)
 
 		if len(resp.ToolCalls) == 0 {
 			finalAssistantText = strings.TrimSpace(resp.Content)
+			completedWithTerminalResponse = true
 			result.turnCount = turn + 1
 			e.logger.Info(logPrefix+"_complete", "total_turns", turn+1, "total_tool_calls", totalToolCalls,
 				"total_elapsed_ms", time.Since(agentStartTime).Milliseconds())
@@ -2510,11 +2518,31 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 
 	result.toolCallCount = totalToolCalls
 
-	if finalAssistantText == "" && fullResponse.Len() == 0 {
+	if !completedWithTerminalResponse {
 		e.logger.Warn(logPrefix+"_max_turns_exhausted", "max_turns", cfg.maxTurns,
 			"total_tool_calls", totalToolCalls, "total_elapsed_ms", time.Since(agentStartTime).Milliseconds())
 		result.err = errinfo.AgentLoopDetected(errinfo.PhaseWorkshop,
 			fmt.Sprintf("agent reached maximum turn limit (%d) without completing", cfg.maxTurns))
+		return result
+	}
+	if finalAssistantText == "" && fullResponse.Len() == 0 {
+		e.logger.Warn(logPrefix+"_empty_terminal_response",
+			"turn", lastTurn,
+			"finish_reason", lastFinishReason,
+			"content_length", lastContentLength,
+			"stream_length", fullResponse.Len(),
+			"total_tool_calls", totalToolCalls,
+			"total_elapsed_ms", time.Since(agentStartTime).Milliseconds())
+		result.err = errinfo.AgentEmptyTerminalResponse(
+			errinfo.PhaseWorkshop,
+			fmt.Sprintf(
+				"agent returned empty terminal response (turn=%d, finish_reason=%q, content_length=%d, stream_length=%d)",
+				lastTurn,
+				lastFinishReason,
+				lastContentLength,
+				fullResponse.Len(),
+			),
+		)
 		return result
 	}
 
@@ -6775,18 +6803,19 @@ const receiptSizeThreshold = 2048
 // dataReturningTools is the set of tools whose results may be large and should
 // be replaced with compact receipts when above the size threshold.
 var dataReturningTools = map[string]bool{
-	"table_query":     true,
-	"table_read_rows": true,
-	"table_describe":  true,
-	"table_stats":     true,
-	"table_get_map":   true,
-	"read_file":       true,
-	"get_file_map":    true,
-	"get_file_info":   true,
-	"list_files":      true,
-	"xlsx_get_styles": true,
-	"docx_get_styles": true,
-	"pptx_get_styles": true,
+	"table_query":        true,
+	"table_read_rows":    true,
+	"table_describe":     true,
+	"table_stats":        true,
+	"table_get_map":      true,
+	"read_file":          true,
+	"get_file_map":       true,
+	"get_file_info":      true,
+	"list_files":         true,
+	"xlsx_get_styles":    true,
+	"docx_get_styles":    true,
+	"pptx_get_styles":    true,
+	"recall_tool_result": true,
 }
 
 // buildToolReceipt generates a compact receipt for a tool result. If the result
@@ -6797,6 +6826,9 @@ func buildToolReceipt(toolName string, result string, logEntryID int) string {
 	}
 	if !dataReturningTools[toolName] {
 		return result
+	}
+	if toolName == "recall_tool_result" {
+		return buildRecallReceipt(result, logEntryID)
 	}
 
 	// Try to parse as JSON and extract shape info
@@ -6832,6 +6864,46 @@ func buildArrayReceipt(arr []any, logEntryID int) string {
 	previewJSON, _ := json.Marshal(preview)
 	return fmt.Sprintf("[Receipt — array, %d items]\nPreview (first %d):\n%s\n\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.",
 		len(arr), len(preview), string(previewJSON), logEntryID)
+}
+
+func buildRecallReceipt(result string, logEntryID int) string {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		return buildTextReceipt(result, logEntryID)
+	}
+	var sb strings.Builder
+	sb.WriteString("[Receipt — recalled tool result")
+	if entryID, ok := numericField(parsed, "entry_id"); ok {
+		sb.WriteString(fmt.Sprintf(" from entry #%d", int(entryID)))
+	}
+	sb.WriteString("]\n")
+	if returned, ok := numericField(parsed, "returned_bytes"); ok {
+		sb.WriteString(fmt.Sprintf("Chunk bytes: %d", int(returned)))
+		if total, ok := numericField(parsed, "total_bytes"); ok {
+			sb.WriteString(fmt.Sprintf(" of %d", int(total)))
+		}
+		sb.WriteString("\n")
+	}
+	if offset, ok := numericField(parsed, "offset"); ok {
+		sb.WriteString(fmt.Sprintf("Offset: %d\n", int(offset)))
+	}
+	if hasMore, ok := parsed["has_more"].(bool); ok {
+		sb.WriteString(fmt.Sprintf("has_more: %t\n", hasMore))
+	}
+	if nextOffset, ok := numericField(parsed, "next_offset"); ok {
+		sb.WriteString(fmt.Sprintf("next_offset: %d\n", int(nextOffset)))
+	}
+	if chunk, ok := parsed["result_chunk"].(string); ok && chunk != "" {
+		preview := chunk
+		if len(preview) > 400 {
+			preview = preview[:400] + "..."
+		}
+		sb.WriteString("Chunk preview:\n")
+		sb.WriteString(preview)
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fmt.Sprintf("\nRecall receipt log entry #%d. Request more with recall_tool_result(entry_id, offset, length).", logEntryID))
+	return sb.String()
 }
 
 func buildObjectReceipt(toolName string, parsed map[string]any, logEntryID int) string {

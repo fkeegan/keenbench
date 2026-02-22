@@ -1411,6 +1411,37 @@ func TestBuildToolReceiptTextResult(t *testing.T) {
 	}
 }
 
+func TestBuildToolReceiptLargeRecallResult(t *testing.T) {
+	resultPayload := map[string]any{
+		"entry_id":       12,
+		"tool":           "table_query",
+		"total_bytes":    5000000,
+		"offset":         0,
+		"returned_bytes": 5000,
+		"has_more":       true,
+		"next_offset":    5000,
+		"result_chunk":   strings.Repeat("x", 5000),
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("recall_tool_result", string(resultJSON), 13)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than recall result")
+	}
+	if !strings.Contains(receipt, "from entry #12") {
+		t.Fatalf("receipt should include original entry id, got %q", receipt)
+	}
+	if !strings.Contains(receipt, "next_offset: 5000") {
+		t.Fatalf("receipt should include next_offset")
+	}
+	if !strings.Contains(receipt, "recall_tool_result(entry_id, offset, length)") {
+		t.Fatalf("receipt should include paging guidance")
+	}
+}
+
 func TestToolLogAppendAndRead(t *testing.T) {
 	dataDir := t.TempDir()
 	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
@@ -1465,6 +1496,208 @@ func TestToolLogAppendAndRead(t *testing.T) {
 	_, err = eng.readToolLogEntry(workbenchID, 99)
 	if err == nil {
 		t.Fatalf("expected error for missing entry")
+	}
+}
+
+func TestToolHandlerRecallToolResultDefaultChunk(t *testing.T) {
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	ctx := context.Background()
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "RecallDefault"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	large := strings.Repeat("abcd", 900)
+	if err := eng.appendToolLog(workbenchID, toolLogEntry{
+		ID:        12,
+		Tool:      "table_query",
+		Args:      `{"query":"SELECT * FROM data"}`,
+		Result:    large,
+		Receipt:   "[Receipt]",
+		Timestamp: "2026-02-22T00:00:00Z",
+		ElapsedMS: 10,
+	}); err != nil {
+		t.Fatalf("append tool log: %v", err)
+	}
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "recall-default",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "recall_tool_result",
+			Arguments: `{"entry_id":12}`,
+		},
+	}
+	result, err := handler.Execute(call)
+	if err != nil {
+		t.Fatalf("recall default chunk: %v", err)
+	}
+
+	var payload struct {
+		EntryID     int    `json:"entry_id"`
+		Tool        string `json:"tool"`
+		TotalBytes  int    `json:"total_bytes"`
+		Offset      int    `json:"offset"`
+		Returned    int    `json:"returned_bytes"`
+		HasMore     bool   `json:"has_more"`
+		NextOffset  int    `json:"next_offset"`
+		ResultChunk string `json:"result_chunk"`
+		SourceError string `json:"source_error"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode recall payload: %v", err)
+	}
+	if payload.EntryID != 12 {
+		t.Fatalf("expected entry_id=12, got %d", payload.EntryID)
+	}
+	if payload.Tool != "table_query" {
+		t.Fatalf("expected tool table_query, got %q", payload.Tool)
+	}
+	if payload.TotalBytes != len(large) {
+		t.Fatalf("expected total_bytes=%d, got %d", len(large), payload.TotalBytes)
+	}
+	if payload.Offset != 0 {
+		t.Fatalf("expected offset=0, got %d", payload.Offset)
+	}
+	if payload.Returned != recallDefaultBytes {
+		t.Fatalf("expected returned_bytes=%d, got %d", recallDefaultBytes, payload.Returned)
+	}
+	if len(payload.ResultChunk) != payload.Returned {
+		t.Fatalf("expected chunk size to match returned_bytes, got %d vs %d", len(payload.ResultChunk), payload.Returned)
+	}
+	if !payload.HasMore {
+		t.Fatalf("expected has_more=true for default chunk")
+	}
+	if payload.NextOffset != recallDefaultBytes {
+		t.Fatalf("expected next_offset=%d, got %d", recallDefaultBytes, payload.NextOffset)
+	}
+}
+
+func TestToolHandlerRecallToolResultPagingAndValidation(t *testing.T) {
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	ctx := context.Background()
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "RecallPaging"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	seed := "abcdefghijklmnopqrstuvwxyz"
+	if err := eng.appendToolLog(workbenchID, toolLogEntry{
+		ID:        5,
+		Tool:      "read_file",
+		Args:      `{"path":"alpha.txt"}`,
+		Result:    seed,
+		Receipt:   "[Receipt]",
+		Timestamp: "2026-02-22T00:00:00Z",
+		ElapsedMS: 10,
+	}); err != nil {
+		t.Fatalf("append tool log: %v", err)
+	}
+	handler := NewToolHandler(eng, workbenchID, ctx)
+
+	pageCall := llm.ToolCall{
+		ID:   "recall-page",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "recall_tool_result",
+			Arguments: `{"entry_id":5,"offset":5,"length":4}`,
+		},
+	}
+	result, err := handler.Execute(pageCall)
+	if err != nil {
+		t.Fatalf("recall page: %v", err)
+	}
+	var payload struct {
+		Offset      int    `json:"offset"`
+		Returned    int    `json:"returned_bytes"`
+		HasMore     bool   `json:"has_more"`
+		NextOffset  int    `json:"next_offset"`
+		ResultChunk string `json:"result_chunk"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode recall payload: %v", err)
+	}
+	if payload.Offset != 5 || payload.Returned != 4 || payload.ResultChunk != "fghi" {
+		t.Fatalf("unexpected page payload: %+v", payload)
+	}
+	if !payload.HasMore || payload.NextOffset != 9 {
+		t.Fatalf("expected has_more=true and next_offset=9, got %+v", payload)
+	}
+
+	endCall := llm.ToolCall{
+		ID:   "recall-end",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "recall_tool_result",
+			Arguments: `{"entry_id":5,"offset":26,"length":5}`,
+		},
+	}
+	result, err = handler.Execute(endCall)
+	if err != nil {
+		t.Fatalf("recall end offset: %v", err)
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode end payload: %v", err)
+	}
+	if payload.ResultChunk != "" || payload.Returned != 0 || payload.HasMore {
+		t.Fatalf("expected empty terminal chunk, got %+v", payload)
+	}
+
+	invalidCalls := []llm.ToolCall{
+		{
+			ID:   "recall-invalid-length",
+			Type: "function",
+			Function: llm.ToolCallFunction{
+				Name:      "recall_tool_result",
+				Arguments: fmt.Sprintf(`{"entry_id":5,"length":%d}`, recallMaxBytes+1),
+			},
+		},
+		{
+			ID:   "recall-invalid-offset-negative",
+			Type: "function",
+			Function: llm.ToolCallFunction{
+				Name:      "recall_tool_result",
+				Arguments: `{"entry_id":5,"offset":-1}`,
+			},
+		},
+		{
+			ID:   "recall-invalid-offset-too-far",
+			Type: "function",
+			Function: llm.ToolCallFunction{
+				Name:      "recall_tool_result",
+				Arguments: `{"entry_id":5,"offset":27}`,
+			},
+		},
+	}
+	for _, invalid := range invalidCalls {
+		_, execErr := handler.Execute(invalid)
+		if execErr == nil {
+			t.Fatalf("expected validation error for %s", invalid.ID)
+		}
+		if !strings.Contains(execErr.Error(), errinfo.CodeValidationFailed) {
+			t.Fatalf("expected validation error code for %s, got %v", invalid.ID, execErr)
+		}
 	}
 }
 

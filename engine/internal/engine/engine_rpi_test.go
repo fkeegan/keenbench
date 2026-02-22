@@ -365,6 +365,9 @@ func TestRPIOrchestratorFullCycle(t *testing.T) {
 	if slices.Contains(researchToolSet, "write_text_file") {
 		t.Fatalf("research tools must be read-only, got %+v", researchToolSet)
 	}
+	if slices.Contains(researchToolSet, "recall_tool_result") {
+		t.Fatalf("research tools must exclude recall_tool_result, got %+v", researchToolSet)
+	}
 	if !slices.Contains(researchToolSet, "table_query") {
 		t.Fatalf("expected research tool subset, got %+v", researchToolSet)
 	}
@@ -451,6 +454,100 @@ func TestRPIOrchestratorResearchFails(t *testing.T) {
 	}
 	if len(conversation) != 1 || conversation[0].Role != "user" {
 		t.Fatalf("expected only user message persisted, got %#v", conversation)
+	}
+}
+
+func TestRunAgentLoopEmptyTerminalResponseReturnsExplicitError(t *testing.T) {
+	eng, workbenchID, _, _ := setupRPIWorkflowRun(t, &scriptedRPIClient{}, "Test empty terminal")
+	ctx := context.Background()
+	client := &scriptedRPIClient{
+		toolTurns: []scriptedRPIToolTurn{
+			{resp: llm.ChatResponse{Content: "", FinishReason: "stop"}},
+		},
+	}
+
+	result := eng.runAgentLoop(ctx, agentLoopConfig{
+		workbenchID:           workbenchID,
+		client:                client,
+		apiKey:                "sk-test",
+		modelID:               ModelOpenAIID,
+		messages:              []llm.ChatMessage{{Role: "system", Content: "Research"}, {Role: "user", Content: "Run"}},
+		tools:                 ResearchTools,
+		maxTurns:              3,
+		persistToConversation: false,
+		emitStreamDeltas:      false,
+		phaseName:             "research",
+	})
+	if result.err == nil {
+		t.Fatalf("expected empty terminal error")
+	}
+	if result.err.ErrorCode != errinfo.CodeAgentEmptyTerminal {
+		t.Fatalf("expected %s, got %s", errinfo.CodeAgentEmptyTerminal, result.err.ErrorCode)
+	}
+	if !strings.Contains(result.err.Detail, "empty terminal response") {
+		t.Fatalf("expected empty terminal detail, got %q", result.err.Detail)
+	}
+	if strings.Contains(result.err.Detail, "maximum turn limit") {
+		t.Fatalf("should not report max-turn exhaustion detail: %q", result.err.Detail)
+	}
+}
+
+func TestRunAgentLoopMaxTurnsStillUsesLoopDetected(t *testing.T) {
+	eng, workbenchID, _, _ := setupRPIWorkflowRun(t, &scriptedRPIClient{}, "Test max turns")
+	ctx := context.Background()
+	client := &scriptedRPIClient{
+		toolTurns: []scriptedRPIToolTurn{
+			{resp: llm.ChatResponse{
+				Content: "Turn 1",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID:   "tc-loop-1",
+						Type: "function",
+						Function: llm.ToolCallFunction{
+							Name:      "unknown_tool",
+							Arguments: `{}`,
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+			}},
+			{resp: llm.ChatResponse{
+				Content: "Turn 2",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID:   "tc-loop-2",
+						Type: "function",
+						Function: llm.ToolCallFunction{
+							Name:      "unknown_tool",
+							Arguments: `{}`,
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+			}},
+		},
+	}
+
+	result := eng.runAgentLoop(ctx, agentLoopConfig{
+		workbenchID:           workbenchID,
+		client:                client,
+		apiKey:                "sk-test",
+		modelID:               ModelOpenAIID,
+		messages:              []llm.ChatMessage{{Role: "system", Content: "Research"}, {Role: "user", Content: "Run"}},
+		tools:                 ResearchTools,
+		maxTurns:              2,
+		persistToConversation: false,
+		emitStreamDeltas:      false,
+		phaseName:             "research",
+	})
+	if result.err == nil {
+		t.Fatalf("expected max-turn error")
+	}
+	if result.err.ErrorCode != errinfo.CodeAgentLoopDetected {
+		t.Fatalf("expected %s, got %s", errinfo.CodeAgentLoopDetected, result.err.ErrorCode)
+	}
+	if !strings.Contains(result.err.Detail, "maximum turn limit (2)") {
+		t.Fatalf("expected max-turn detail, got %q", result.err.Detail)
 	}
 }
 

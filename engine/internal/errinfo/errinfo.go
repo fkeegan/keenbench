@@ -31,6 +31,7 @@ const (
 	CodeConflictPublished     = "CONFLICT_PUBLISHED_CHANGED"
 	CodeToolWorkerUnavailable = "TOOL_WORKER_UNAVAILABLE"
 	CodeAgentLoopDetected     = "AGENT_LOOP_DETECTED"
+	CodeAgentEmptyTerminal    = "AGENT_EMPTY_TERMINAL_RESPONSE"
 	CodeStyleSkillLoadFailed  = "STYLE_SKILL_LOAD_FAILED"
 	CodeStyleMergeFailed      = "STYLE_MERGE_FAILED"
 )
@@ -150,6 +151,16 @@ func AgentLoopDetected(phase, detail string) *ErrorInfo {
 		ErrorCode: CodeAgentLoopDetected,
 		Phase:     phase,
 		Retryable: false,
+		Detail:    detail,
+	}
+}
+
+func AgentEmptyTerminalResponse(phase, detail string) *ErrorInfo {
+	return &ErrorInfo{
+		ErrorCode: CodeAgentEmptyTerminal,
+		Phase:     phase,
+		Retryable: true,
+		Actions:   []string{ActionRetry},
 		Detail:    detail,
 	}
 }

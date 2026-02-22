@@ -667,14 +667,16 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 		Type: "function",
 		Function: llm.FunctionDef{
 			Name:        "recall_tool_result",
-			Description: "Retrieve the full result of a previous tool call from the tool log. Use when you need to re-examine data from an earlier tool call referenced in a receipt.",
+			Description: "Retrieve a bounded chunk of a previous tool result by tool log entry ID. Returns metadata plus result_chunk for paging with offset/length.",
 			Parameters: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"entry_id": {"type": "integer", "description": "The tool log entry ID from a previous receipt"}
-				},
-				"required": ["entry_id"]
-			}`),
+					"type": "object",
+					"properties": {
+						"entry_id": {"type": "integer", "description": "The tool log entry ID from a previous receipt"},
+						"offset": {"type": "integer", "description": "Byte offset into the stored tool result (default 0)", "minimum": 0},
+						"length": {"type": "integer", "description": "Maximum bytes to return in this chunk (default applies if omitted)", "minimum": 1}
+					},
+					"required": ["entry_id"]
+				}`),
 		},
 	},
 }
@@ -694,7 +696,6 @@ func init() {
 		"table_stats",
 		"table_read_rows",
 		"table_query",
-		"recall_tool_result",
 		"xlsx_get_styles",
 		"docx_get_styles",
 		"pptx_get_styles",
@@ -2236,9 +2237,17 @@ func (h *ToolHandler) pptxCopyAssets(argsJSON string) (string, error) {
 	return h.callJSONWorker("PptxCopyAssets", params)
 }
 
+const (
+	recallDefaultBytes = 1024
+	recallMaxBytes     = 4096
+	recallMaxOffset    = 25 * 1024 * 1024
+)
+
 func (h *ToolHandler) recallToolResult(argsJSON string) (string, error) {
 	var args struct {
-		EntryID int `json:"entry_id"`
+		EntryID int  `json:"entry_id"`
+		Offset  *int `json:"offset,omitempty"`
+		Length  *int `json:"length,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", workshopValidationError("invalid arguments")
@@ -2246,11 +2255,61 @@ func (h *ToolHandler) recallToolResult(argsJSON string) (string, error) {
 	if args.EntryID <= 0 {
 		return "", workshopValidationError("entry_id must be >= 1")
 	}
+	offset := 0
+	if args.Offset != nil {
+		offset = *args.Offset
+	}
+	if offset < 0 {
+		return "", workshopValidationError("offset must be >= 0")
+	}
+	if offset > recallMaxOffset {
+		return "", workshopValidationError(fmt.Sprintf("offset must be <= %d", recallMaxOffset))
+	}
+	length := recallDefaultBytes
+	if args.Length != nil {
+		length = *args.Length
+	}
+	if length <= 0 {
+		return "", workshopValidationError("length must be >= 1")
+	}
+	if length > recallMaxBytes {
+		return "", workshopValidationError(fmt.Sprintf("length must be <= %d", recallMaxBytes))
+	}
 	entry, err := h.engine.readToolLogEntry(h.workbenchID, args.EntryID)
 	if err != nil {
 		return "", fmt.Errorf("recall failed: %w", err)
 	}
-	return entry.Result, nil
+	totalBytes := len(entry.Result)
+	if offset > totalBytes {
+		return "", workshopValidationError("offset exceeds result size")
+	}
+	end := offset + length
+	if end < offset || end > totalBytes {
+		end = totalBytes
+	}
+	chunk := entry.Result[offset:end]
+	hasMore := end < totalBytes
+
+	resp := map[string]any{
+		"entry_id":       entry.ID,
+		"tool":           entry.Tool,
+		"total_bytes":    totalBytes,
+		"offset":         offset,
+		"returned_bytes": len(chunk),
+		"has_more":       hasMore,
+		"result_chunk":   chunk,
+	}
+	if hasMore {
+		resp["next_offset"] = end
+	}
+	if entry.Error != "" {
+		resp["source_error"] = entry.Error
+	}
+	encoded, err := json.Marshal(resp)
+	if err != nil {
+		return "", fmt.Errorf("recall failed: %w", err)
+	}
+	return string(encoded), nil
 }
 
 const RPIResearchSystemPrompt = `You are KeenBench in RESEARCH phase.
@@ -2263,9 +2322,11 @@ Goal:
 Rules:
 1. Use only available read-only tools.
 2. Follow MAP-FIRST workflow: inspect structure first, then targeted reads/queries.
-3. Use recall_tool_result only when a receipt is insufficient.
-4. Keep findings concrete: file structure, schema, data patterns, assumptions, and risks.
-5. End with a clear research summary as your final text response.`
+3. Keep reads bounded and targeted; do not re-read whole files once key evidence is captured.
+4. Write durable, compact findings that PLAN can use directly without replaying your tool history.
+5. Keep findings concrete: file relevance, schema/data patterns, assumptions, constraints, and risks.
+6. Use short markdown sections and bullets. Be concise while preserving critical details.
+7. End with a clear research summary as your final text response.`
 
 const RPIPlanSystemPrompt = `You are KeenBench in PLAN phase.
 
@@ -2294,7 +2355,10 @@ Rules:
 2. Use checkbox format exactly: "- [ ] N. Label — Description".
 3. Include only actionable implementation items.
 4. Do not mark items complete.
-5. Do not execute the plan.`
+5. Treat Research summary as the primary source of truth for planning.
+6. Use tool calls only for targeted corroboration/expansion (specific file regions, not broad re-reading).
+7. If using recall_tool_result, always request the smallest needed chunk with offset/length.
+8. Do not execute the plan.`
 
 const RPIImplementSystemPrompt = `You are KeenBench in IMPLEMENT phase.
 
@@ -2360,7 +2424,7 @@ Available tools:
 - pptx_operations: Create or modify PowerPoint presentations
 - xlsx_get_styles / docx_get_styles / pptx_get_styles: Inspect style descriptors for fidelity-sensitive derivative tasks
 - xlsx_copy_assets / docx_copy_assets / pptx_copy_assets: Copy style/layout/media assets between same-format files in Draft
-- recall_tool_result: Retrieve the full result of a previous tool call by entry ID (use sparingly)
+- recall_tool_result: Retrieve a bounded chunk of a previous tool result by entry ID with optional offset/length paging
 
 MAP-FIRST WORKFLOW:
 For structured files (xlsx, docx, pptx, pdf), CSV files, and large text files, follow this approach:
@@ -2372,8 +2436,9 @@ For structured files (xlsx, docx, pptx, pdf), CSV files, and large text files, f
 
 TOOL RESULTS AND CONTEXT:
 - Tool results are NOT kept in full in conversation context. You receive a compact receipt with shape info and a data preview.
-- Each receipt references a tool log entry ID. Use recall_tool_result(entry_id) only if you need the full data.
+- Each receipt references a tool log entry ID. Use recall_tool_result(entry_id, offset, length) only when a receipt is insufficient.
 - Prefer making decisions from receipts. Most tasks can be completed without recalling full results.
+- Keep recalls bounded: request only the smallest chunk needed and page with next_offset when necessary.
 - For data-to-file workflows, use table_export for stand-alone outputs and table_update_from_export for existing xlsx workbook/sheet targets. Do NOT recall large results just to pass them to write_text_file.
 
 TASK COMPLETION:
