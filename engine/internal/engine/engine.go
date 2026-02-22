@@ -1790,8 +1790,8 @@ func (e *Engine) WorkshopApplyProposal(ctx context.Context, params json.RawMessa
 const (
 	maxAgentTurns       = 200
 	maxToolCallsPerTurn = 50
-	rpiResearchMaxTurns = 30
-	rpiPlanMaxTurns     = 10
+	rpiResearchMaxTurns = 60
+	rpiPlanMaxTurns     = 20
 	rpiItemMaxTurns     = 30
 	rpiMaxPlanInflation = 2
 
