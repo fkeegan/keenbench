@@ -6843,6 +6843,22 @@ func buildToolReceipt(toolName string, result string, logEntryID int) string {
 		return buildArrayReceipt(arr, logEntryID)
 	}
 
+	if toolName == "read_file" {
+		if receipt, ok := buildReadFileObjectReceipt(parsed, logEntryID); ok {
+			return receipt
+		}
+	}
+	if toolName == "get_file_map" {
+		if receipt, ok := buildGetFileMapReceipt(parsed, logEntryID); ok {
+			return receipt
+		}
+	}
+	if strings.HasSuffix(toolName, "_get_styles") {
+		if receipt, ok := buildStyleToolReceipt(toolName, parsed, logEntryID); ok {
+			return receipt
+		}
+	}
+
 	return buildObjectReceipt(toolName, parsed, logEntryID)
 }
 
@@ -6904,6 +6920,218 @@ func buildRecallReceipt(result string, logEntryID int) string {
 	}
 	sb.WriteString(fmt.Sprintf("\nRecall receipt log entry #%d. Request more with recall_tool_result(entry_id, offset, length).", logEntryID))
 	return sb.String()
+}
+
+func buildReadFileObjectReceipt(parsed map[string]any, logEntryID int) (string, bool) {
+	text, hasText := parsed["text"].(string)
+	chunkInfo, hasChunkInfo := parsed["chunk_info"].(map[string]any)
+	if !hasText && !hasChunkInfo {
+		return "", false
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Receipt — read_file")
+	if hasText {
+		lineCount := 1
+		if text == "" {
+			lineCount = 0
+		} else {
+			lineCount += strings.Count(text, "\n")
+		}
+		sb.WriteString(fmt.Sprintf(", %d bytes, %d lines", len(text), lineCount))
+	}
+	if hasChunkInfo {
+		if chunkIndex, ok := numericField(chunkInfo, "chunk_index"); ok {
+			if totalChunks, ok := numericField(chunkInfo, "total_chunks"); ok && totalChunks > 0 {
+				sb.WriteString(fmt.Sprintf(", chunk %d/%d", int(chunkIndex)+1, int(totalChunks)))
+			} else {
+				sb.WriteString(fmt.Sprintf(", chunk_index=%d", int(chunkIndex)))
+			}
+		}
+		if hasMore, ok := chunkInfo["has_more"].(bool); ok && hasMore {
+			sb.WriteString(", has_more=true")
+		}
+	}
+	sb.WriteString("]\n")
+
+	if hasChunkInfo {
+		if chunkRange, ok := chunkInfo["range"].(string); ok && strings.TrimSpace(chunkRange) != "" {
+			sb.WriteString(fmt.Sprintf("Chunk range: %s\n", chunkRange))
+		}
+		if hasMore, ok := chunkInfo["has_more"].(bool); ok {
+			sb.WriteString(fmt.Sprintf("Chunk has_more: %t\n", hasMore))
+		}
+	}
+
+	if hasText {
+		const maxPreviewBytes = 1200
+		preview := text
+		if len(preview) > maxPreviewBytes {
+			preview = strings.TrimSpace(preview[:maxPreviewBytes]) + "\n..."
+		}
+		sb.WriteString("Text preview:\n")
+		sb.WriteString(preview)
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.", logEntryID))
+	return sb.String(), true
+}
+
+func buildGetFileMapReceipt(parsed map[string]any, logEntryID int) (string, bool) {
+	var sb strings.Builder
+	sb.WriteString("[Receipt — get_file_map")
+	if sheets, ok := parsed["sheets"].([]any); ok && len(sheets) > 0 {
+		sb.WriteString(fmt.Sprintf(", %d sheets", len(sheets)))
+	}
+	sb.WriteString("]\n")
+
+	wroteDetail := false
+	if sheets, ok := parsed["sheets"].([]any); ok && len(sheets) > 0 {
+		const maxSheets = 8
+		sb.WriteString("Sheet preview:\n")
+		for i := 0; i < len(sheets) && i < maxSheets; i++ {
+			switch sheet := sheets[i].(type) {
+			case string:
+				name := strings.TrimSpace(sheet)
+				if name == "" {
+					name = fmt.Sprintf("Sheet%d", i+1)
+				}
+				sb.WriteString(fmt.Sprintf("- %s\n", name))
+			case map[string]any:
+				name := strings.TrimSpace(toString(sheet["name"]))
+				if name == "" {
+					name = strings.TrimSpace(toString(sheet["sheet"]))
+				}
+				if name == "" {
+					name = fmt.Sprintf("Sheet%d", i+1)
+				}
+				details := make([]string, 0, 4)
+				if rowCount, ok := numericField(sheet, "row_count"); ok {
+					details = append(details, fmt.Sprintf("rows=%d", int(rowCount)))
+				}
+				if colCount, ok := numericField(sheet, "col_count"); ok {
+					details = append(details, fmt.Sprintf("cols=%d", int(colCount)))
+				}
+				if chunks, ok := sheet["chunks"].([]any); ok {
+					details = append(details, fmt.Sprintf("chunks=%d", len(chunks)))
+				}
+				if usedRange := strings.TrimSpace(toString(sheet["used_range"])); usedRange != "" {
+					details = append(details, "used="+usedRange)
+				}
+				if len(details) == 0 {
+					sb.WriteString(fmt.Sprintf("- %s\n", name))
+				} else {
+					sb.WriteString(fmt.Sprintf("- %s (%s)\n", name, strings.Join(details, ", ")))
+				}
+			}
+		}
+		if len(sheets) > maxSheets {
+			sb.WriteString(fmt.Sprintf("- ... %d more sheets\n", len(sheets)-maxSheets))
+		}
+		wroteDetail = true
+	}
+
+	if !wroteDetail {
+		if lineCount, ok := numericField(parsed, "line_count"); ok {
+			sb.WriteString(fmt.Sprintf("line_count: %d\n", int(lineCount)))
+			wroteDetail = true
+		}
+		if charCount, ok := numericField(parsed, "char_count"); ok {
+			sb.WriteString(fmt.Sprintf("char_count: %d\n", int(charCount)))
+			wroteDetail = true
+		}
+		if chunks, ok := parsed["chunks"].([]any); ok {
+			sb.WriteString(fmt.Sprintf("chunks: %d\n", len(chunks)))
+			wroteDetail = true
+		}
+	}
+
+	if !wroteDetail {
+		return "", false
+	}
+	sb.WriteString(fmt.Sprintf("\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.", logEntryID))
+	return sb.String(), true
+}
+
+func buildStyleToolReceipt(toolName string, parsed map[string]any, logEntryID int) (string, bool) {
+	var sb strings.Builder
+	sb.WriteString("[Receipt — ")
+	sb.WriteString(toolName)
+	if sheet := strings.TrimSpace(toString(parsed["sheet"])); sheet != "" {
+		sb.WriteString(", sheet=")
+		sb.WriteString(sheet)
+	}
+	if sheetCount, ok := numericField(parsed, "sheet_count"); ok {
+		sb.WriteString(fmt.Sprintf(", sheets=%d", int(sheetCount)))
+	}
+	if styleCount, ok := numericField(parsed, "style_count"); ok {
+		sb.WriteString(fmt.Sprintf(", style_count=%d", int(styleCount)))
+	}
+	sb.WriteString("]\n")
+
+	detailParts := make([]string, 0, 8)
+	for _, field := range []string{
+		"assets",
+		"cell_style_assets",
+		"fonts",
+		"fills",
+		"borders",
+		"number_formats",
+		"named_styles",
+		"format",
+	} {
+		if items, ok := parsed[field].([]any); ok {
+			detailParts = append(detailParts, fmt.Sprintf("%s=%d", field, len(items)))
+		}
+	}
+	if len(detailParts) > 0 {
+		sb.WriteString("Asset counts: ")
+		sb.WriteString(strings.Join(detailParts, ", "))
+		sb.WriteString("\n")
+	}
+
+	if supported := normalizeStringList(parsed["supported_copy_asset_types"]); len(supported) > 0 {
+		const maxSupported = 8
+		preview := supported
+		if len(preview) > maxSupported {
+			preview = preview[:maxSupported]
+		}
+		sb.WriteString("Supported copy asset types: ")
+		sb.WriteString(strings.Join(preview, ", "))
+		if len(supported) > maxSupported {
+			sb.WriteString(fmt.Sprintf(" (+%d more)", len(supported)-maxSupported))
+		}
+		sb.WriteString("\n")
+	}
+
+	if sheets, ok := parsed["sheets"].([]any); ok && len(sheets) > 0 {
+		const maxSheets = 8
+		names := make([]string, 0, maxSheets)
+		for i := 0; i < len(sheets) && i < maxSheets; i++ {
+			name := strings.TrimSpace(toString(sheets[i]))
+			if name == "" {
+				continue
+			}
+			names = append(names, name)
+		}
+		if len(names) > 0 {
+			sb.WriteString("Sheets preview: ")
+			sb.WriteString(strings.Join(names, ", "))
+			if len(sheets) > len(names) {
+				sb.WriteString(fmt.Sprintf(" (+%d more)", len(sheets)-len(names)))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	receipt := strings.TrimSpace(sb.String())
+	if strings.EqualFold(receipt, "[Receipt — "+toolName+"]") {
+		return "", false
+	}
+
+	sb.WriteString(fmt.Sprintf("\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.", logEntryID))
+	return sb.String(), true
 }
 
 func buildObjectReceipt(toolName string, parsed map[string]any, logEntryID int) string {

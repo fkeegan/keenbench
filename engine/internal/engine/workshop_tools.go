@@ -673,7 +673,7 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 					"properties": {
 						"entry_id": {"type": "integer", "description": "The tool log entry ID from a previous receipt"},
 						"offset": {"type": "integer", "description": "Byte offset into the stored tool result (default 0)", "minimum": 0},
-						"length": {"type": "integer", "description": "Maximum bytes to return in this chunk (default applies if omitted)", "minimum": 1}
+						"length": {"type": "integer", "description": "Maximum bytes to return in this chunk (default applies if omitted)", "minimum": 1, "maximum": 8192}
 					},
 					"required": ["entry_id"]
 				}`),
@@ -691,6 +691,7 @@ func init() {
 		"get_file_info",
 		"get_file_map",
 		"read_file",
+		"recall_tool_result",
 		"table_get_map",
 		"table_describe",
 		"table_stats",
@@ -2239,7 +2240,7 @@ func (h *ToolHandler) pptxCopyAssets(argsJSON string) (string, error) {
 
 const (
 	recallDefaultBytes = 1024
-	recallMaxBytes     = 4096
+	recallMaxBytes     = 8192
 	recallMaxOffset    = 25 * 1024 * 1024
 )
 
@@ -2326,7 +2327,8 @@ Rules:
 4. Write durable, compact findings that PLAN can use directly without replaying your tool history.
 5. Keep findings concrete: file relevance, schema/data patterns, assumptions, constraints, and risks.
 6. Use short markdown sections and bullets. Be concise while preserving critical details.
-7. End with a clear research summary as your final text response.`
+7. End with a clear research summary as your final text response.
+8. Use recall_tool_result only as a last resort when a receipt is insufficient; request the smallest chunk needed and stop once evidence is captured.`
 
 const RPIPlanSystemPrompt = `You are KeenBench in PLAN phase.
 

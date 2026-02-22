@@ -360,6 +360,41 @@ func TestWorkshopToolsSchemaValid(t *testing.T) {
 	}
 }
 
+func TestWorkshopToolsRecallLengthMaximumMatchesRuntimeLimit(t *testing.T) {
+	for _, tool := range WorkshopTools {
+		if tool.Function.Name != "recall_tool_result" {
+			continue
+		}
+
+		var params map[string]any
+		if err := json.Unmarshal(tool.Function.Parameters, &params); err != nil {
+			t.Fatalf("recall_tool_result schema: %v", err)
+		}
+		props, ok := params["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("recall_tool_result schema missing properties")
+		}
+		lengthSpec, ok := props["length"].(map[string]any)
+		if !ok {
+			t.Fatalf("recall_tool_result schema missing length property")
+		}
+		maxValue, ok := lengthSpec["maximum"]
+		if !ok {
+			t.Fatalf("recall_tool_result length must declare maximum")
+		}
+		maxFloat, ok := maxValue.(float64)
+		if !ok {
+			t.Fatalf("recall_tool_result length maximum must be numeric, got %T", maxValue)
+		}
+		if int(maxFloat) != recallMaxBytes {
+			t.Fatalf("recall_tool_result length maximum=%d, want %d", int(maxFloat), recallMaxBytes)
+		}
+		return
+	}
+
+	t.Fatal("recall_tool_result tool schema not found")
+}
+
 func TestWorkshopToolsOfficeSchemasUseCanonicalOperationKeys(t *testing.T) {
 	getOperationProps := func(toolName string) map[string]any {
 		for _, tool := range WorkshopTools {
@@ -1405,6 +1440,168 @@ func TestBuildToolReceiptTextResult(t *testing.T) {
 	}
 	if !strings.Contains(receipt, "7") {
 		t.Fatalf("receipt should contain entry ID")
+	}
+	if !strings.Contains(receipt, "recall_tool_result") {
+		t.Fatalf("receipt should mention recall_tool_result")
+	}
+}
+
+func TestBuildToolReceiptReadFileObjectResult(t *testing.T) {
+	lines := make([]string, 250)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("Row %d\t%s", i+1, strings.Repeat("value\t", 12))
+	}
+	resultPayload := map[string]any{
+		"text": strings.Join(lines, "\n"),
+		"chunk_info": map[string]any{
+			"chunk_index":  1,
+			"total_chunks": 4,
+			"has_more":     true,
+			"range":        "A201:E400",
+		},
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("read_file", string(resultJSON), 17)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than result")
+	}
+	if !strings.Contains(receipt, "read_file") {
+		t.Fatalf("receipt should identify read_file payload")
+	}
+	if !strings.Contains(receipt, "chunk 2/4") {
+		t.Fatalf("receipt should include chunk index/total")
+	}
+	if !strings.Contains(receipt, "Chunk range: A201:E400") {
+		t.Fatalf("receipt should include chunk range")
+	}
+	if !strings.Contains(receipt, "Chunk has_more: true") {
+		t.Fatalf("receipt should include has_more")
+	}
+	if !strings.Contains(receipt, "Text preview:") {
+		t.Fatalf("receipt should include text preview")
+	}
+	if !strings.Contains(receipt, "recall_tool_result") {
+		t.Fatalf("receipt should mention recall_tool_result")
+	}
+	if !strings.Contains(receipt, "tool log entry #17") {
+		t.Fatalf("receipt should include tool log entry id")
+	}
+}
+
+func TestBuildToolReceiptGetFileMapResult(t *testing.T) {
+	resultPayload := map[string]any{
+		"sheets": []any{
+			map[string]any{
+				"name":       "Bugs per Business Scenarios",
+				"row_count":  420,
+				"col_count":  12,
+				"used_range": "A1:L420",
+				"chunks": []any{
+					map[string]any{"index": 0, "range": "A1:L200"},
+					map[string]any{"index": 1, "range": "A201:L420"},
+				},
+			},
+			map[string]any{
+				"name":      "Sheet2",
+				"row_count": 60,
+				"col_count": 8,
+				"chunks": []any{
+					map[string]any{"index": 0, "range": "A1:H60"},
+				},
+			},
+			"Links",
+		},
+		"_padding": strings.Repeat("x", 5000),
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("get_file_map", string(resultJSON), 29)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than result")
+	}
+	if !strings.Contains(receipt, "get_file_map") {
+		t.Fatalf("receipt should identify get_file_map payload")
+	}
+	if !strings.Contains(receipt, "Sheet preview:") {
+		t.Fatalf("receipt should include sheet preview")
+	}
+	if !strings.Contains(receipt, "Bugs per Business Scenarios") {
+		t.Fatalf("receipt should include sheet name")
+	}
+	if !strings.Contains(receipt, "rows=420") || !strings.Contains(receipt, "cols=12") {
+		t.Fatalf("receipt should include shape details")
+	}
+	if !strings.Contains(receipt, "chunks=2") {
+		t.Fatalf("receipt should include chunk count")
+	}
+	if !strings.Contains(receipt, "tool log entry #29") {
+		t.Fatalf("receipt should include tool log entry id")
+	}
+	if !strings.Contains(receipt, "recall_tool_result") {
+		t.Fatalf("receipt should mention recall_tool_result")
+	}
+}
+
+func TestBuildToolReceiptXlsxGetStylesResult(t *testing.T) {
+	fonts := make([]any, 17)
+	for i := range fonts {
+		fonts[i] = map[string]any{"id": fmt.Sprintf("font-%d", i)}
+	}
+	cellStyles := make([]any, 4000)
+	for i := range cellStyles {
+		cellStyles[i] = map[string]any{"id": fmt.Sprintf("cell-style-%d", i)}
+	}
+	assets := make([]any, 4001)
+	for i := range assets {
+		assets[i] = map[string]any{"id": fmt.Sprintf("asset-%d", i)}
+	}
+	resultPayload := map[string]any{
+		"sheet":                      "Bugs per Business Scenarios",
+		"sheet_count":                13,
+		"style_count":                1,
+		"fonts":                      fonts,
+		"fills":                      []any{map[string]any{"id": "fill-1"}},
+		"borders":                    []any{map[string]any{"id": "border-1"}, map[string]any{"id": "border-2"}},
+		"number_formats":             []any{},
+		"named_styles":               []any{map[string]any{"id": "Normal"}},
+		"cell_style_assets":          cellStyles,
+		"assets":                     assets,
+		"supported_copy_asset_types": []any{"font", "fill", "border", "cell_style"},
+		"sheets":                     []any{"Links", "Sheet1", "Bugs per Business Scenarios"},
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("xlsx_get_styles", string(resultJSON), 31)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than result")
+	}
+	if !strings.Contains(receipt, "xlsx_get_styles") {
+		t.Fatalf("receipt should identify xlsx_get_styles payload")
+	}
+	if !strings.Contains(receipt, "sheet=Bugs per Business Scenarios") {
+		t.Fatalf("receipt should include sheet context")
+	}
+	if !strings.Contains(receipt, "assets=4001") || !strings.Contains(receipt, "cell_style_assets=4000") {
+		t.Fatalf("receipt should include style asset counts")
+	}
+	if !strings.Contains(receipt, "Supported copy asset types: font, fill, border, cell_style") {
+		t.Fatalf("receipt should include supported copy asset types")
+	}
+	if !strings.Contains(receipt, "Sheets preview: Links, Sheet1, Bugs per Business Scenarios") {
+		t.Fatalf("receipt should include sheet preview")
+	}
+	if !strings.Contains(receipt, "tool log entry #31") {
+		t.Fatalf("receipt should include tool log entry id")
 	}
 	if !strings.Contains(receipt, "recall_tool_result") {
 		t.Fatalf("receipt should mention recall_tool_result")

@@ -255,6 +255,7 @@ func TestRPIToolFiltering(t *testing.T) {
 		"get_file_info",
 		"get_file_map",
 		"read_file",
+		"recall_tool_result",
 		"table_get_map",
 		"table_describe",
 		"table_stats",

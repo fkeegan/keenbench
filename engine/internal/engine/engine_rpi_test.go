@@ -365,8 +365,8 @@ func TestRPIOrchestratorFullCycle(t *testing.T) {
 	if slices.Contains(researchToolSet, "write_text_file") {
 		t.Fatalf("research tools must be read-only, got %+v", researchToolSet)
 	}
-	if slices.Contains(researchToolSet, "recall_tool_result") {
-		t.Fatalf("research tools must exclude recall_tool_result, got %+v", researchToolSet)
+	if !slices.Contains(researchToolSet, "recall_tool_result") {
+		t.Fatalf("research tools must include recall_tool_result for targeted fallback reads, got %+v", researchToolSet)
 	}
 	if !slices.Contains(researchToolSet, "table_query") {
 		t.Fatalf("expected research tool subset, got %+v", researchToolSet)
