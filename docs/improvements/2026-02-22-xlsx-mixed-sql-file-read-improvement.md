@@ -8,6 +8,8 @@ Enable SQL-first retrieval for `.xlsx` content while keeping existing file-map/s
 
 The intended outcome is lower context bloat during Research/Plan and fewer repetitive `read_file`/`recall_tool_result` cycles for large spreadsheets.
 
+Companion write/preservation plan: `docs/improvements/2026-02-23-xlsx-merged-cells-write-preservation-improvement.md`.
+
 ---
 
 ## Key References (Impacted Design)
@@ -50,6 +52,32 @@ The intended outcome is lower context bloat during Research/Plan and fewer repet
 3. **Windowed query contract**: retrieval remains bounded (`limit`/offset-like semantics) to avoid oversized payloads.
 4. **Deterministic refresh**: tabular projection invalidates and rebuilds when source workbook changes.
 5. **Graceful fallback**: unsupported/irregular sheets can fall back to `read_file` with clear tool guidance.
+6. **Coordinate-light tables + layout sidecar**: do not store full per-cell coordinates in every projected row. Keep `_kb_row` in projected tables and store merged/header layout metadata in sidecar structures.
+
+---
+
+## Resolved Decision: Merged Cells and Multi-Row Headers in Projection
+To answer open question #1, use a two-layer representation:
+
+1. **Primary query tables (SQL-first path):**
+   - One logical table per worksheet.
+   - Include `_kb_row` (source worksheet row number).
+   - Use normalized column names for SQL ergonomics.
+   - No per-cell coordinate column by default.
+
+2. **Layout metadata sidecar (structure path):**
+   - Store merged ranges (`sheet`, `range`, anchor row/col, span).
+   - Store multi-row header metadata (header row band and source header tokens).
+   - Store SQL-column-to-Excel-column mapping (`sql_column -> excel_column_letter`).
+
+3. **Cell reference reconstruction (when needed):**
+   - Reconstruct exact cell refs as `excel_column_letter + _kb_row`.
+   - Use sidecar metadata for audit/explainability and UI highlighting.
+
+Rationale:
+- Keeps analytics fast and compact.
+- Preserves traceability without polluting every row with verbose coordinates.
+- Handles complex sheets (merged headers, multi-row headers) via explicit structure metadata.
 
 ---
 
@@ -110,8 +138,7 @@ The intended outcome is lower context bloat during Research/Plan and fewer repet
 
 ---
 
-## Open Questions
-1. How to represent merged cells and multi-row headers in table projection.
-2. Whether formulas should be projected as values only, formulas only, or dual columns.
-3. Best default column naming when header rows are sparse/blank.
-4. Caching strategy limits for very large workbooks.
+## Open Questions (Remaining)
+1. Whether formulas should be projected as values only, formulas only, or dual columns.
+2. Best default column naming when header rows are sparse/blank.
+3. Caching strategy limits for very large workbooks.
