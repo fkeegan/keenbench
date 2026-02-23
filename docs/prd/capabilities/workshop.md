@@ -4,10 +4,10 @@
 Draft
 
 ## Version
-v0.3
+v0.4
 
 ## Last Updated
-2026-02-13
+2026-02-22
 
 ## Purpose
 Provide an interactive, chat-based collaboration mode for step-by-step work with tight feedback loops and incremental Draft application.
@@ -16,6 +16,7 @@ Provide an interactive, chat-based collaboration mode for step-by-step work with
 - In scope (v1): chat interface, Draft application, message-level undo, conversation persistence, model switching, streaming responses.
 - In scope (v1.5): "Try with another model" fork for parallel responses (requires concurrent Drafts).
 - Out of scope: real-time collaboration, voice input, image generation within chat.
+- Related capability: `docs/prd/capabilities/model-feedback.md` adds optional post-run product-model-fit feedback collection for `WorkshopRunAgent`.
 
 ## Key Concepts
 

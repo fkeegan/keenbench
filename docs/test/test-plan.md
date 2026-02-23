@@ -22,6 +22,7 @@ This test plan covers all milestones (M0 through M3):
 - Multi-provider: OpenAI, OpenAI Codex, Anthropic, Gemini, Mistral
 - Checkpoints: create, list, restore
 - Clutter bar: context usage signal
+- Model feedback (product-model-fit): post-run survey and intake export
 - Safety: sandbox enforcement, egress allowlist, draft gating, error codes
 
 ## Test Environment
@@ -1403,6 +1404,48 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
   3. Validate totals.
      Expected: Sum of expense outputs equals `-12,257.08` (allowing minor rounding tolerance if formulas are used).
 
+### 21. Model Feedback (Product-Model-Fit)
+
+#### TC-MF-01: Feedback mode off writes no runtime feedback artifacts `[AI]`
+- Priority: P1
+- Preconditions: Valid model setup; `KEENBENCH_MODEL_FEEDBACK` is unset or `0`.
+- Steps:
+  1. Run `WorkshopRunAgent` on a workbench.
+     Expected: Workshop run completes normally.
+  2. Inspect `<data_dir>/workbenches/<workbench_id>/meta/workshop/model_feedback/`.
+     Expected: No new record is written for this run.
+
+#### TC-MF-02: Feedback mode on writes runtime record + index `[AI]`
+- Priority: P0
+- Preconditions: Valid model setup; `KEENBENCH_MODEL_FEEDBACK=1`.
+- Steps:
+  1. Run `WorkshopRunAgent` on a workbench with at least one tool call.
+     Expected: Workshop run completes normally.
+  2. Inspect runtime directory `meta/workshop/model_feedback/`.
+     Expected: One new markdown record and `index.jsonl` append entry are created.
+  3. Open the markdown record.
+     Expected: Includes objective telemetry (phase completion, tool counts, elapsed timing) and model feedback sections.
+
+#### TC-MF-03: Collection failure still preserves status-bearing record `[AI]`
+- Priority: P1
+- Preconditions: `KEENBENCH_MODEL_FEEDBACK=1`.
+- Steps:
+  1. Trigger a run condition where post-run feedback collection fails (for example transient provider/network failure after summary).
+     Expected: Primary workshop run result remains available.
+  2. Inspect latest runtime feedback record.
+     Expected: Record exists with `collection_status` set to `model_call_failed` or `parse_failed`, plus error details.
+
+#### TC-MF-04: Manual export writes curated intake docs `[AI]`
+- Priority: P0
+- Preconditions: At least one runtime feedback record exists; repo contains `docs/issues/model-feedback/`.
+- Steps:
+  1. Run `make feedback-intake`.
+     Expected: Export command finishes successfully and reports exported records.
+  2. Inspect `docs/issues/model-feedback/<YYYY-MM-DD>/`.
+     Expected: Curated markdown doc(s) exist with `source_record_id` and embedded runtime record content.
+  3. Run `make feedback-intake` again without `--force`.
+     Expected: Already-exported `source_record_id` entries are deduped.
+
 ---
 
 ## Accessibility Smoke Matrix (Core v1)
@@ -1479,6 +1522,7 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
 | Draft gating on workbench mutations | M3 plan | TC-016 |
 | Workbench context (fixed categories, process/reprocess, direct edit, runtime injection) | Workbench Context PRD/Design (FR1.5) | TC-160 through TC-171 |
 | RPI phased Workshop workflow (Research/Plan/Implement/Summary) | RPI workflow design/plan | TC-RPI-01 through TC-RPI-08 |
+| Model feedback runtime collection and manual intake export | Model Feedback PRD/Design | TC-MF-01 through TC-MF-04 |
 | Accessibility baseline (keyboard-only, semantics, announcements, contrast/non-color indicators) | Accessibility PRD/Design | TC-A11Y-01 through TC-A11Y-04 |
 | Agent Skills compliance for processed context artifacts | Workbench Context skill compliance rules | TC-161, TC-162, TC-164, TC-168 |
 | Bank statement real-world XLSX handling | Testing policy | TC-031, TC-041, TC-042, TC-100 through TC-102, TC-130 |

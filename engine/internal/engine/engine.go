@@ -1792,7 +1792,7 @@ const (
 	maxToolCallsPerTurn = 50
 	rpiResearchMaxTurns = 60
 	rpiPlanMaxTurns     = 20
-	rpiItemMaxTurns     = 30
+	rpiItemMaxTurns     = 50
 	rpiMaxPlanInflation = 2
 
 	rpiStatusPending = "pending"
@@ -2301,6 +2301,10 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 	var loopWindow []string
 	agentStartTime := time.Now()
 	totalToolCalls := 0
+	completedWithTerminalResponse := false
+	lastTurn := -1
+	lastFinishReason := ""
+	lastContentLength := 0
 
 	var onDelta func(string)
 	if cfg.emitStreamDeltas {
@@ -2354,9 +2358,13 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 		apiElapsed := time.Since(apiStart)
 		e.logger.Info(logPrefix+"_api_response", "turn", turn, "elapsed_ms", apiElapsed.Milliseconds(),
 			"tool_call_count", len(resp.ToolCalls), "finish_reason", resp.FinishReason, "content_length", len(resp.Content))
+		lastTurn = turn
+		lastFinishReason = resp.FinishReason
+		lastContentLength = len(resp.Content)
 
 		if len(resp.ToolCalls) == 0 {
 			finalAssistantText = strings.TrimSpace(resp.Content)
+			completedWithTerminalResponse = true
 			result.turnCount = turn + 1
 			e.logger.Info(logPrefix+"_complete", "total_turns", turn+1, "total_tool_calls", totalToolCalls,
 				"total_elapsed_ms", time.Since(agentStartTime).Milliseconds())
@@ -2510,11 +2518,31 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 
 	result.toolCallCount = totalToolCalls
 
-	if finalAssistantText == "" && fullResponse.Len() == 0 {
+	if !completedWithTerminalResponse {
 		e.logger.Warn(logPrefix+"_max_turns_exhausted", "max_turns", cfg.maxTurns,
 			"total_tool_calls", totalToolCalls, "total_elapsed_ms", time.Since(agentStartTime).Milliseconds())
 		result.err = errinfo.AgentLoopDetected(errinfo.PhaseWorkshop,
 			fmt.Sprintf("agent reached maximum turn limit (%d) without completing", cfg.maxTurns))
+		return result
+	}
+	if finalAssistantText == "" && fullResponse.Len() == 0 {
+		e.logger.Warn(logPrefix+"_empty_terminal_response",
+			"turn", lastTurn,
+			"finish_reason", lastFinishReason,
+			"content_length", lastContentLength,
+			"stream_length", fullResponse.Len(),
+			"total_tool_calls", totalToolCalls,
+			"total_elapsed_ms", time.Since(agentStartTime).Milliseconds())
+		result.err = errinfo.AgentEmptyTerminalResponse(
+			errinfo.PhaseWorkshop,
+			fmt.Sprintf(
+				"agent returned empty terminal response (turn=%d, finish_reason=%q, content_length=%d, stream_length=%d)",
+				lastTurn,
+				lastFinishReason,
+				lastContentLength,
+				fullResponse.Len(),
+			),
+		)
 		return result
 	}
 
@@ -2590,7 +2618,7 @@ func (e *Engine) logCodexUnauthorizedDiagnostics() {
 
 // WorkshopRunAgent runs the Research → Plan → Implement workflow and then emits
 // a single user-visible summary response.
-func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (result any, outErr *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID string `json:"workbench_id"`
 		MessageID   string `json:"message_id"`
@@ -2608,6 +2636,46 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 		return nil, runErr
 	}
 	defer e.endWorkshopRun(req.WorkbenchID, runID)
+	runStartedAt := time.Now().UTC()
+	if e.now != nil {
+		runStartedAt = e.now().UTC()
+	}
+	toolLogSeqStart := e.currentToolLogSeq(req.WorkbenchID)
+	toolLogSeqEnd := toolLogSeqStart
+	var phaseStatus modelFeedbackPhaseStatus
+	var feedbackProviderID string
+	var feedbackModelID string
+	var feedbackAPIKey string
+	var feedbackClient LLMClient
+	var feedbackSummaryMessageID string
+	var feedbackSummaryText string
+	var feedbackHasDraft bool
+	if e.shouldCollectModelFeedback() {
+		defer func() {
+			runEndedAt := time.Now().UTC()
+			if e.now != nil {
+				runEndedAt = e.now().UTC()
+			}
+			e.collectModelFeedback(modelFeedbackCollectionInput{
+				Ctx:              runCtx,
+				WorkbenchID:      req.WorkbenchID,
+				RunID:            runID,
+				ProviderID:       feedbackProviderID,
+				ModelID:          feedbackModelID,
+				RunStartedAt:     runStartedAt,
+				RunEndedAt:       runEndedAt,
+				HasDraft:         feedbackHasDraft,
+				SummaryMessageID: feedbackSummaryMessageID,
+				SummaryText:      feedbackSummaryText,
+				PhaseStatus:      phaseStatus,
+				ToolLogSeqStart:  toolLogSeqStart,
+				ToolLogSeqEnd:    toolLogSeqEnd,
+				RunError:         outErr,
+				Client:           feedbackClient,
+				APIKey:           feedbackAPIKey,
+			})
+		}()
+	}
 	modelID, errInfo := e.resolveActiveModel(req.WorkbenchID)
 	if errInfo != nil {
 		return nil, errInfo
@@ -2616,25 +2684,25 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
+	feedbackModelID = modelID
+	feedbackProviderID = model.ProviderID
 	if err := e.ensureProviderReadyFor(runCtx, model.ProviderID); err != nil {
 		return nil, err
 	}
 	if err := e.ensureConsent(req.WorkbenchID); err != nil {
 		return nil, err
 	}
-	runStartedAt := time.Now()
-	if e.now != nil {
-		runStartedAt = e.now()
-	}
 
 	apiKey, errInfo := e.providerKey(runCtx, model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
+	feedbackAPIKey = apiKey
 	client, errInfo := e.clientForProvider(model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
 	}
+	feedbackClient = client
 	reasoningEffort, errInfo := e.loadProviderRPIReasoningEffort(model.ProviderID)
 	if errInfo != nil {
 		return nil, errInfo
@@ -2646,7 +2714,10 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	}
 
 	state := e.readRPIState(req.WorkbenchID)
-	toolLogSeq := e.currentToolLogSeq(req.WorkbenchID)
+	toolLogSeq := toolLogSeqStart
+	phaseStatus.Research = state.HasResearch
+	phaseStatus.Plan = state.HasPlan
+	phaseStatus.Implement = state.HasPlan && state.AllDone
 	var focusHints map[string]map[string]any
 
 	if !state.HasResearch {
@@ -2661,9 +2732,11 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			toolLogSeq,
 		)
 		if errInfo != nil {
+			toolLogSeqEnd = toolLogSeq
 			return nil, errInfo
 		}
 		e.notifyPhaseComplete(req.WorkbenchID, "research")
+		phaseStatus.Research = true
 		state = e.readRPIState(req.WorkbenchID)
 	}
 
@@ -2679,10 +2752,14 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			toolLogSeq,
 		)
 		if errInfo != nil {
+			toolLogSeqEnd = toolLogSeq
 			return nil, errInfo
 		}
 		e.notifyPhaseComplete(req.WorkbenchID, "plan")
+		phaseStatus.Plan = true
 		state = e.readRPIState(req.WorkbenchID)
+	} else if state.HasPlan {
+		phaseStatus.Plan = true
 	}
 
 	if state.HasPlan && !state.AllDone {
@@ -2698,25 +2775,34 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			toolLogSeq,
 		)
 		if errInfo != nil {
+			toolLogSeqEnd = toolLogSeq
 			return nil, errInfo
 		}
 		if len(hints) > 0 {
 			focusHints = hints
 		}
 		e.notifyPhaseComplete(req.WorkbenchID, "implement")
+		phaseStatus.Implement = true
+	} else if state.HasPlan {
+		phaseStatus.Implement = state.AllDone
 	}
 
 	assistantID, summaryText, errInfo := e.runSummaryPhase(runCtx, req.WorkbenchID, client, apiKey, modelID)
 	if errInfo != nil {
+		toolLogSeqEnd = toolLogSeq
 		return nil, errInfo
 	}
+	phaseStatus.Summary = true
+	toolLogSeqEnd = toolLogSeq
+	feedbackSummaryMessageID = assistantID
+	feedbackSummaryText = summaryText
 
 	hasDraft := false
 	if ds, _ := e.workbenches.DraftState(req.WorkbenchID); ds != nil {
 		hasDraft = true
-		now := time.Now()
+		now := time.Now().UTC()
 		if e.now != nil {
-			now = e.now()
+			now = e.now().UTC()
 		}
 		elapsedMS := now.Sub(runStartedAt).Milliseconds()
 		if elapsedMS < 0 {
@@ -2739,6 +2825,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 			}
 		}
 	}
+	feedbackHasDraft = hasDraft
 
 	return map[string]any{
 		"message_id": assistantID,
@@ -6716,18 +6803,19 @@ const receiptSizeThreshold = 2048
 // dataReturningTools is the set of tools whose results may be large and should
 // be replaced with compact receipts when above the size threshold.
 var dataReturningTools = map[string]bool{
-	"table_query":     true,
-	"table_read_rows": true,
-	"table_describe":  true,
-	"table_stats":     true,
-	"table_get_map":   true,
-	"read_file":       true,
-	"get_file_map":    true,
-	"get_file_info":   true,
-	"list_files":      true,
-	"xlsx_get_styles": true,
-	"docx_get_styles": true,
-	"pptx_get_styles": true,
+	"table_query":        true,
+	"table_read_rows":    true,
+	"table_describe":     true,
+	"table_stats":        true,
+	"table_get_map":      true,
+	"read_file":          true,
+	"get_file_map":       true,
+	"get_file_info":      true,
+	"list_files":         true,
+	"xlsx_get_styles":    true,
+	"docx_get_styles":    true,
+	"pptx_get_styles":    true,
+	"recall_tool_result": true,
 }
 
 // buildToolReceipt generates a compact receipt for a tool result. If the result
@@ -6738,6 +6826,9 @@ func buildToolReceipt(toolName string, result string, logEntryID int) string {
 	}
 	if !dataReturningTools[toolName] {
 		return result
+	}
+	if toolName == "recall_tool_result" {
+		return buildRecallReceipt(result, logEntryID)
 	}
 
 	// Try to parse as JSON and extract shape info
@@ -6750,6 +6841,22 @@ func buildToolReceipt(toolName string, result string, logEntryID int) string {
 			return buildTextReceipt(result, logEntryID)
 		}
 		return buildArrayReceipt(arr, logEntryID)
+	}
+
+	if toolName == "read_file" {
+		if receipt, ok := buildReadFileObjectReceipt(parsed, logEntryID); ok {
+			return receipt
+		}
+	}
+	if toolName == "get_file_map" {
+		if receipt, ok := buildGetFileMapReceipt(parsed, logEntryID); ok {
+			return receipt
+		}
+	}
+	if strings.HasSuffix(toolName, "_get_styles") {
+		if receipt, ok := buildStyleToolReceipt(toolName, parsed, logEntryID); ok {
+			return receipt
+		}
 	}
 
 	return buildObjectReceipt(toolName, parsed, logEntryID)
@@ -6773,6 +6880,258 @@ func buildArrayReceipt(arr []any, logEntryID int) string {
 	previewJSON, _ := json.Marshal(preview)
 	return fmt.Sprintf("[Receipt — array, %d items]\nPreview (first %d):\n%s\n\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.",
 		len(arr), len(preview), string(previewJSON), logEntryID)
+}
+
+func buildRecallReceipt(result string, logEntryID int) string {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		return buildTextReceipt(result, logEntryID)
+	}
+	var sb strings.Builder
+	sb.WriteString("[Receipt — recalled tool result")
+	if entryID, ok := numericField(parsed, "entry_id"); ok {
+		sb.WriteString(fmt.Sprintf(" from entry #%d", int(entryID)))
+	}
+	sb.WriteString("]\n")
+	if returned, ok := numericField(parsed, "returned_bytes"); ok {
+		sb.WriteString(fmt.Sprintf("Chunk bytes: %d", int(returned)))
+		if total, ok := numericField(parsed, "total_bytes"); ok {
+			sb.WriteString(fmt.Sprintf(" of %d", int(total)))
+		}
+		sb.WriteString("\n")
+	}
+	if offset, ok := numericField(parsed, "offset"); ok {
+		sb.WriteString(fmt.Sprintf("Offset: %d\n", int(offset)))
+	}
+	if hasMore, ok := parsed["has_more"].(bool); ok {
+		sb.WriteString(fmt.Sprintf("has_more: %t\n", hasMore))
+	}
+	if nextOffset, ok := numericField(parsed, "next_offset"); ok {
+		sb.WriteString(fmt.Sprintf("next_offset: %d\n", int(nextOffset)))
+	}
+	if chunk, ok := parsed["result_chunk"].(string); ok && chunk != "" {
+		preview := chunk
+		if len(preview) > 400 {
+			preview = preview[:400] + "..."
+		}
+		sb.WriteString("Chunk preview:\n")
+		sb.WriteString(preview)
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fmt.Sprintf("\nRecall receipt log entry #%d. Request more with recall_tool_result(entry_id, offset, length).", logEntryID))
+	return sb.String()
+}
+
+func buildReadFileObjectReceipt(parsed map[string]any, logEntryID int) (string, bool) {
+	text, hasText := parsed["text"].(string)
+	chunkInfo, hasChunkInfo := parsed["chunk_info"].(map[string]any)
+	if !hasText && !hasChunkInfo {
+		return "", false
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Receipt — read_file")
+	if hasText {
+		lineCount := 1
+		if text == "" {
+			lineCount = 0
+		} else {
+			lineCount += strings.Count(text, "\n")
+		}
+		sb.WriteString(fmt.Sprintf(", %d bytes, %d lines", len(text), lineCount))
+	}
+	if hasChunkInfo {
+		if chunkIndex, ok := numericField(chunkInfo, "chunk_index"); ok {
+			if totalChunks, ok := numericField(chunkInfo, "total_chunks"); ok && totalChunks > 0 {
+				sb.WriteString(fmt.Sprintf(", chunk %d/%d", int(chunkIndex)+1, int(totalChunks)))
+			} else {
+				sb.WriteString(fmt.Sprintf(", chunk_index=%d", int(chunkIndex)))
+			}
+		}
+		if hasMore, ok := chunkInfo["has_more"].(bool); ok && hasMore {
+			sb.WriteString(", has_more=true")
+		}
+	}
+	sb.WriteString("]\n")
+
+	if hasChunkInfo {
+		if chunkRange, ok := chunkInfo["range"].(string); ok && strings.TrimSpace(chunkRange) != "" {
+			sb.WriteString(fmt.Sprintf("Chunk range: %s\n", chunkRange))
+		}
+		if hasMore, ok := chunkInfo["has_more"].(bool); ok {
+			sb.WriteString(fmt.Sprintf("Chunk has_more: %t\n", hasMore))
+		}
+	}
+
+	if hasText {
+		const maxPreviewBytes = 1200
+		preview := text
+		if len(preview) > maxPreviewBytes {
+			preview = strings.TrimSpace(preview[:maxPreviewBytes]) + "\n..."
+		}
+		sb.WriteString("Text preview:\n")
+		sb.WriteString(preview)
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.", logEntryID))
+	return sb.String(), true
+}
+
+func buildGetFileMapReceipt(parsed map[string]any, logEntryID int) (string, bool) {
+	var sb strings.Builder
+	sb.WriteString("[Receipt — get_file_map")
+	if sheets, ok := parsed["sheets"].([]any); ok && len(sheets) > 0 {
+		sb.WriteString(fmt.Sprintf(", %d sheets", len(sheets)))
+	}
+	sb.WriteString("]\n")
+
+	wroteDetail := false
+	if sheets, ok := parsed["sheets"].([]any); ok && len(sheets) > 0 {
+		const maxSheets = 8
+		sb.WriteString("Sheet preview:\n")
+		for i := 0; i < len(sheets) && i < maxSheets; i++ {
+			switch sheet := sheets[i].(type) {
+			case string:
+				name := strings.TrimSpace(sheet)
+				if name == "" {
+					name = fmt.Sprintf("Sheet%d", i+1)
+				}
+				sb.WriteString(fmt.Sprintf("- %s\n", name))
+			case map[string]any:
+				name := strings.TrimSpace(toString(sheet["name"]))
+				if name == "" {
+					name = strings.TrimSpace(toString(sheet["sheet"]))
+				}
+				if name == "" {
+					name = fmt.Sprintf("Sheet%d", i+1)
+				}
+				details := make([]string, 0, 4)
+				if rowCount, ok := numericField(sheet, "row_count"); ok {
+					details = append(details, fmt.Sprintf("rows=%d", int(rowCount)))
+				}
+				if colCount, ok := numericField(sheet, "col_count"); ok {
+					details = append(details, fmt.Sprintf("cols=%d", int(colCount)))
+				}
+				if chunks, ok := sheet["chunks"].([]any); ok {
+					details = append(details, fmt.Sprintf("chunks=%d", len(chunks)))
+				}
+				if usedRange := strings.TrimSpace(toString(sheet["used_range"])); usedRange != "" {
+					details = append(details, "used="+usedRange)
+				}
+				if len(details) == 0 {
+					sb.WriteString(fmt.Sprintf("- %s\n", name))
+				} else {
+					sb.WriteString(fmt.Sprintf("- %s (%s)\n", name, strings.Join(details, ", ")))
+				}
+			}
+		}
+		if len(sheets) > maxSheets {
+			sb.WriteString(fmt.Sprintf("- ... %d more sheets\n", len(sheets)-maxSheets))
+		}
+		wroteDetail = true
+	}
+
+	if !wroteDetail {
+		if lineCount, ok := numericField(parsed, "line_count"); ok {
+			sb.WriteString(fmt.Sprintf("line_count: %d\n", int(lineCount)))
+			wroteDetail = true
+		}
+		if charCount, ok := numericField(parsed, "char_count"); ok {
+			sb.WriteString(fmt.Sprintf("char_count: %d\n", int(charCount)))
+			wroteDetail = true
+		}
+		if chunks, ok := parsed["chunks"].([]any); ok {
+			sb.WriteString(fmt.Sprintf("chunks: %d\n", len(chunks)))
+			wroteDetail = true
+		}
+	}
+
+	if !wroteDetail {
+		return "", false
+	}
+	sb.WriteString(fmt.Sprintf("\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.", logEntryID))
+	return sb.String(), true
+}
+
+func buildStyleToolReceipt(toolName string, parsed map[string]any, logEntryID int) (string, bool) {
+	var sb strings.Builder
+	sb.WriteString("[Receipt — ")
+	sb.WriteString(toolName)
+	if sheet := strings.TrimSpace(toString(parsed["sheet"])); sheet != "" {
+		sb.WriteString(", sheet=")
+		sb.WriteString(sheet)
+	}
+	if sheetCount, ok := numericField(parsed, "sheet_count"); ok {
+		sb.WriteString(fmt.Sprintf(", sheets=%d", int(sheetCount)))
+	}
+	if styleCount, ok := numericField(parsed, "style_count"); ok {
+		sb.WriteString(fmt.Sprintf(", style_count=%d", int(styleCount)))
+	}
+	sb.WriteString("]\n")
+
+	detailParts := make([]string, 0, 8)
+	for _, field := range []string{
+		"assets",
+		"cell_style_assets",
+		"fonts",
+		"fills",
+		"borders",
+		"number_formats",
+		"named_styles",
+		"format",
+	} {
+		if items, ok := parsed[field].([]any); ok {
+			detailParts = append(detailParts, fmt.Sprintf("%s=%d", field, len(items)))
+		}
+	}
+	if len(detailParts) > 0 {
+		sb.WriteString("Asset counts: ")
+		sb.WriteString(strings.Join(detailParts, ", "))
+		sb.WriteString("\n")
+	}
+
+	if supported := normalizeStringList(parsed["supported_copy_asset_types"]); len(supported) > 0 {
+		const maxSupported = 8
+		preview := supported
+		if len(preview) > maxSupported {
+			preview = preview[:maxSupported]
+		}
+		sb.WriteString("Supported copy asset types: ")
+		sb.WriteString(strings.Join(preview, ", "))
+		if len(supported) > maxSupported {
+			sb.WriteString(fmt.Sprintf(" (+%d more)", len(supported)-maxSupported))
+		}
+		sb.WriteString("\n")
+	}
+
+	if sheets, ok := parsed["sheets"].([]any); ok && len(sheets) > 0 {
+		const maxSheets = 8
+		names := make([]string, 0, maxSheets)
+		for i := 0; i < len(sheets) && i < maxSheets; i++ {
+			name := strings.TrimSpace(toString(sheets[i]))
+			if name == "" {
+				continue
+			}
+			names = append(names, name)
+		}
+		if len(names) > 0 {
+			sb.WriteString("Sheets preview: ")
+			sb.WriteString(strings.Join(names, ", "))
+			if len(sheets) > len(names) {
+				sb.WriteString(fmt.Sprintf(" (+%d more)", len(sheets)-len(names)))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	receipt := strings.TrimSpace(sb.String())
+	if strings.EqualFold(receipt, "[Receipt — "+toolName+"]") {
+		return "", false
+	}
+
+	sb.WriteString(fmt.Sprintf("\nFull result in tool log entry #%d. Use recall_tool_result to retrieve.", logEntryID))
+	return sb.String(), true
 }
 
 func buildObjectReceipt(toolName string, parsed map[string]any, logEntryID int) string {

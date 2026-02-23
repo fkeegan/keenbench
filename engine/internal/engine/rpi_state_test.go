@@ -255,6 +255,7 @@ func TestRPIToolFiltering(t *testing.T) {
 		"get_file_info",
 		"get_file_map",
 		"read_file",
+		"recall_tool_result",
 		"table_get_map",
 		"table_describe",
 		"table_stats",
@@ -263,7 +264,6 @@ func TestRPIToolFiltering(t *testing.T) {
 		"xlsx_get_styles",
 		"docx_get_styles",
 		"pptx_get_styles",
-		"recall_tool_result",
 	}
 	for _, name := range expectedResearch {
 		if !slices.Contains(researchNames, name) {

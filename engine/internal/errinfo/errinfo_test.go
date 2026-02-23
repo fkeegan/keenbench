@@ -35,4 +35,14 @@ func TestValidationHelpers(t *testing.T) {
 	if sandbox.ErrorCode != CodeSandboxViolation {
 		t.Fatalf("expected sandbox violation")
 	}
+	empty := AgentEmptyTerminalResponse(PhaseWorkshop, "empty")
+	if empty.ErrorCode != CodeAgentEmptyTerminal {
+		t.Fatalf("expected empty terminal error code")
+	}
+	if !empty.Retryable {
+		t.Fatalf("expected empty terminal error to be retryable")
+	}
+	if len(empty.Actions) == 0 || empty.Actions[0] != ActionRetry {
+		t.Fatalf("expected retry action on empty terminal error")
+	}
 }

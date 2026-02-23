@@ -4,15 +4,15 @@
 Draft (v1)
 
 ## Version
-v0.6
+v0.7
 
 ## Last Updated
-2026-02-16
+2026-02-22
 
 ## PRD References
 - `docs/prd/capabilities/workshop.md`
 - `docs/prd/keenbench-prd.md` (Workshop definition; FR5)
-- Related: `docs/prd/capabilities/multi-model.md`, `docs/prd/capabilities/draft-publish.md`, `docs/prd/capabilities/review-diff.md`, `docs/prd/capabilities/clutter-bar.md`, `docs/prd/capabilities/failure-modes.md`
+- Related: `docs/prd/capabilities/multi-model.md`, `docs/prd/capabilities/draft-publish.md`, `docs/prd/capabilities/review-diff.md`, `docs/prd/capabilities/clutter-bar.md`, `docs/prd/capabilities/failure-modes.md`, `docs/prd/capabilities/model-feedback.md`
 - Design details:
   - `docs/design/capabilities/multi-model.md`
   - `docs/design/capabilities/draft-publish.md`
@@ -23,6 +23,7 @@ v0.6
   - `docs/design/capabilities/clutter-bar.md`
   - `docs/design/capabilities/failure-modes.md`
   - `docs/design/capabilities/document-styling.md`
+  - `docs/design/capabilities/model-feedback.md`
 
 ## Summary
 Workshop is the interactive mode: a Workbench-scoped chat with streaming responses, auto-applied Draft changes (no separate propose/approve step), saved conversation history, seamless model switching, and **message-level undo (“rewind”) + regenerate** that restores both conversation and Draft file state (“go back in time”).
@@ -35,6 +36,7 @@ Key v1 choices (v1 target):
 - Rewind restores both conversation and Draft state to the selected point (stronger than PRD; intentional).
 - Draft changes are generated against Published; Workshop input is blocked while a Draft exists.
 - Publish checkpoints are rendered as inline chat system cards with a Restore action; restore stays blocked while a Draft exists.
+- Optional product-model-fit feedback collection can run after `WorkshopRunAgent` when `KEENBENCH_MODEL_FEEDBACK=1` is enabled.
 
 ## Goals / Non-Goals
 ### Goals

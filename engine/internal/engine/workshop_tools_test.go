@@ -360,6 +360,41 @@ func TestWorkshopToolsSchemaValid(t *testing.T) {
 	}
 }
 
+func TestWorkshopToolsRecallLengthMaximumMatchesRuntimeLimit(t *testing.T) {
+	for _, tool := range WorkshopTools {
+		if tool.Function.Name != "recall_tool_result" {
+			continue
+		}
+
+		var params map[string]any
+		if err := json.Unmarshal(tool.Function.Parameters, &params); err != nil {
+			t.Fatalf("recall_tool_result schema: %v", err)
+		}
+		props, ok := params["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("recall_tool_result schema missing properties")
+		}
+		lengthSpec, ok := props["length"].(map[string]any)
+		if !ok {
+			t.Fatalf("recall_tool_result schema missing length property")
+		}
+		maxValue, ok := lengthSpec["maximum"]
+		if !ok {
+			t.Fatalf("recall_tool_result length must declare maximum")
+		}
+		maxFloat, ok := maxValue.(float64)
+		if !ok {
+			t.Fatalf("recall_tool_result length maximum must be numeric, got %T", maxValue)
+		}
+		if int(maxFloat) != recallMaxBytes {
+			t.Fatalf("recall_tool_result length maximum=%d, want %d", int(maxFloat), recallMaxBytes)
+		}
+		return
+	}
+
+	t.Fatal("recall_tool_result tool schema not found")
+}
+
 func TestWorkshopToolsOfficeSchemasUseCanonicalOperationKeys(t *testing.T) {
 	getOperationProps := func(toolName string) map[string]any {
 		for _, tool := range WorkshopTools {
@@ -1411,6 +1446,199 @@ func TestBuildToolReceiptTextResult(t *testing.T) {
 	}
 }
 
+func TestBuildToolReceiptReadFileObjectResult(t *testing.T) {
+	lines := make([]string, 250)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("Row %d\t%s", i+1, strings.Repeat("value\t", 12))
+	}
+	resultPayload := map[string]any{
+		"text": strings.Join(lines, "\n"),
+		"chunk_info": map[string]any{
+			"chunk_index":  1,
+			"total_chunks": 4,
+			"has_more":     true,
+			"range":        "A201:E400",
+		},
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("read_file", string(resultJSON), 17)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than result")
+	}
+	if !strings.Contains(receipt, "read_file") {
+		t.Fatalf("receipt should identify read_file payload")
+	}
+	if !strings.Contains(receipt, "chunk 2/4") {
+		t.Fatalf("receipt should include chunk index/total")
+	}
+	if !strings.Contains(receipt, "Chunk range: A201:E400") {
+		t.Fatalf("receipt should include chunk range")
+	}
+	if !strings.Contains(receipt, "Chunk has_more: true") {
+		t.Fatalf("receipt should include has_more")
+	}
+	if !strings.Contains(receipt, "Text preview:") {
+		t.Fatalf("receipt should include text preview")
+	}
+	if !strings.Contains(receipt, "recall_tool_result") {
+		t.Fatalf("receipt should mention recall_tool_result")
+	}
+	if !strings.Contains(receipt, "tool log entry #17") {
+		t.Fatalf("receipt should include tool log entry id")
+	}
+}
+
+func TestBuildToolReceiptGetFileMapResult(t *testing.T) {
+	resultPayload := map[string]any{
+		"sheets": []any{
+			map[string]any{
+				"name":       "Bugs per Business Scenarios",
+				"row_count":  420,
+				"col_count":  12,
+				"used_range": "A1:L420",
+				"chunks": []any{
+					map[string]any{"index": 0, "range": "A1:L200"},
+					map[string]any{"index": 1, "range": "A201:L420"},
+				},
+			},
+			map[string]any{
+				"name":      "Sheet2",
+				"row_count": 60,
+				"col_count": 8,
+				"chunks": []any{
+					map[string]any{"index": 0, "range": "A1:H60"},
+				},
+			},
+			"Links",
+		},
+		"_padding": strings.Repeat("x", 5000),
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("get_file_map", string(resultJSON), 29)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than result")
+	}
+	if !strings.Contains(receipt, "get_file_map") {
+		t.Fatalf("receipt should identify get_file_map payload")
+	}
+	if !strings.Contains(receipt, "Sheet preview:") {
+		t.Fatalf("receipt should include sheet preview")
+	}
+	if !strings.Contains(receipt, "Bugs per Business Scenarios") {
+		t.Fatalf("receipt should include sheet name")
+	}
+	if !strings.Contains(receipt, "rows=420") || !strings.Contains(receipt, "cols=12") {
+		t.Fatalf("receipt should include shape details")
+	}
+	if !strings.Contains(receipt, "chunks=2") {
+		t.Fatalf("receipt should include chunk count")
+	}
+	if !strings.Contains(receipt, "tool log entry #29") {
+		t.Fatalf("receipt should include tool log entry id")
+	}
+	if !strings.Contains(receipt, "recall_tool_result") {
+		t.Fatalf("receipt should mention recall_tool_result")
+	}
+}
+
+func TestBuildToolReceiptXlsxGetStylesResult(t *testing.T) {
+	fonts := make([]any, 17)
+	for i := range fonts {
+		fonts[i] = map[string]any{"id": fmt.Sprintf("font-%d", i)}
+	}
+	cellStyles := make([]any, 4000)
+	for i := range cellStyles {
+		cellStyles[i] = map[string]any{"id": fmt.Sprintf("cell-style-%d", i)}
+	}
+	assets := make([]any, 4001)
+	for i := range assets {
+		assets[i] = map[string]any{"id": fmt.Sprintf("asset-%d", i)}
+	}
+	resultPayload := map[string]any{
+		"sheet":                      "Bugs per Business Scenarios",
+		"sheet_count":                13,
+		"style_count":                1,
+		"fonts":                      fonts,
+		"fills":                      []any{map[string]any{"id": "fill-1"}},
+		"borders":                    []any{map[string]any{"id": "border-1"}, map[string]any{"id": "border-2"}},
+		"number_formats":             []any{},
+		"named_styles":               []any{map[string]any{"id": "Normal"}},
+		"cell_style_assets":          cellStyles,
+		"assets":                     assets,
+		"supported_copy_asset_types": []any{"font", "fill", "border", "cell_style"},
+		"sheets":                     []any{"Links", "Sheet1", "Bugs per Business Scenarios"},
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("xlsx_get_styles", string(resultJSON), 31)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than result")
+	}
+	if !strings.Contains(receipt, "xlsx_get_styles") {
+		t.Fatalf("receipt should identify xlsx_get_styles payload")
+	}
+	if !strings.Contains(receipt, "sheet=Bugs per Business Scenarios") {
+		t.Fatalf("receipt should include sheet context")
+	}
+	if !strings.Contains(receipt, "assets=4001") || !strings.Contains(receipt, "cell_style_assets=4000") {
+		t.Fatalf("receipt should include style asset counts")
+	}
+	if !strings.Contains(receipt, "Supported copy asset types: font, fill, border, cell_style") {
+		t.Fatalf("receipt should include supported copy asset types")
+	}
+	if !strings.Contains(receipt, "Sheets preview: Links, Sheet1, Bugs per Business Scenarios") {
+		t.Fatalf("receipt should include sheet preview")
+	}
+	if !strings.Contains(receipt, "tool log entry #31") {
+		t.Fatalf("receipt should include tool log entry id")
+	}
+	if !strings.Contains(receipt, "recall_tool_result") {
+		t.Fatalf("receipt should mention recall_tool_result")
+	}
+}
+
+func TestBuildToolReceiptLargeRecallResult(t *testing.T) {
+	resultPayload := map[string]any{
+		"entry_id":       12,
+		"tool":           "table_query",
+		"total_bytes":    5000000,
+		"offset":         0,
+		"returned_bytes": 5000,
+		"has_more":       true,
+		"next_offset":    5000,
+		"result_chunk":   strings.Repeat("x", 5000),
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	receipt := buildToolReceipt("recall_tool_result", string(resultJSON), 13)
+	if len(receipt) >= len(resultJSON) {
+		t.Fatalf("receipt should be smaller than recall result")
+	}
+	if !strings.Contains(receipt, "from entry #12") {
+		t.Fatalf("receipt should include original entry id, got %q", receipt)
+	}
+	if !strings.Contains(receipt, "next_offset: 5000") {
+		t.Fatalf("receipt should include next_offset")
+	}
+	if !strings.Contains(receipt, "recall_tool_result(entry_id, offset, length)") {
+		t.Fatalf("receipt should include paging guidance")
+	}
+}
+
 func TestToolLogAppendAndRead(t *testing.T) {
 	dataDir := t.TempDir()
 	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
@@ -1465,6 +1693,208 @@ func TestToolLogAppendAndRead(t *testing.T) {
 	_, err = eng.readToolLogEntry(workbenchID, 99)
 	if err == nil {
 		t.Fatalf("expected error for missing entry")
+	}
+}
+
+func TestToolHandlerRecallToolResultDefaultChunk(t *testing.T) {
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	ctx := context.Background()
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "RecallDefault"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	large := strings.Repeat("abcd", 900)
+	if err := eng.appendToolLog(workbenchID, toolLogEntry{
+		ID:        12,
+		Tool:      "table_query",
+		Args:      `{"query":"SELECT * FROM data"}`,
+		Result:    large,
+		Receipt:   "[Receipt]",
+		Timestamp: "2026-02-22T00:00:00Z",
+		ElapsedMS: 10,
+	}); err != nil {
+		t.Fatalf("append tool log: %v", err)
+	}
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "recall-default",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "recall_tool_result",
+			Arguments: `{"entry_id":12}`,
+		},
+	}
+	result, err := handler.Execute(call)
+	if err != nil {
+		t.Fatalf("recall default chunk: %v", err)
+	}
+
+	var payload struct {
+		EntryID     int    `json:"entry_id"`
+		Tool        string `json:"tool"`
+		TotalBytes  int    `json:"total_bytes"`
+		Offset      int    `json:"offset"`
+		Returned    int    `json:"returned_bytes"`
+		HasMore     bool   `json:"has_more"`
+		NextOffset  int    `json:"next_offset"`
+		ResultChunk string `json:"result_chunk"`
+		SourceError string `json:"source_error"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode recall payload: %v", err)
+	}
+	if payload.EntryID != 12 {
+		t.Fatalf("expected entry_id=12, got %d", payload.EntryID)
+	}
+	if payload.Tool != "table_query" {
+		t.Fatalf("expected tool table_query, got %q", payload.Tool)
+	}
+	if payload.TotalBytes != len(large) {
+		t.Fatalf("expected total_bytes=%d, got %d", len(large), payload.TotalBytes)
+	}
+	if payload.Offset != 0 {
+		t.Fatalf("expected offset=0, got %d", payload.Offset)
+	}
+	if payload.Returned != recallDefaultBytes {
+		t.Fatalf("expected returned_bytes=%d, got %d", recallDefaultBytes, payload.Returned)
+	}
+	if len(payload.ResultChunk) != payload.Returned {
+		t.Fatalf("expected chunk size to match returned_bytes, got %d vs %d", len(payload.ResultChunk), payload.Returned)
+	}
+	if !payload.HasMore {
+		t.Fatalf("expected has_more=true for default chunk")
+	}
+	if payload.NextOffset != recallDefaultBytes {
+		t.Fatalf("expected next_offset=%d, got %d", recallDefaultBytes, payload.NextOffset)
+	}
+}
+
+func TestToolHandlerRecallToolResultPagingAndValidation(t *testing.T) {
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	ctx := context.Background()
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "RecallPaging"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	seed := "abcdefghijklmnopqrstuvwxyz"
+	if err := eng.appendToolLog(workbenchID, toolLogEntry{
+		ID:        5,
+		Tool:      "read_file",
+		Args:      `{"path":"alpha.txt"}`,
+		Result:    seed,
+		Receipt:   "[Receipt]",
+		Timestamp: "2026-02-22T00:00:00Z",
+		ElapsedMS: 10,
+	}); err != nil {
+		t.Fatalf("append tool log: %v", err)
+	}
+	handler := NewToolHandler(eng, workbenchID, ctx)
+
+	pageCall := llm.ToolCall{
+		ID:   "recall-page",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "recall_tool_result",
+			Arguments: `{"entry_id":5,"offset":5,"length":4}`,
+		},
+	}
+	result, err := handler.Execute(pageCall)
+	if err != nil {
+		t.Fatalf("recall page: %v", err)
+	}
+	var payload struct {
+		Offset      int    `json:"offset"`
+		Returned    int    `json:"returned_bytes"`
+		HasMore     bool   `json:"has_more"`
+		NextOffset  int    `json:"next_offset"`
+		ResultChunk string `json:"result_chunk"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode recall payload: %v", err)
+	}
+	if payload.Offset != 5 || payload.Returned != 4 || payload.ResultChunk != "fghi" {
+		t.Fatalf("unexpected page payload: %+v", payload)
+	}
+	if !payload.HasMore || payload.NextOffset != 9 {
+		t.Fatalf("expected has_more=true and next_offset=9, got %+v", payload)
+	}
+
+	endCall := llm.ToolCall{
+		ID:   "recall-end",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "recall_tool_result",
+			Arguments: `{"entry_id":5,"offset":26,"length":5}`,
+		},
+	}
+	result, err = handler.Execute(endCall)
+	if err != nil {
+		t.Fatalf("recall end offset: %v", err)
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("decode end payload: %v", err)
+	}
+	if payload.ResultChunk != "" || payload.Returned != 0 || payload.HasMore {
+		t.Fatalf("expected empty terminal chunk, got %+v", payload)
+	}
+
+	invalidCalls := []llm.ToolCall{
+		{
+			ID:   "recall-invalid-length",
+			Type: "function",
+			Function: llm.ToolCallFunction{
+				Name:      "recall_tool_result",
+				Arguments: fmt.Sprintf(`{"entry_id":5,"length":%d}`, recallMaxBytes+1),
+			},
+		},
+		{
+			ID:   "recall-invalid-offset-negative",
+			Type: "function",
+			Function: llm.ToolCallFunction{
+				Name:      "recall_tool_result",
+				Arguments: `{"entry_id":5,"offset":-1}`,
+			},
+		},
+		{
+			ID:   "recall-invalid-offset-too-far",
+			Type: "function",
+			Function: llm.ToolCallFunction{
+				Name:      "recall_tool_result",
+				Arguments: `{"entry_id":5,"offset":27}`,
+			},
+		},
+	}
+	for _, invalid := range invalidCalls {
+		_, execErr := handler.Execute(invalid)
+		if execErr == nil {
+			t.Fatalf("expected validation error for %s", invalid.ID)
+		}
+		if !strings.Contains(execErr.Error(), errinfo.CodeValidationFailed) {
+			t.Fatalf("expected validation error code for %s, got %v", invalid.ID, execErr)
+		}
 	}
 }
 
