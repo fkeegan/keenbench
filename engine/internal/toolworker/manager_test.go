@@ -943,6 +943,490 @@ print(json.dumps(out))
 	}
 }
 
+func TestWorkerXlsxApplyOpsMergeAndUnmerge(t *testing.T) {
+	python := requirePython(t)
+	if !hasPythonModule(python, "openpyxl") {
+		t.Skip("openpyxl not available")
+	}
+
+	root := t.TempDir()
+	workbenches := filepath.Join(root, "workbenches")
+	if err := os.MkdirAll(workbenches, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	wbID := "wb-xlsx-merge-ops"
+	draftDir := filepath.Join(workbenches, wbID, "draft")
+	if err := os.MkdirAll(draftDir, 0o755); err != nil {
+		t.Fatalf("draft dir: %v", err)
+	}
+
+	workerWrapper := makeWorkerWrapper(t, root, python)
+	os.Setenv("KEENBENCH_TOOL_WORKER_PATH", workerWrapper)
+	os.Setenv("KEENBENCH_WORKBENCHES_DIR", workbenches)
+	defer os.Unsetenv("KEENBENCH_TOOL_WORKER_PATH")
+	defer os.Unsetenv("KEENBENCH_WORKBENCHES_DIR")
+
+	mgr := New(workbenches, nil)
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var applyResp map[string]any
+	if err := mgr.Call(ctx, "XlsxApplyOps", map[string]any{
+		"workbench_id": wbID,
+		"path":         "merged_ops.xlsx",
+		"root":         "draft",
+		"ops": []map[string]any{
+			{
+				"op":    "ensure_sheet",
+				"sheet": "Layout",
+			},
+			{
+				"op":    "set_cells",
+				"sheet": "Layout",
+				"cells": []map[string]any{
+					{"cell": "A1", "value": "Initial Header"},
+				},
+			},
+			{
+				"op":    "merge_cells",
+				"sheet": "Layout",
+				"range": "A1:C1",
+			},
+			{
+				"op":    "set_cells",
+				"sheet": "Layout",
+				"cells": []map[string]any{
+					{"cell": "C1", "value": "Merged Header"},
+				},
+			},
+		},
+	}, &applyResp); err != nil {
+		t.Fatalf("XlsxApplyOps merge: %v", err)
+	}
+
+	type gridCell struct {
+		Value any `json:"value"`
+	}
+	type gridResp struct {
+		Cells [][]gridCell `json:"cells"`
+	}
+
+	var mergedGrid gridResp
+	if err := mgr.Call(ctx, "XlsxRenderGrid", map[string]any{
+		"workbench_id": wbID,
+		"path":         "merged_ops.xlsx",
+		"root":         "draft",
+		"sheet":        "Layout",
+		"row_start":    0,
+		"row_count":    1,
+		"col_start":    0,
+		"col_count":    3,
+	}, &mergedGrid); err != nil {
+		t.Fatalf("XlsxRenderGrid merged: %v", err)
+	}
+	if len(mergedGrid.Cells) != 1 || len(mergedGrid.Cells[0]) != 3 {
+		t.Fatalf("unexpected merged grid shape: %#v", mergedGrid.Cells)
+	}
+	if mergedGrid.Cells[0][0].Value != "Merged Header" {
+		t.Fatalf("expected merged anchor value at A1, got %#v", mergedGrid.Cells[0][0].Value)
+	}
+	if mergedGrid.Cells[0][1].Value != nil || mergedGrid.Cells[0][2].Value != nil {
+		t.Fatalf("expected merged follower cells to be blank, got %#v", mergedGrid.Cells[0])
+	}
+
+	if err := mgr.Call(ctx, "XlsxApplyOps", map[string]any{
+		"workbench_id": wbID,
+		"path":         "merged_ops.xlsx",
+		"root":         "draft",
+		"ops": []map[string]any{
+			{
+				"op":    "unmerge_cells",
+				"sheet": "Layout",
+				"range": "A1:C1",
+			},
+			{
+				"op":    "set_cells",
+				"sheet": "Layout",
+				"cells": []map[string]any{
+					{"cell": "C1", "value": "Right Header"},
+				},
+			},
+		},
+	}, &applyResp); err != nil {
+		t.Fatalf("XlsxApplyOps unmerge: %v", err)
+	}
+
+	var unmergedGrid gridResp
+	if err := mgr.Call(ctx, "XlsxRenderGrid", map[string]any{
+		"workbench_id": wbID,
+		"path":         "merged_ops.xlsx",
+		"root":         "draft",
+		"sheet":        "Layout",
+		"row_start":    0,
+		"row_count":    1,
+		"col_start":    0,
+		"col_count":    3,
+	}, &unmergedGrid); err != nil {
+		t.Fatalf("XlsxRenderGrid unmerged: %v", err)
+	}
+	if len(unmergedGrid.Cells) != 1 || len(unmergedGrid.Cells[0]) != 3 {
+		t.Fatalf("unexpected unmerged grid shape: %#v", unmergedGrid.Cells)
+	}
+	if unmergedGrid.Cells[0][0].Value != "Merged Header" {
+		t.Fatalf("expected A1 to retain merged anchor value, got %#v", unmergedGrid.Cells[0][0].Value)
+	}
+	if unmergedGrid.Cells[0][2].Value != "Right Header" {
+		t.Fatalf("expected C1 write after unmerge, got %#v", unmergedGrid.Cells[0][2].Value)
+	}
+}
+
+func TestWorkerXlsxApplyOpsMergeValidationAndConflicts(t *testing.T) {
+	python := requirePython(t)
+	if !hasPythonModule(python, "openpyxl") {
+		t.Skip("openpyxl not available")
+	}
+
+	root := t.TempDir()
+	workbenches := filepath.Join(root, "workbenches")
+	if err := os.MkdirAll(workbenches, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	wbID := "wb-xlsx-merge-validation"
+	draftDir := filepath.Join(workbenches, wbID, "draft")
+	if err := os.MkdirAll(draftDir, 0o755); err != nil {
+		t.Fatalf("draft dir: %v", err)
+	}
+
+	workerWrapper := makeWorkerWrapper(t, root, python)
+	os.Setenv("KEENBENCH_TOOL_WORKER_PATH", workerWrapper)
+	os.Setenv("KEENBENCH_WORKBENCHES_DIR", workbenches)
+	defer os.Unsetenv("KEENBENCH_TOOL_WORKER_PATH")
+	defer os.Unsetenv("KEENBENCH_WORKBENCHES_DIR")
+
+	mgr := New(workbenches, nil)
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	setupMergedWorkbook := func() {
+		t.Helper()
+		var setupResp map[string]any
+		if err := mgr.Call(ctx, "XlsxApplyOps", map[string]any{
+			"workbench_id": wbID,
+			"path":         "validation.xlsx",
+			"root":         "draft",
+			"create_new":   true,
+			"ops": []map[string]any{
+				{"op": "ensure_sheet", "sheet": "Layout"},
+				{
+					"op":    "set_cells",
+					"sheet": "Layout",
+					"cells": []map[string]any{
+						{"cell": "A1", "value": "Header"},
+					},
+				},
+				{"op": "merge_cells", "sheet": "Layout", "range": "A1:B1"},
+			},
+		}, &setupResp); err != nil {
+			t.Fatalf("setup workbook: %v", err)
+		}
+	}
+
+	assertValidationError := func(err error, wantContains string) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("expected validation error")
+		}
+		var remoteErr *RemoteError
+		if !errors.As(err, &remoteErr) {
+			t.Fatalf("expected remote error, got %T: %v", err, err)
+		}
+		if remoteErr.Code != "VALIDATION_FAILED" {
+			t.Fatalf("expected VALIDATION_FAILED, got %s (%s)", remoteErr.Code, remoteErr.Message)
+		}
+		if !strings.Contains(strings.ToLower(remoteErr.Message), strings.ToLower(wantContains)) {
+			t.Fatalf("expected error containing %q, got %q", wantContains, remoteErr.Message)
+		}
+	}
+
+	tests := []struct {
+		name        string
+		op          map[string]any
+		wantMessage string
+	}{
+		{
+			name: "merge rejects invalid range",
+			op: map[string]any{
+				"op":    "merge_cells",
+				"sheet": "Layout",
+				"range": "A0:B1",
+			},
+			wantMessage: "invalid range",
+		},
+		{
+			name: "merge rejects single cell range",
+			op: map[string]any{
+				"op":    "merge_cells",
+				"sheet": "Layout",
+				"range": "A1",
+			},
+			wantMessage: "must span at least two cells",
+		},
+		{
+			name: "merge rejects overlap conflicts",
+			op: map[string]any{
+				"op":    "merge_cells",
+				"sheet": "Layout",
+				"range": "B1:C1",
+			},
+			wantMessage: "overlaps existing merged range",
+		},
+		{
+			name: "unmerge requires explicit range",
+			op: map[string]any{
+				"op":    "unmerge_cells",
+				"sheet": "Layout",
+			},
+			wantMessage: "requires explicit range",
+		},
+		{
+			name: "unmerge rejects partial overlap conflicts",
+			op: map[string]any{
+				"op":    "unmerge_cells",
+				"sheet": "Layout",
+				"range": "A1",
+			},
+			wantMessage: "conflicts with merged range",
+		},
+		{
+			name: "unmerge rejects non-merged range",
+			op: map[string]any{
+				"op":    "unmerge_cells",
+				"sheet": "Layout",
+				"range": "D1:E1",
+			},
+			wantMessage: "not merged",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			setupMergedWorkbook()
+			var resp map[string]any
+			err := mgr.Call(ctx, "XlsxApplyOps", map[string]any{
+				"workbench_id": wbID,
+				"path":         "validation.xlsx",
+				"root":         "draft",
+				"ops":          []map[string]any{tc.op},
+			}, &resp)
+			assertValidationError(err, tc.wantMessage)
+		})
+	}
+}
+
+func TestWorkerXlsxGetMapMergedRangesAndReplaceSheetMergeReapply(t *testing.T) {
+	python := requirePython(t)
+	if !hasPythonModule(python, "duckdb") {
+		t.Skip("duckdb not available")
+	}
+	if !hasPythonModule(python, "openpyxl") {
+		t.Skip("openpyxl not available")
+	}
+
+	root := t.TempDir()
+	workbenches := filepath.Join(root, "workbenches")
+	if err := os.MkdirAll(workbenches, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	wbID := "wb-xlsx-map-merged-ranges"
+	draftDir := filepath.Join(workbenches, wbID, "draft")
+	if err := os.MkdirAll(draftDir, 0o755); err != nil {
+		t.Fatalf("draft dir: %v", err)
+	}
+
+	csvPath := filepath.Join(draftDir, "sales.csv")
+	csvData := "region,amount\neast,3\nwest,10\n"
+	if err := os.WriteFile(csvPath, []byte(csvData), 0o600); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	xlsxPath := filepath.Join(draftDir, "report.xlsx")
+	makeScript := filepath.Join(root, "make_report_merged_map.py")
+	makeCode := `import openpyxl
+import sys
+
+wb = openpyxl.Workbook()
+summary = wb.active
+summary.title = "Summary"
+summary["A1"] = "Legacy Header"
+summary.merge_cells("A1:B1")
+keep = wb.create_sheet("Keep")
+keep["A1"] = "untouched"
+wb.save(sys.argv[1])
+`
+	makeCode = "#!/usr/bin/env " + filepath.Base(python) + "\n" + makeCode
+	if err := os.WriteFile(makeScript, []byte(makeCode), 0o700); err != nil {
+		t.Fatalf("write make script: %v", err)
+	}
+	if out, err := exec.Command(python, makeScript, xlsxPath).CombinedOutput(); err != nil {
+		t.Fatalf("make xlsx: %v (%s)", err, string(out))
+	}
+
+	workerWrapper := makeWorkerWrapper(t, root, python)
+	os.Setenv("KEENBENCH_TOOL_WORKER_PATH", workerWrapper)
+	os.Setenv("KEENBENCH_WORKBENCHES_DIR", workbenches)
+	defer os.Unsetenv("KEENBENCH_TOOL_WORKER_PATH")
+	defer os.Unsetenv("KEENBENCH_WORKBENCHES_DIR")
+
+	mgr := New(workbenches, nil)
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	findSheet := func(sheets []map[string]any, name string) map[string]any {
+		t.Helper()
+		for _, sheet := range sheets {
+			if sheetName, _ := sheet["name"].(string); sheetName == name {
+				return sheet
+			}
+		}
+		t.Fatalf("sheet %q not found in map response", name)
+		return nil
+	}
+
+	getMergedRanges := func(sheet map[string]any) []string {
+		t.Helper()
+		raw, ok := sheet["merged_ranges"]
+		if !ok {
+			t.Fatalf("sheet %q missing merged_ranges", sheet["name"])
+		}
+		items, ok := raw.([]any)
+		if !ok {
+			t.Fatalf("sheet %q merged_ranges should be list, got %T", sheet["name"], raw)
+		}
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			text, ok := item.(string)
+			if !ok {
+				t.Fatalf("sheet %q merged_ranges entry should be string, got %T", sheet["name"], item)
+			}
+			out = append(out, text)
+		}
+		return out
+	}
+
+	expectMergedState := func(sheet map[string]any, wantHasMerged bool, wantRanges []string) {
+		t.Helper()
+		hasMerged, ok := sheet["has_merged_cells"].(bool)
+		if !ok {
+			t.Fatalf("sheet %q has_merged_cells should be bool, got %T", sheet["name"], sheet["has_merged_cells"])
+		}
+		if hasMerged != wantHasMerged {
+			t.Fatalf("sheet %q expected has_merged_cells=%v, got %v", sheet["name"], wantHasMerged, hasMerged)
+		}
+		ranges := getMergedRanges(sheet)
+		if len(ranges) != len(wantRanges) {
+			t.Fatalf("sheet %q expected merged_ranges %v, got %v", sheet["name"], wantRanges, ranges)
+		}
+		for i, expected := range wantRanges {
+			if ranges[i] != expected {
+				t.Fatalf("sheet %q expected merged_ranges %v, got %v", sheet["name"], wantRanges, ranges)
+			}
+		}
+	}
+
+	readMap := func() []map[string]any {
+		t.Helper()
+		var resp struct {
+			Sheets []map[string]any `json:"sheets"`
+		}
+		if err := mgr.Call(ctx, "XlsxGetMap", map[string]any{
+			"workbench_id": wbID,
+			"path":         "report.xlsx",
+			"root":         "draft",
+		}, &resp); err != nil {
+			t.Fatalf("XlsxGetMap: %v", err)
+		}
+		return resp.Sheets
+	}
+
+	initialMap := readMap()
+	expectMergedState(findSheet(initialMap, "Summary"), true, []string{"A1:B1"})
+	expectMergedState(findSheet(initialMap, "Keep"), false, []string{})
+
+	var replaceResp map[string]any
+	if err := mgr.Call(ctx, "TabularUpdateFromExport", map[string]any{
+		"workbench_id": wbID,
+		"path":         "sales.csv",
+		"root":         "draft",
+		"target_path":  "report.xlsx",
+		"target_root":  "draft",
+		"sheet":        "Summary",
+		"mode":         "replace_sheet",
+		"query":        "SELECT region, amount FROM data ORDER BY region",
+	}, &replaceResp); err != nil {
+		t.Fatalf("TabularUpdateFromExport replace_sheet: %v", err)
+	}
+
+	afterReplaceMap := readMap()
+	expectMergedState(findSheet(afterReplaceMap, "Summary"), false, []string{})
+
+	var applyResp map[string]any
+	if err := mgr.Call(ctx, "XlsxApplyOps", map[string]any{
+		"workbench_id": wbID,
+		"path":         "report.xlsx",
+		"root":         "draft",
+		"ops": []map[string]any{
+			{"op": "merge_cells", "sheet": "Summary", "range": "A1:B1"},
+		},
+	}, &applyResp); err != nil {
+		t.Fatalf("XlsxApplyOps merge reapply: %v", err)
+	}
+
+	afterMergeMap := readMap()
+	expectMergedState(findSheet(afterMergeMap, "Summary"), true, []string{"A1:B1"})
+
+	type gridCell struct {
+		Value any `json:"value"`
+	}
+	type gridResp struct {
+		Cells [][]gridCell `json:"cells"`
+	}
+	var grid gridResp
+	if err := mgr.Call(ctx, "XlsxRenderGrid", map[string]any{
+		"workbench_id": wbID,
+		"path":         "report.xlsx",
+		"root":         "draft",
+		"sheet":        "Summary",
+		"row_start":    0,
+		"row_count":    1,
+		"col_start":    0,
+		"col_count":    2,
+	}, &grid); err != nil {
+		t.Fatalf("XlsxRenderGrid summary: %v", err)
+	}
+	if len(grid.Cells) != 1 || len(grid.Cells[0]) != 2 {
+		t.Fatalf("unexpected summary grid shape: %#v", grid.Cells)
+	}
+	if grid.Cells[0][0].Value != "region" {
+		t.Fatalf("expected merged anchor header at A1, got %#v", grid.Cells[0][0].Value)
+	}
+	if grid.Cells[0][1].Value != nil {
+		t.Fatalf("expected merged follower header at B1 to be blank, got %#v", grid.Cells[0][1].Value)
+	}
+}
+
 func TestWorkerTabularCSVFlow(t *testing.T) {
 	python := requirePython(t)
 	if !hasPythonModule(python, "duckdb") {

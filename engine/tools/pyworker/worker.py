@@ -1697,6 +1697,76 @@ def _xlsx_sanitize_value(value):
     return value
 
 
+def _xlsx_bounds_to_range(
+    min_row: int,
+    min_col: int,
+    max_row: int,
+    max_col: int,
+    get_column_letter: Any,
+) -> str:
+    start_ref = f"{get_column_letter(min_col)}{min_row}"
+    end_ref = f"{get_column_letter(max_col)}{max_row}"
+    if start_ref == end_ref:
+        return start_ref
+    return f"{start_ref}:{end_ref}"
+
+
+def _xlsx_parse_a1_range(
+    value: Any,
+    *,
+    field_name: str = "range",
+    require_span: bool = False,
+) -> Tuple[int, int, int, int, str]:
+    from openpyxl.utils import get_column_letter
+    from openpyxl.utils.cell import range_boundaries
+
+    raw = str(value or "").strip()
+    if not raw:
+        raise WorkerError("VALIDATION_FAILED", f"missing {field_name}")
+
+    candidate = raw.upper().replace("$", "")
+    if "!" in candidate:
+        raise WorkerError("VALIDATION_FAILED", f"invalid {field_name}")
+    try:
+        min_col, min_row, max_col, max_row = range_boundaries(candidate)
+    except Exception as exc:
+        raise WorkerError("VALIDATION_FAILED", f"invalid {field_name}") from exc
+
+    if min_row < 1 or min_col < 1 or max_row < min_row or max_col < min_col:
+        raise WorkerError("VALIDATION_FAILED", f"invalid {field_name}")
+    if require_span and min_row == max_row and min_col == max_col:
+        raise WorkerError("VALIDATION_FAILED", f"{field_name} must span at least two cells")
+
+    normalized = _xlsx_bounds_to_range(min_row, min_col, max_row, max_col, get_column_letter)
+    return min_row, min_col, max_row, max_col, normalized
+
+
+def _xlsx_ranges_overlap(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> bool:
+    a_min_row, a_min_col, a_max_row, a_max_col = a
+    b_min_row, b_min_col, b_max_row, b_max_col = b
+    return not (
+        a_max_row < b_min_row
+        or b_max_row < a_min_row
+        or a_max_col < b_min_col
+        or b_max_col < a_min_col
+    )
+
+
+def _xlsx_list_merged_ranges(ws: Any, get_column_letter: Any) -> List[Tuple[int, int, int, int, str]]:
+    ranges: List[Tuple[int, int, int, int, str]] = []
+    for merged in ws.merged_cells.ranges:
+        min_row = int(getattr(merged, "min_row", 0) or 0)
+        min_col = int(getattr(merged, "min_col", 0) or 0)
+        max_row = int(getattr(merged, "max_row", 0) or 0)
+        max_col = int(getattr(merged, "max_col", 0) or 0)
+        if min_row < 1 or min_col < 1 or max_row < min_row or max_col < min_col:
+            continue
+        normalized = _xlsx_bounds_to_range(min_row, min_col, max_row, max_col, get_column_letter)
+        ranges.append((min_row, min_col, max_row, max_col, normalized))
+    ranges.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    return ranges
+
+
 def _xlsx_get_or_create_sheet(
     wb: Any,
     sheet_name: Any,
@@ -1859,6 +1929,73 @@ def xlsx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
                             sheet=sheet_name,
                             cell_ref=str(target_cell.coordinate),
                         )
+        elif name == "merge_cells":
+            sheet_name = op.get("sheet")
+            if not sheet_name:
+                raise WorkerError("VALIDATION_FAILED", "missing sheet")
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
+            min_row, min_col, max_row, max_col, merge_range = _xlsx_parse_a1_range(
+                op.get("range"),
+                field_name="range",
+                require_span=True,
+            )
+            target_bounds = (min_row, min_col, max_row, max_col)
+            merged_ranges = _xlsx_list_merged_ranges(ws, get_column_letter)
+            already_merged = False
+            for existing_min_row, existing_min_col, existing_max_row, existing_max_col, existing_range in merged_ranges:
+                existing_bounds = (existing_min_row, existing_min_col, existing_max_row, existing_max_col)
+                if existing_range == merge_range:
+                    already_merged = True
+                    continue
+                if _xlsx_ranges_overlap(target_bounds, existing_bounds):
+                    raise WorkerError(
+                        "VALIDATION_FAILED",
+                        f"merge_cells range overlaps existing merged range: {existing_range}",
+                    )
+            if not already_merged:
+                try:
+                    ws.merge_cells(merge_range)
+                except Exception as exc:
+                    raise WorkerError("VALIDATION_FAILED", f"invalid range: {merge_range}") from exc
+        elif name == "unmerge_cells":
+            sheet_name = op.get("sheet")
+            if not sheet_name:
+                raise WorkerError("VALIDATION_FAILED", "missing sheet")
+            raw_range = str(op.get("range") or "").strip()
+            if not raw_range:
+                raise WorkerError("VALIDATION_FAILED", "unmerge_cells requires explicit range")
+            ws = _xlsx_get_or_create_sheet(
+                wb,
+                sheet_name,
+                reuse_single_empty_default=reuse_single_empty_default,
+            )
+            min_row, min_col, max_row, max_col, unmerge_range = _xlsx_parse_a1_range(
+                raw_range,
+                field_name="range",
+            )
+            target_bounds = (min_row, min_col, max_row, max_col)
+            merged_ranges = _xlsx_list_merged_ranges(ws, get_column_letter)
+            matched = False
+            for existing_min_row, existing_min_col, existing_max_row, existing_max_col, existing_range in merged_ranges:
+                existing_bounds = (existing_min_row, existing_min_col, existing_max_row, existing_max_col)
+                if existing_range == unmerge_range:
+                    matched = True
+                    break
+                if _xlsx_ranges_overlap(target_bounds, existing_bounds):
+                    raise WorkerError(
+                        "VALIDATION_FAILED",
+                        f"unmerge_cells range conflicts with merged range: {existing_range}",
+                    )
+            if not matched:
+                raise WorkerError("VALIDATION_FAILED", f"unmerge_cells range is not merged: {unmerge_range}")
+            try:
+                ws.unmerge_cells(unmerge_range)
+            except Exception as exc:
+                raise WorkerError("VALIDATION_FAILED", f"failed to unmerge range: {unmerge_range}") from exc
         elif name == "set_column_widths":
             sheet_name = op.get("sheet")
             columns = op.get("columns")
@@ -2909,7 +3046,7 @@ def xlsx_render_grid(params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def xlsx_get_map(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Return structural map of an xlsx file: sheets, islands, chunks, flags."""
+    """Return structural map of an xlsx file: sheets, islands, chunks, and flags."""
     openpyxl = import_module("openpyxl")
     from openpyxl.utils import get_column_letter
     path = resolve_path(params)
@@ -2929,6 +3066,7 @@ def xlsx_get_map(params: Dict[str, Any]) -> Dict[str, Any]:
                 "chunks": [],
                 "has_charts": False,
                 "has_merged_cells": False,
+                "merged_ranges": [],
                 "has_conditional_formatting": False,
                 "has_formulas": False,
             })
@@ -2985,7 +3123,9 @@ def xlsx_get_map(params: Dict[str, Any]) -> Dict[str, Any]:
 
         # Sheet-level flags
         has_charts = len(ws._charts) > 0 if hasattr(ws, '_charts') else False
-        has_merged = len(ws.merged_cells.ranges) > 0
+        merged_ranges_info = _xlsx_list_merged_ranges(ws, get_column_letter)
+        has_merged = len(merged_ranges_info) > 0
+        merged_ranges = [entry[4] for entry in merged_ranges_info]
         has_cond_fmt = len(ws.conditional_formatting) > 0 if hasattr(ws, 'conditional_formatting') else False
         has_formulas = False
         for row in ws.iter_rows(min_row=min_row, max_row=max_row,
@@ -3006,6 +3146,7 @@ def xlsx_get_map(params: Dict[str, Any]) -> Dict[str, Any]:
             "chunks": chunks,
             "has_charts": has_charts,
             "has_merged_cells": has_merged,
+            "merged_ranges": merged_ranges,
             "has_conditional_formatting": has_cond_fmt,
             "has_formulas": has_formulas,
         })

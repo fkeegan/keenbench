@@ -82,6 +82,38 @@ func TestBuildXlsxFocusHintSheetLevelOps(t *testing.T) {
 	if ensureHint["sheet"] != "Staging" {
 		t.Fatalf("expected sheet Staging, got %v", ensureHint["sheet"])
 	}
+
+	mergeHint := buildXlsxFocusHint([]map[string]any{
+		{"op": "merge_cells", "sheet": "Annual", "range": "B2:D4"},
+	})
+	if mergeHint == nil {
+		t.Fatalf("expected merge_cells hint")
+	}
+	if mergeHint["sheet"] != "Annual" {
+		t.Fatalf("expected sheet Annual, got %v", mergeHint["sheet"])
+	}
+	if rowStart, ok := intFromAny(mergeHint["row_start"]); !ok || rowStart != 1 {
+		t.Fatalf("expected row_start=1, got %v", mergeHint["row_start"])
+	}
+	if rowEnd, ok := intFromAny(mergeHint["row_end"]); !ok || rowEnd != 3 {
+		t.Fatalf("expected row_end=3, got %v", mergeHint["row_end"])
+	}
+
+	unmergeHint := buildXlsxFocusHint([]map[string]any{
+		{"op": "unmerge_cells", "sheet": "Annual", "range": "D4:B2"},
+	})
+	if unmergeHint == nil {
+		t.Fatalf("expected unmerge_cells hint")
+	}
+	if unmergeHint["sheet"] != "Annual" {
+		t.Fatalf("expected sheet Annual, got %v", unmergeHint["sheet"])
+	}
+	if colStart, ok := intFromAny(unmergeHint["col_start"]); !ok || colStart != 1 {
+		t.Fatalf("expected col_start=1, got %v", unmergeHint["col_start"])
+	}
+	if colEnd, ok := intFromAny(unmergeHint["col_end"]); !ok || colEnd != 3 {
+		t.Fatalf("expected col_end=3, got %v", unmergeHint["col_end"])
+	}
 }
 
 func TestShouldFallbackPptxSlideLegacy(t *testing.T) {

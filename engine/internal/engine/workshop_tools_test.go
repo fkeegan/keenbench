@@ -444,6 +444,8 @@ func TestWorkshopToolsOfficeSchemasUseCanonicalOperationKeys(t *testing.T) {
 		"set_column_widths":     false,
 		"set_row_heights":       false,
 		"freeze_panes":          false,
+		"merge_cells":           false,
+		"unmerge_cells":         false,
 	}
 	for _, raw := range opEnum {
 		name, _ := raw.(string)
@@ -456,7 +458,7 @@ func TestWorkshopToolsOfficeSchemasUseCanonicalOperationKeys(t *testing.T) {
 			t.Fatalf("xlsx_operations schema missing op %s", name)
 		}
 	}
-	for _, field := range []string{"style", "columns", "rows", "row", "column"} {
+	for _, field := range []string{"style", "columns", "rows", "row", "column", "range"} {
 		if _, ok := xlsxProps[field]; !ok {
 			t.Fatalf("xlsx_operations schema must include %s", field)
 		}
@@ -519,6 +521,18 @@ func TestWorkshopToolsOfficeSchemasUseCanonicalOperationKeys(t *testing.T) {
 	for _, field := range []string{"title_runs", "body_runs", "alignment", "space_before", "space_after", "line_spacing"} {
 		if _, ok := pptxProps[field]; !ok {
 			t.Fatalf("pptx_operations schema must include %s", field)
+		}
+	}
+}
+
+func TestAgentSystemPromptIncludesXlsxMergePolicyGuidance(t *testing.T) {
+	for _, phrase := range []string{
+		"explicit merge_cells/unmerge_cells operations with a syntactic A1 range",
+		"default to two passes: first write table data",
+		"Do not infer merged ranges from plain CSV data alone",
+	} {
+		if !strings.Contains(AgentSystemPrompt, phrase) {
+			t.Fatalf("expected AgentSystemPrompt to include %q", phrase)
 		}
 	}
 }

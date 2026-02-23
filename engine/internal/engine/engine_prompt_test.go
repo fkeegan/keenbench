@@ -217,10 +217,22 @@ func TestWorkshopChatTrimsConversation(t *testing.T) {
 	}
 }
 
-func TestProposalSystemPromptIncludesXlsxStylingOps(t *testing.T) {
-	for _, op := range []string{"set_column_widths", "set_row_heights", "freeze_panes"} {
+func TestProposalSystemPromptIncludesXlsxOps(t *testing.T) {
+	for _, op := range []string{"set_column_widths", "set_row_heights", "freeze_panes", "merge_cells", "unmerge_cells"} {
 		if !strings.Contains(proposalSystemPrompt, op) {
 			t.Fatalf("expected proposal prompt to include %s", op)
+		}
+	}
+}
+
+func TestProposalSystemPromptIncludesXlsxMergePolicyGuidance(t *testing.T) {
+	for _, phrase := range []string{
+		"do not infer merge ranges from plain CSV data alone",
+		"default to two passes: write values first, then apply merge_cells/unmerge_cells",
+		"One-pass write+merge is allowed only when merge ranges are fixed upfront",
+	} {
+		if !strings.Contains(proposalSystemPrompt, phrase) {
+			t.Fatalf("expected proposal prompt guidance to include %q", phrase)
 		}
 	}
 }
@@ -308,6 +320,56 @@ func TestValidateOpEntryXlsxStylingOps(t *testing.T) {
 			},
 			wantErr: "freeze_panes requires column to be >= 0",
 		},
+		{
+			name: "merge_cells valid",
+			op: map[string]any{
+				"op":    "merge_cells",
+				"sheet": "Summary",
+				"range": "A1:D1",
+			},
+		},
+		{
+			name: "merge_cells missing range",
+			op: map[string]any{
+				"op":    "merge_cells",
+				"sheet": "Summary",
+			},
+			wantErr: "merge_cells requires range",
+		},
+		{
+			name: "merge_cells invalid range format",
+			op: map[string]any{
+				"op":    "merge_cells",
+				"sheet": "Summary",
+				"range": "A1",
+			},
+			wantErr: "merge_cells requires range in A1:B2 format",
+		},
+		{
+			name: "unmerge_cells valid",
+			op: map[string]any{
+				"op":    "unmerge_cells",
+				"sheet": "Summary",
+				"range": "B2:D4",
+			},
+		},
+		{
+			name: "unmerge_cells missing range",
+			op: map[string]any{
+				"op":    "unmerge_cells",
+				"sheet": "Summary",
+			},
+			wantErr: "unmerge_cells requires range",
+		},
+		{
+			name: "unmerge_cells invalid range format",
+			op: map[string]any{
+				"op":    "unmerge_cells",
+				"sheet": "Summary",
+				"range": "B2::D4",
+			},
+			wantErr: "unmerge_cells requires range in A1:B2 format",
+		},
 	}
 
 	for _, tc := range tests {
@@ -320,6 +382,68 @@ func TestValidateOpEntryXlsxStylingOps(t *testing.T) {
 		}
 		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Fatalf("%s: expected error containing %q, got %v", tc.name, tc.wantErr, err)
+		}
+	}
+}
+
+func TestBuildXlsxFocusHintIncludesMergeRanges(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       map[string]any
+		rowStart int
+		rowEnd   int
+		colStart int
+		colEnd   int
+	}{
+		{
+			name: "merge_cells range",
+			op: map[string]any{
+				"op":    "merge_cells",
+				"sheet": "Summary",
+				"range": "B2:D4",
+			},
+			rowStart: 1,
+			rowEnd:   3,
+			colStart: 1,
+			colEnd:   3,
+		},
+		{
+			name: "unmerge_cells reversed range normalizes bounds",
+			op: map[string]any{
+				"op":    "unmerge_cells",
+				"sheet": "Summary",
+				"range": "D4:B2",
+			},
+			rowStart: 1,
+			rowEnd:   3,
+			colStart: 1,
+			colEnd:   3,
+		},
+	}
+
+	for _, tc := range tests {
+		hint := buildXlsxFocusHint([]map[string]any{tc.op})
+		if hint == nil {
+			t.Fatalf("%s: expected focus hint", tc.name)
+		}
+		if hint["sheet"] != "Summary" {
+			t.Fatalf("%s: expected sheet Summary, got %v", tc.name, hint["sheet"])
+		}
+		rowStart, ok := intFromAny(hint["row_start"])
+		if !ok || rowStart != tc.rowStart {
+			t.Fatalf("%s: expected row_start=%d, got %v", tc.name, tc.rowStart, hint["row_start"])
+		}
+		rowEnd, ok := intFromAny(hint["row_end"])
+		if !ok || rowEnd != tc.rowEnd {
+			t.Fatalf("%s: expected row_end=%d, got %v", tc.name, tc.rowEnd, hint["row_end"])
+		}
+		colStart, ok := intFromAny(hint["col_start"])
+		if !ok || colStart != tc.colStart {
+			t.Fatalf("%s: expected col_start=%d, got %v", tc.name, tc.colStart, hint["col_start"])
+		}
+		colEnd, ok := intFromAny(hint["col_end"])
+		if !ok || colEnd != tc.colEnd {
+			t.Fatalf("%s: expected col_end=%d, got %v", tc.name, tc.colEnd, hint["col_end"])
 		}
 	}
 }

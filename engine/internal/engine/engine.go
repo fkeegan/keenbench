@@ -4819,7 +4819,7 @@ func (e *Engine) buildChatMessages(ctx context.Context, workbenchID string) ([]l
 	return messages, nil
 }
 
-const proposalSystemPrompt = "You are KeenBench. Return a single JSON object that matches Proposal schema v2. Output only JSON (no markdown or code fences).\nRequired shape:\n{\"schema_version\":2,\"summary\":\"...\",\"no_changes\":false,\"writes\":[{\"path\":\"file.md\",\"content\":\"...\"}],\"ops\":[{\"path\":\"report.docx\",\"kind\":\"docx\",\"summary\":\"...\",\"ops\":[{\"op\":\"set_paragraphs\",\"paragraphs\":[{\"text\":\"...\",\"style\":\"Heading1\"}]}]}],\"warnings\":[]}\nRules:\n- summary must be non-empty.\n- If no file edits are needed, set \"no_changes\": true and leave writes/ops empty.\n- Otherwise, either writes or ops (or both) must be present.\n- No delete operations.\n- Paths must be flat (no folders).\n- Writes allowed only for text/code extensions: .md, .txt, .csv, .json, .xml, .yaml, .yml, .html, .js, .ts, .py, .java, .go, .rb, .rs, .c, .cpp, .h, .css, .sql.\n- Ops are only for .docx/.xlsx/.pptx with kind docx/xlsx/pptx matching the extension.\n- Max 10 writes, max 100 ops per file, max 500 ops total.\n- Each ops entry must include a per-file summary.\nAllowed ops:\nDocx: set_paragraphs, append_paragraph, replace_text.\nXlsx: ensure_sheet, set_cells, set_range, set_column_widths, set_row_heights, freeze_panes.\nPptx: add_slide, set_slide_text, append_bullets."
+const proposalSystemPrompt = "You are KeenBench. Return a single JSON object that matches Proposal schema v2. Output only JSON (no markdown or code fences).\nRequired shape:\n{\"schema_version\":2,\"summary\":\"...\",\"no_changes\":false,\"writes\":[{\"path\":\"file.md\",\"content\":\"...\"}],\"ops\":[{\"path\":\"report.docx\",\"kind\":\"docx\",\"summary\":\"...\",\"ops\":[{\"op\":\"set_paragraphs\",\"paragraphs\":[{\"text\":\"...\",\"style\":\"Heading1\"}]}]}],\"warnings\":[]}\nRules:\n- summary must be non-empty.\n- If no file edits are needed, set \"no_changes\": true and leave writes/ops empty.\n- Otherwise, either writes or ops (or both) must be present.\n- No delete operations.\n- Paths must be flat (no folders).\n- Writes allowed only for text/code extensions: .md, .txt, .csv, .json, .xml, .yaml, .yml, .html, .js, .ts, .py, .java, .go, .rb, .rs, .c, .cpp, .h, .css, .sql.\n- Ops are only for .docx/.xlsx/.pptx with kind docx/xlsx/pptx matching the extension.\n- Max 10 writes, max 100 ops per file, max 500 ops total.\n- Each ops entry must include a per-file summary.\n- For XLSX merged layouts, do not infer merge ranges from plain CSV data alone.\n- For CSV->XLSX merged-layout tasks, default to two passes: write values first, then apply merge_cells/unmerge_cells.\n- One-pass write+merge is allowed only when merge ranges are fixed upfront and independent of runtime row counts.\nAllowed ops:\nDocx: set_paragraphs, append_paragraph, replace_text.\nXlsx: ensure_sheet, set_cells, set_range, set_column_widths, set_row_heights, freeze_panes, merge_cells, unmerge_cells.\nPptx: add_slide, set_slide_text, append_bullets."
 
 const proposalSystemPromptStrict = "You are KeenBench. Return a single JSON object matching Proposal schema v2 exactly:\n{\"schema_version\":2,\"summary\":\"...\",\"no_changes\":false,\"writes\":[{\"path\":\"summary.md\",\"content\":\"...\"}],\"ops\":[],\"warnings\":[]}\nRules:\n- Output only JSON (no markdown or code fences).\n- summary must be non-empty.\n- If no file edits are needed, set \"no_changes\": true and leave writes/ops empty.\n- Otherwise, either writes or ops must be present.\n- Allowed write extensions: .md, .txt, .csv, .json, .xml, .yaml, .yml, .html, .js, .ts, .py, .java, .go, .rb, .rs, .c, .cpp, .h, .css, .sql.\n- No delete operations."
 
@@ -5233,6 +5233,30 @@ func validateOpEntry(kind string, op map[string]any) error {
 			if !hasRow && !hasColumn {
 				return errors.New("freeze_panes requires row or column")
 			}
+		case "merge_cells":
+			sheet, ok := op["sheet"].(string)
+			if !ok || strings.TrimSpace(sheet) == "" {
+				return errors.New("merge_cells requires sheet")
+			}
+			rangeRef, ok := op["range"].(string)
+			if !ok || strings.TrimSpace(rangeRef) == "" {
+				return errors.New("merge_cells requires range")
+			}
+			if _, _, _, _, ok := parseA1Range(rangeRef); !ok {
+				return errors.New("merge_cells requires range in A1:B2 format")
+			}
+		case "unmerge_cells":
+			sheet, ok := op["sheet"].(string)
+			if !ok || strings.TrimSpace(sheet) == "" {
+				return errors.New("unmerge_cells requires sheet")
+			}
+			rangeRef, ok := op["range"].(string)
+			if !ok || strings.TrimSpace(rangeRef) == "" {
+				return errors.New("unmerge_cells requires range")
+			}
+			if _, _, _, _, ok := parseA1Range(rangeRef); !ok {
+				return errors.New("unmerge_cells requires range in A1:B2 format")
+			}
 		default:
 			return errors.New("unsupported xlsx op")
 		}
@@ -5610,6 +5634,13 @@ func buildXlsxFocusHint(ops []map[string]any) map[string]any {
 			endRow := startRow + rowCount - 1
 			endCol := startCol + colCount - 1
 			updateRange(sheet, startRow, startCol, endRow, endCol)
+		case "merge_cells", "unmerge_cells":
+			rangeRef, _ := op["range"].(string)
+			startRow, startCol, endRow, endCol, ok := parseA1Range(rangeRef)
+			if !ok {
+				continue
+			}
+			updateRange(sheet, startRow, startCol, endRow, endCol)
 		case "summarize_by_category", "ensure_sheet", "set_column_widths", "set_row_heights", "freeze_panes":
 			// Sheet-level ops establish target context even without explicit cell bounds.
 			continue
@@ -5760,6 +5791,28 @@ func intFromAny(value any) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func parseA1Range(a1Range string) (int, int, int, int, bool) {
+	trimmed := strings.TrimSpace(a1Range)
+	parts := strings.Split(trimmed, ":")
+	if len(parts) != 2 {
+		return 0, 0, 0, 0, false
+	}
+	startRef := strings.TrimSpace(parts[0])
+	endRef := strings.TrimSpace(parts[1])
+	if startRef == "" || endRef == "" {
+		return 0, 0, 0, 0, false
+	}
+	startRow, startCol, ok := parseCellRef(startRef)
+	if !ok {
+		return 0, 0, 0, 0, false
+	}
+	endRow, endCol, ok := parseCellRef(endRef)
+	if !ok {
+		return 0, 0, 0, 0, false
+	}
+	return startRow, startCol, endRow, endCol, true
 }
 
 func parseCellRef(cell string) (int, int, bool) {

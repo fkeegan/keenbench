@@ -101,12 +101,16 @@ Styled example (run-level + paragraph-level formatting; see `docs/design/capabil
 - `ensure_sheet`: create the sheet if missing
 - `set_cells`: set specific cell values
 - `set_range`: set a 2D range of values
+- `merge_cells`: merge a rectangular A1 range (for example `A1:D1`)
+- `unmerge_cells`: unmerge an existing rectangular A1 range (explicit range required)
 
 Example ops:
 ```
 {"op":"ensure_sheet","sheet":"Summary"}
 {"op":"set_cells","sheet":"Summary","cells":[{"cell":"A1","value":"Metric","type":"string"},{"cell":"B1","value":12,"type":"number"}]}
 {"op":"set_range","sheet":"Summary","start":"A2","values":[["Q1",120],["Q2",140]]}
+{"op":"merge_cells","sheet":"Summary","range":"A1:B1"}
+{"op":"unmerge_cells","sheet":"Summary","range":"A1:B1"}
 ```
 
 Styled example (cell-level styles; see `docs/design/capabilities/document-styling.md`):
@@ -273,6 +277,7 @@ Returns:
       ],
       "has_charts": false,
       "has_merged_cells": true,
+      "merged_ranges": ["A1:E1", "A9:B9"],
       "has_conditional_formatting": false,
       "has_formulas": false
     }
@@ -428,6 +433,12 @@ The `get_file_info` tool is enhanced to return the full structural map (it curre
 ### Chunked Writing
 
 For large write operations (e.g., writing a 500-row spreadsheet), the AI can issue multiple `xlsx_operations` calls with `set_range` targeting successive row ranges. The existing `set_range` op already supports this — no new mechanism is needed, just model guidance in the system prompt.
+
+For CSV/tabular -> XLSX workflows that require merged layout, use **two-pass execution by default**:
+- Pass 1: write tabular values (`table_update_from_export` or `set_range` / `set_cells`).
+- Pass 2: apply `merge_cells` / `unmerge_cells` with explicit ranges.
+
+One-pass write+merge is allowed only when merge ranges are fixed up front and do not depend on runtime row counts. Do not infer merge ranges from plain CSV data unless requested by the user or defined by template metadata.
 
 ### Style and Asset Preservation
 

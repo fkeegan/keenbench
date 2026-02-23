@@ -230,7 +230,7 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 		Type: "function",
 		Function: llm.FunctionDef{
 			Name:        "xlsx_operations",
-			Description: "Create or modify an Excel file. Can copy from existing file or create new. Operations: ensure_sheet, set_range, set_cells, summarize_by_category, set_column_widths, set_row_heights, freeze_panes.",
+			Description: "Create or modify an Excel file. Can copy from existing file or create new. Operations: ensure_sheet, set_range, set_cells, summarize_by_category, set_column_widths, set_row_heights, freeze_panes, merge_cells, unmerge_cells.",
 			Parameters: json.RawMessage(`{
 					"type": "object",
 					"properties": {
@@ -243,9 +243,10 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 							"items": {
 								"type": "object",
 								"properties": {
-									"op": {"type": "string", "enum": ["ensure_sheet", "set_range", "set_cells", "summarize_by_category", "set_column_widths", "set_row_heights", "freeze_panes"], "description": "Operation type"},
+									"op": {"type": "string", "enum": ["ensure_sheet", "set_range", "set_cells", "summarize_by_category", "set_column_widths", "set_row_heights", "freeze_panes", "merge_cells", "unmerge_cells"], "description": "Operation type"},
 									"sheet": {"type": "string", "description": "Target sheet name"},
 									"start": {"type": "string", "description": "Starting cell for set_range (e.g. A1)"},
+									"range": {"type": "string", "description": "A1 range for merge_cells/unmerge_cells (e.g. A1:D1). unmerge_cells requires an explicit range."},
 									"values": {
 										"type": "array",
 										"description": "2D array of values for set_range",
@@ -2385,7 +2386,9 @@ Rules:
 9. For xlsx files, the manifest map shows existing sheet names and dimensions. Do NOT call ensure_sheet for sheets that already appear in the manifest — they already exist.
 10. Prefer table_update_from_export to write query results into existing xlsx workbooks/sheets. Use table_export for stand-alone csv/xlsx outputs.
 11. Keep SQL queries efficient: use GROUP BY/aggregation instead of SELECT * followed by manual processing. Double-quote column names with special characters in DuckDB.
-12. SCRATCH/INTERMEDIATE FILES: Any file you create as a working copy, intermediate step, or scratch space MUST have a name starting with "_" (e.g. "_work.xlsx", "_filtered.csv"). Only files the user explicitly requested should have a regular name. Underscore-prefixed files are hidden from the user and deleted on publish.`
+12. SCRATCH/INTERMEDIATE FILES: Any file you create as a working copy, intermediate step, or scratch space MUST have a name starting with "_" (e.g. "_work.xlsx", "_filtered.csv"). Only files the user explicitly requested should have a regular name. Underscore-prefixed files are hidden from the user and deleted on publish.
+13. For XLSX merged layout changes, use explicit merge_cells/unmerge_cells with A1 ranges. Do not infer merged ranges from plain CSV data unless requested by the user or template metadata.
+14. For CSV->XLSX tasks that require merged layout, default to two passes: write data first (table_update_from_export/set_range), then apply merge_cells/unmerge_cells.`
 
 const RPISummarySystemPrompt = `You are KeenBench in SUMMARY phase.
 
@@ -2472,6 +2475,8 @@ CRITICAL RULES:
 18. For XLSX summary/aggregation tasks, use xlsx_operations with op="summarize_by_category" so totals are computed from source-sheet data deterministically. Do not hand-calculate, invent, or guess totals.
 19. For derivative fidelity tasks (preserve formatting/theme/layout/branding), prefer style/asset tools: query styles first (xlsx_get_styles/docx_get_styles/pptx_get_styles), then copy required assets with matching *_copy_assets tools before content edits.
 20. Style/asset copy tools are format-specific: xlsx->xlsx, docx->docx, pptx->pptx.
+22. For XLSX merged-cell changes, use explicit merge_cells/unmerge_cells operations with a syntactic A1 range (for example A1:D1). Do not infer merged ranges from plain CSV data alone.
+23. For CSV->XLSX tasks that require merged layout, default to two passes: first write table data (table_update_from_export or set_range), then apply merge_cells/unmerge_cells. One-pass write+merge is allowed only when merge ranges are fixed up front and do not depend on runtime row counts.
 
 DuckDB SQL PATTERNS (table_query uses DuckDB):
 - Column names with spaces/special chars require double-quotes: SELECT "Issue Type", "Component/s" FROM data
@@ -2484,6 +2489,8 @@ When asked to translate or modify an Excel file:
 1. Review the map to see sheet names, ranges, and data islands
 2. Call read_file with the sheet name and range to see content chunk by chunk
 3. Call xlsx_operations with create_new=true, copy_from=original_file, and operations to modify cells
+4. If merged layout is requested, default to two-pass execution: write data first, then apply merge_cells/unmerge_cells with explicit ranges
+5. Do not infer merged ranges from plain CSV unless the user or template explicitly requires them
 
 When asked to create a copy of a file:
 1. Use xlsx_operations (or docx_operations/pptx_operations) with create_new=true and copy_from=source_path
