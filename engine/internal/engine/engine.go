@@ -41,7 +41,7 @@ import (
 )
 
 const (
-	EngineVersion = "0.1.0"
+	EngineVersion = "0.1.1"
 	APIVersion    = "1"
 )
 

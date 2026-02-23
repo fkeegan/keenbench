@@ -19,7 +19,7 @@ Safe, reviewable AI-assisted **file analysis and editing** on your desktop — w
 
 ## Get started
 
-- **Download:** GitHub Releases (if no release is available yet, build from source below)
+- **Download:** GitHub Releases (`KeenBench-linux-<arch>.AppImage`; if no release is available yet, build from source below)
 - **Build from source:** see **Quick start**
 
 ### What KeenBench is
@@ -168,6 +168,7 @@ Notes:
 - Runs on Linux only.
 - Builds Flutter Linux release + Go engine + standalone Python tool worker, then bundles into an AppImage.
 - Requires `flutter`, `go`, and either `appimagetool` in `PATH` or `curl`/`wget` to download it automatically.
+- Tagging `v*.*.*` triggers `.github/workflows/release.yml`, which publishes the AppImage and `.sha256` checksum to GitHub Releases.
 
 macOS:
 

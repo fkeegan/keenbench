@@ -12,6 +12,16 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+## [0.1.1] - 2026-02-23
+
+### Added
+
+- Release automation now attaches Linux AppImage artifacts and SHA-256 checksums to GitHub Releases on `v*.*.*` tags.
+
+### Changed
+
+- Release documentation now includes binary asset verification steps for Linux AppImage releases.
+
 ## [0.1.0] - 2026-02-20
 
 ### Added
