@@ -1792,7 +1792,7 @@ const (
 	maxToolCallsPerTurn = 50
 	rpiResearchMaxTurns = 60
 	rpiPlanMaxTurns     = 20
-	rpiItemMaxTurns     = 30
+	rpiItemMaxTurns     = 50
 	rpiMaxPlanInflation = 2
 
 	rpiStatusPending = "pending"
