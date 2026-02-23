@@ -101,11 +101,16 @@ jobs:
           $ErrorActionPreference = "Stop"
           $env:KEENBENCH_WINDOWS_ARCH = "x64"
           powershell -ExecutionPolicy Bypass -File scripts/package_windows_nsis.ps1
-          if (-not (Test-Path "KeenBench-Setup.exe")) {
-            throw "Expected installer not found: KeenBench-Setup.exe"
+          $installerCandidates = @(
+            "KeenBench-Setup.exe",
+            "installer/KeenBench-Setup.exe"
+          )
+          $builtInstaller = $installerCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $builtInstaller) {
+            throw "Expected installer not found in known paths: $($installerCandidates -join ', ')"
           }
           New-Item -ItemType Directory -Path "dist" -Force | Out-Null
-          Move-Item -Force "KeenBench-Setup.exe" "dist/KeenBench-windows-x64-setup.exe"
+          Move-Item -Force $builtInstaller "dist/KeenBench-windows-x64-setup.exe"
 
       - name: Create Windows installer checksum
         shell: pwsh
