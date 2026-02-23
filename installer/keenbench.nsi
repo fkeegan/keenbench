@@ -55,7 +55,7 @@ UninstallIcon "${APP_ICON}"
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File /r "${APP_BUILD_DIR}\*.*"
+  File /r "${APP_BUILD_DIR}\*"
   WriteRegStr HKCU "Software\${APP_NAME}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${ARP_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${ARP_KEY}" "DisplayVersion" "${APP_VERSION}"
