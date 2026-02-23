@@ -56,7 +56,7 @@ if (-not (Test-Path $ReleaseDir)) {
 
 Write-Host "==> Building Go engine..."
 Push-Location (Join-Path $Root "engine")
-& go build -o (Join-Path $ReleaseDir "keenbench-engine.exe") ".\cmd\keenbench-engine"
+& go build -ldflags "-H=windowsgui" -o (Join-Path $ReleaseDir "keenbench-engine.exe") ".\cmd\keenbench-engine"
 Pop-Location
 
 Write-Host "==> Building Python tool worker (PyInstaller)..."
@@ -67,7 +67,7 @@ if (-not (Test-Path ".\.venv")) {
 }
 & .\.venv\Scripts\pip install -r requirements.txt
 & .\.venv\Scripts\pip install pyinstaller
-& .\.venv\Scripts\pyinstaller --onefile --name keenbench-tool-worker worker.py
+& .\.venv\Scripts\pyinstaller --onefile --noconsole --name keenbench-tool-worker worker.py
 Pop-Location
 
 $WorkerExe = Join-Path $PyWorkerDir "dist\keenbench-tool-worker.exe"
