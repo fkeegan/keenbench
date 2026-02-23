@@ -1,0 +1,7 @@
+# Keep line endings deterministic across platforms.
+* text=auto eol=lf
+
+# Windows scripts should check out with CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

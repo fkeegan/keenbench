@@ -228,9 +228,16 @@ class EngineClient implements EngineApi {
       return null;
     }
     final exe = File(resolved);
-    final candidate = File(path.join(exe.parent.path, name));
-    if (await candidate.exists()) {
-      return candidate.path;
+    final baseDir = exe.parent.path;
+    final candidates = <String>[
+      path.join(baseDir, name),
+      if (Platform.isWindows) path.join(baseDir, '$name.exe'),
+    ];
+    for (final candidatePath in candidates) {
+      final candidate = File(candidatePath);
+      if (await candidate.exists()) {
+        return candidate.path;
+      }
     }
     return null;
   }

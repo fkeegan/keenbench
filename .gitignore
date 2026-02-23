@@ -4,6 +4,7 @@ docs/prompt.md
 .env
 artifacts/
 dist/
+installer/*.exe
 engine/tools/pyworker/.venv/
 engine/tools/pyworker/__pycache__/
 engine/tools/pyworker/build/
