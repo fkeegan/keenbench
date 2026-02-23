@@ -18,10 +18,12 @@
 4. Create annotated release tag:
    - `git tag -a v0.x.y -m "Release v0.x.y"`
    - `git push origin v0.x.y`
-5. GitHub Actions automatically builds the Linux AppImage and creates the GitHub Release from the tag.
+5. GitHub Actions automatically builds Linux and Windows artifacts and creates the GitHub Release from the tag.
 6. Verify release assets are attached:
    - `KeenBench-linux-x86_64.AppImage` (or platform-matching arch variant)
    - `KeenBench-linux-<arch>.AppImage.sha256`
+   - `KeenBench-windows-x64-setup.exe`
+   - `KeenBench-windows-x64-setup.exe.sha256`
 7. Verify the release notes and edit details in GitHub if needed.
 
 ## Release Notes Template

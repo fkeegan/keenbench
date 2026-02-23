@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  github-release:
-    name: github-release
+  build-linux:
+    name: build-linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +56,105 @@ jobs:
             sha256sum "$appimage" > "$appimage.sha256"
           done
 
+      - name: Stage Linux release assets
+        run: |
+          set -euo pipefail
+          rm -rf release-assets
+          mkdir -p release-assets
+          cp dist/KeenBench-linux-*.AppImage release-assets/
+          cp dist/KeenBench-linux-*.AppImage.sha256 release-assets/
+
+      - name: Upload Linux release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-assets
+          path: release-assets/*
+          if-no-files-found: error
+
+  build-windows:
+    name: build-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Enable Flutter Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build Windows NSIS installer (x64)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:KEENBENCH_WINDOWS_ARCH = "x64"
+          powershell -ExecutionPolicy Bypass -File scripts/package_windows_nsis.ps1
+          if (-not (Test-Path "KeenBench-Setup.exe")) {
+            throw "Expected installer not found: KeenBench-Setup.exe"
+          }
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          Move-Item -Force "KeenBench-Setup.exe" "dist/KeenBench-windows-x64-setup.exe"
+
+      - name: Create Windows installer checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = "dist/KeenBench-windows-x64-setup.exe"
+          if (-not (Test-Path $installer)) {
+            throw "Expected installer not found: $installer"
+          }
+          $hash = (Get-FileHash -Path $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  KeenBench-windows-x64-setup.exe" | Set-Content -Path "$installer.sha256" -Encoding ascii
+
+      - name: Stage Windows release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path "release-assets" -Force | Out-Null
+          Copy-Item -Force "dist/KeenBench-windows-x64-setup.exe" "release-assets/KeenBench-windows-x64-setup.exe"
+          Copy-Item -Force "dist/KeenBench-windows-x64-setup.exe.sha256" "release-assets/KeenBench-windows-x64-setup.exe.sha256"
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-assets
+          path: release-assets/*
+          if-no-files-found: error
+
+  github-release:
+    name: github-release
+    runs-on: ubuntu-latest
+    needs:
+      - build-linux
+      - build-windows
+    steps:
+      - name: Download Linux release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-linux-assets
+          path: dist
+
+      - name: Download Windows release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows-assets
+          path: dist
+
+      - name: Show staged release assets
+        run: ls -l dist
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -63,4 +162,6 @@ jobs:
           files: |
             dist/KeenBench-linux-*.AppImage
             dist/KeenBench-linux-*.AppImage.sha256
+            dist/KeenBench-windows-x64-setup.exe
+            dist/KeenBench-windows-x64-setup.exe.sha256
           fail_on_unmatched_files: true
