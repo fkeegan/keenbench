@@ -225,6 +225,60 @@ func TestProposalSystemPromptIncludesXlsxStylingOps(t *testing.T) {
 	}
 }
 
+func TestProposalSystemPromptIncludesODFExtensionsAndKinds(t *testing.T) {
+	for _, ext := range []string{".odt", ".ods", ".odp"} {
+		if !strings.Contains(proposalSystemPrompt, ext) {
+			t.Fatalf("expected proposal prompt to include %s", ext)
+		}
+	}
+	for _, kind := range []string{"odt", "ods", "odp"} {
+		if !strings.Contains(proposalSystemPrompt, kind) {
+			t.Fatalf("expected proposal prompt to include kind %s", kind)
+		}
+	}
+}
+
+func TestValidateOpEntryODFKindsReuseOOXMLRules(t *testing.T) {
+	tests := []struct {
+		name string
+		kind string
+		op   map[string]any
+	}{
+		{
+			name: "odt accepts docx replace_text op",
+			kind: "odt",
+			op: map[string]any{
+				"op":      "replace_text",
+				"search":  "Old term",
+				"replace": "New term",
+			},
+		},
+		{
+			name: "ods accepts xlsx ensure_sheet op",
+			kind: "ods",
+			op: map[string]any{
+				"op":    "ensure_sheet",
+				"sheet": "Summary",
+			},
+		},
+		{
+			name: "odp accepts pptx append_bullets op",
+			kind: "odp",
+			op: map[string]any{
+				"op":      "append_bullets",
+				"index":   1.0,
+				"bullets": []any{"First", "Second"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		if err := validateOpEntry(tc.kind, tc.op); err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+	}
+}
+
 func TestValidateOpEntryXlsxStylingOps(t *testing.T) {
 	tests := []struct {
 		name    string

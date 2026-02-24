@@ -527,10 +527,16 @@ func TestWorkshopToolsIncludesStyleAssetTools(t *testing.T) {
 	required := map[string]bool{
 		"xlsx_get_styles":  false,
 		"xlsx_copy_assets": false,
+		"ods_get_styles":   false,
+		"ods_copy_assets":  false,
 		"docx_get_styles":  false,
 		"docx_copy_assets": false,
+		"odt_get_styles":   false,
+		"odt_copy_assets":  false,
 		"pptx_get_styles":  false,
 		"pptx_copy_assets": false,
+		"odp_get_styles":   false,
+		"odp_copy_assets":  false,
 	}
 	for _, tool := range WorkshopTools {
 		if _, ok := required[tool.Function.Name]; ok {
@@ -1131,6 +1137,265 @@ func TestToolHandlerCopyAssetsMapsRemoteValidationError(t *testing.T) {
 	}
 	if !strings.Contains(execErr.Error(), errinfo.CodeValidationFailed) {
 		t.Fatalf("expected validation code in error, got %v", execErr)
+	}
+}
+
+func TestToolHandlerOdsOperationsRoutesToOdsWorker(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+
+	worker := &captureToolWorker{}
+	eng, err := New(WithToolWorker(worker))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "OdsOpsTest"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "test-ods",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name: "ods_operations",
+			Arguments: `{
+				"path":"report.ods",
+				"operations":[
+					{"op":"ensure_sheet","sheet":"Summary"}
+				]
+			}`,
+		},
+	}
+	if _, err := handler.Execute(call); err != nil {
+		t.Fatalf("ods_operations: %v", err)
+	}
+
+	if worker.method != "OdsApplyOps" {
+		t.Fatalf("expected OdsApplyOps, got %s", worker.method)
+	}
+	if worker.params["root"] != "draft" {
+		t.Fatalf("expected root draft, got %v", worker.params["root"])
+	}
+	ds, err := eng.workbenches.DraftState(workbenchID)
+	if err != nil || ds == nil {
+		t.Fatalf("expected draft to exist after ods operation")
+	}
+}
+
+func TestToolHandlerOdtOperationsRoutesToOdtWorker(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+
+	worker := &captureToolWorker{}
+	eng, err := New(WithToolWorker(worker))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "OdtOpsTest"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "test-odt",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name: "odt_operations",
+			Arguments: `{
+				"path":"report.odt",
+				"operations":[
+					{"op":"replace_text","search":"Old term","replace":"New term"}
+				]
+			}`,
+		},
+	}
+	if _, err := handler.Execute(call); err != nil {
+		t.Fatalf("odt_operations: %v", err)
+	}
+
+	if worker.method != "OdtApplyOps" {
+		t.Fatalf("expected OdtApplyOps, got %s", worker.method)
+	}
+	if worker.params["root"] != "draft" {
+		t.Fatalf("expected root draft, got %v", worker.params["root"])
+	}
+	ds, err := eng.workbenches.DraftState(workbenchID)
+	if err != nil || ds == nil {
+		t.Fatalf("expected draft to exist after odt operation")
+	}
+}
+
+func TestToolHandlerOdpOperationsRoutesToOdpWorker(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+
+	worker := &captureToolWorker{}
+	eng, err := New(WithToolWorker(worker))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "OdpOpsTest"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "test-odp",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name: "odp_operations",
+			Arguments: `{
+				"path":"deck.odp",
+				"operations":[
+					{"op":"append_bullets","index":1,"bullets":["First","Second"]}
+				]
+			}`,
+		},
+	}
+	if _, err := handler.Execute(call); err != nil {
+		t.Fatalf("odp_operations: %v", err)
+	}
+
+	if worker.method != "OdpApplyOps" {
+		t.Fatalf("expected OdpApplyOps, got %s", worker.method)
+	}
+	if worker.params["root"] != "draft" {
+		t.Fatalf("expected root draft, got %v", worker.params["root"])
+	}
+	ds, err := eng.workbenches.DraftState(workbenchID)
+	if err != nil || ds == nil {
+		t.Fatalf("expected draft to exist after odp operation")
+	}
+}
+
+func TestToolHandlerOdsGetStylesUsesPublishedWhenDraftMissing(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+
+	worker := &captureToolWorker{}
+	eng, err := New(WithToolWorker(worker))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "OdsStyleQuery"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "ods-style-query",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "ods_get_styles",
+			Arguments: `{"path":"book.ods","sheet":"Sheet1"}`,
+		},
+	}
+	if _, err := handler.Execute(call); err != nil {
+		t.Fatalf("ods_get_styles: %v", err)
+	}
+	if worker.method != "OdsGetStyles" {
+		t.Fatalf("expected OdsGetStyles, got %s", worker.method)
+	}
+	if worker.params["root"] != "published" {
+		t.Fatalf("expected published root without draft, got %v", worker.params["root"])
+	}
+}
+
+func TestToolHandlerOdtCopyAssetsEnsuresDraftAndDraftRoots(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+
+	worker := &captureToolWorker{}
+	eng, err := New(WithToolWorker(worker))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "OdtAssetCopy"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "odt-asset-copy",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "odt_copy_assets",
+			Arguments: `{"source_path":"src.odt","target_path":"dst.odt","assets":[{"type":"paragraph_style","name":"Heading 1"}]}`,
+		},
+	}
+	if _, err := handler.Execute(call); err != nil {
+		t.Fatalf("odt_copy_assets: %v", err)
+	}
+	if worker.method != "OdtCopyAssets" {
+		t.Fatalf("expected OdtCopyAssets, got %s", worker.method)
+	}
+	if worker.params["root"] != "draft" || worker.params["source_root"] != "draft" || worker.params["target_root"] != "draft" {
+		t.Fatalf("expected draft roots, got %#v", worker.params)
+	}
+	ds, err := eng.workbenches.DraftState(workbenchID)
+	if err != nil || ds == nil {
+		t.Fatalf("expected draft to exist")
+	}
+}
+
+func TestToolHandlerOdpGetStylesUsesPublishedWhenDraftMissing(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+
+	worker := &captureToolWorker{}
+	eng, err := New(WithToolWorker(worker))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "OdpStyleQuery"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	handler := NewToolHandler(eng, workbenchID, ctx)
+	call := llm.ToolCall{
+		ID:   "odp-style-query",
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      "odp_get_styles",
+			Arguments: `{"path":"deck.odp"}`,
+		},
+	}
+	if _, err := handler.Execute(call); err != nil {
+		t.Fatalf("odp_get_styles: %v", err)
+	}
+	if worker.method != "OdpGetStyles" {
+		t.Fatalf("expected OdpGetStyles, got %s", worker.method)
+	}
+	if worker.params["root"] != "published" {
+		t.Fatalf("expected published root without draft, got %v", worker.params["root"])
 	}
 }
 

@@ -1,6 +1,6 @@
 # KeenBench — Test Plan: File-Type-Specific Operations
 
-> Extracted from the [master test plan](../test-plan.md). This section covers multi-file cross-reference, XLSX, DOCX, and PPTX specific operation tests.
+> Extracted from the [master test plan](../test-plan.md). This section covers multi-file cross-reference and office file operation tests, including ODF parity (ODT/ODS/ODP with DOCX/XLSX/PPTX).
 
 ## Policy
 
@@ -28,6 +28,7 @@ See `CLAUDE.md` for the full testing policy.
 | File | Location | Description |
 |------|----------|-------------|
 | `data.csv` | `app/integration_test/support/` | Employee roster CSV (name, role, location, availability) with 5 rows |
+| `notes.odt` | `engine/testdata/office/` | OpenDocument text document for ODF parity runs |
 | `report.pdf` | `engine/testdata/office/` | PDF report (read-only) |
 | `slides.pptx` | `engine/testdata/office/` | PowerPoint with 2-3 slides |
 
@@ -61,8 +62,11 @@ Key elements for this section:
 
 The engine uses a Python tool worker (`engine/tools/pyworker/`) for office file operations:
 - `docx_operations`: Create and modify Word documents (headings, paragraphs, tables)
+- `odt_operations`: Create and modify OpenDocument text documents (headings, paragraphs, tables)
 - `xlsx_operations`: Create and modify Excel workbooks (sheets, cells, formulas)
+- `ods_operations`: Create and modify OpenDocument spreadsheets (sheets, cells, formulas)
 - `pptx_operations`: Create and modify PowerPoint presentations (slides, text, layouts)
+- `odp_operations`: Create and modify OpenDocument presentations (slides, text, layouts)
 
 ---
 

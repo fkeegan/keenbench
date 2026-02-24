@@ -1013,6 +1013,8 @@ func (e *Engine) WorkbenchGetScope(ctx context.Context, params json.RawMessage) 
 				workbench.FileKindText,
 				workbench.FileKindDocx,
 				workbench.FileKindOdt,
+				workbench.FileKindOds,
+				workbench.FileKindOdp,
 				workbench.FileKindXlsx,
 				workbench.FileKindPptx,
 				workbench.FileKindPdf,
@@ -1744,15 +1746,15 @@ func (e *Engine) WorkshopApplyProposal(ctx context.Context, params json.RawMessa
 		applied++
 		summaries[entry.Path] = entry.Summary
 		switch strings.ToLower(entry.Kind) {
-		case workbench.FileKindXlsx:
+		case workbench.FileKindXlsx, workbench.FileKindOds:
 			if hint := buildXlsxFocusHint(entry.Ops); hint != nil {
 				focusHints[entry.Path] = hint
 			}
-		case workbench.FileKindDocx:
+		case workbench.FileKindDocx, workbench.FileKindOdt:
 			if hint := buildDocxFocusHint(entry.Ops); hint != nil {
 				focusHints[entry.Path] = hint
 			}
-		case workbench.FileKindPptx:
+		case workbench.FileKindPptx, workbench.FileKindOdp:
 			if hint := buildPptxFocusHint(entry.Ops); hint != nil {
 				focusHints[entry.Path] = hint
 			}
@@ -3207,7 +3209,7 @@ func (e *Engine) buildRPIManifest(ctx context.Context, workbenchID string, light
 		}
 
 		switch f.FileKind {
-		case workbench.FileKindXlsx, workbench.FileKindDocx, workbench.FileKindPptx, workbench.FileKindPdf:
+		case workbench.FileKindXlsx, workbench.FileKindOds, workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindPptx, workbench.FileKindOdp, workbench.FileKindPdf:
 			mapResult := e.getFileMapForContext(ctx, workbenchID, area, f.FileKind, f.Path)
 			if mapResult != "" {
 				manifest.WriteString("- Map:\n```json\n")
@@ -3349,7 +3351,7 @@ func (e *Engine) buildAgentMessages(ctx context.Context, workbenchID string) ([]
 
 		// Include structural map per file type
 		switch f.FileKind {
-		case workbench.FileKindXlsx, workbench.FileKindDocx, workbench.FileKindPptx, workbench.FileKindPdf:
+		case workbench.FileKindXlsx, workbench.FileKindOds, workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindPptx, workbench.FileKindOdp, workbench.FileKindPdf:
 			mapResult := e.getFileMapForContext(ctx, workbenchID, area, f.FileKind, f.Path)
 			if mapResult != "" {
 				manifest.WriteString("- Map:\n```json\n")
@@ -3473,10 +3475,16 @@ func (e *Engine) getFileMapForContext(ctx context.Context, workbenchID, area, ki
 	switch kind {
 	case workbench.FileKindXlsx:
 		method = "XlsxGetMap"
+	case workbench.FileKindOds:
+		method = "OdsGetMap"
 	case workbench.FileKindDocx:
 		method = "DocxGetMap"
+	case workbench.FileKindOdt:
+		method = "OdtGetMap"
 	case workbench.FileKindPptx:
 		method = "PptxGetMap"
+	case workbench.FileKindOdp:
+		method = "OdpGetMap"
 	case workbench.FileKindPdf:
 		method = "PdfGetMap"
 	case workbench.FileKindText:
@@ -3691,19 +3699,27 @@ func (e *Engine) ReviewGetTextDiff(ctx context.Context, params json.RawMessage) 
 	}, nil
 }
 
-type docxSectionContent struct {
+type officeSectionContent struct {
 	SectionIndex int            `json:"section_index"`
 	SectionCount int            `json:"section_count"`
 	Section      map[string]any `json:"section"`
 }
 
-type pptxSlideContent struct {
+type officeSlideContent struct {
 	SlideIndex int            `json:"slide_index"`
 	SlideCount int            `json:"slide_count"`
 	Slide      map[string]any `json:"slide"`
 }
 
 func (e *Engine) ReviewGetDocxContentDiff(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewGetSectionContentDiff(ctx, params, e.readDocxSectionContent)
+}
+
+func (e *Engine) ReviewGetOdtContentDiff(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewGetSectionContentDiff(ctx, params, e.readOdtSectionContent)
+}
+
+func (e *Engine) reviewGetSectionContentDiff(ctx context.Context, params json.RawMessage, readSection func(context.Context, string, string, string, int) (*officeSectionContent, error)) (any, *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID  string `json:"workbench_id"`
 		Path         string `json:"path"`
@@ -3723,7 +3739,7 @@ func (e *Engine) ReviewGetDocxContentDiff(ctx context.Context, params json.RawMe
 		return nil, errinfo.ValidationFailed(errinfo.PhaseReview, "invalid section_index")
 	}
 
-	draftContent, err := e.readDocxSectionContent(ctx, req.WorkbenchID, req.Path, "draft", sectionIndex)
+	draftContent, err := readSection(ctx, req.WorkbenchID, req.Path, "draft", sectionIndex)
 	if err != nil {
 		if errInfo := mapToolWorkerError(errinfo.PhaseReview, err); errInfo != nil {
 			return nil, errInfo
@@ -3761,7 +3777,7 @@ func (e *Engine) ReviewGetDocxContentDiff(ctx context.Context, params json.RawMe
 		}, nil
 	}
 
-	baselineContent, err := e.readDocxSectionContent(ctx, req.WorkbenchID, req.Path, "published", sectionIndex)
+	baselineContent, err := readSection(ctx, req.WorkbenchID, req.Path, "published", sectionIndex)
 	if err != nil {
 		if errInfo := mapToolWorkerError(errinfo.PhaseReview, err); errInfo != nil {
 			if errInfo.ErrorCode == errinfo.CodeValidationFailed || errInfo.ErrorCode == errinfo.CodeFileReadFailed {
@@ -3797,6 +3813,14 @@ func (e *Engine) ReviewGetDocxContentDiff(ctx context.Context, params json.RawMe
 }
 
 func (e *Engine) ReviewGetPptxContentDiff(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewGetSlideContentDiff(ctx, params, e.readPptxSlideContent)
+}
+
+func (e *Engine) ReviewGetOdpContentDiff(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewGetSlideContentDiff(ctx, params, e.readOdpSlideContent)
+}
+
+func (e *Engine) reviewGetSlideContentDiff(ctx context.Context, params json.RawMessage, readSlide func(context.Context, string, string, string, int) (*officeSlideContent, error)) (any, *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID string `json:"workbench_id"`
 		Path        string `json:"path"`
@@ -3816,7 +3840,7 @@ func (e *Engine) ReviewGetPptxContentDiff(ctx context.Context, params json.RawMe
 		return nil, errinfo.ValidationFailed(errinfo.PhaseReview, "invalid slide_index")
 	}
 
-	draftContent, err := e.readPptxSlideContent(ctx, req.WorkbenchID, req.Path, "draft", slideIndex)
+	draftContent, err := readSlide(ctx, req.WorkbenchID, req.Path, "draft", slideIndex)
 	if err != nil {
 		if errInfo := mapToolWorkerError(errinfo.PhaseReview, err); errInfo != nil {
 			return nil, errInfo
@@ -3854,7 +3878,7 @@ func (e *Engine) ReviewGetPptxContentDiff(ctx context.Context, params json.RawMe
 		}, nil
 	}
 
-	baselineContent, err := e.readPptxSlideContent(ctx, req.WorkbenchID, req.Path, "published", slideIndex)
+	baselineContent, err := readSlide(ctx, req.WorkbenchID, req.Path, "published", slideIndex)
 	if err != nil {
 		if errInfo := mapToolWorkerError(errinfo.PhaseReview, err); errInfo != nil {
 			if errInfo.ErrorCode == errinfo.CodeValidationFailed || errInfo.ErrorCode == errinfo.CodeFileReadFailed {
@@ -3902,6 +3926,14 @@ func (e *Engine) ReviewGetOdtPreviewPage(ctx context.Context, params json.RawMes
 }
 
 func (e *Engine) ReviewGetPptxPreviewSlide(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewPreviewSlide(ctx, params, "PptxRenderSlide")
+}
+
+func (e *Engine) ReviewGetOdpPreviewSlide(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewPreviewSlide(ctx, params, "OdpRenderSlide")
+}
+
+func (e *Engine) reviewPreviewSlide(ctx context.Context, params json.RawMessage, method string) (any, *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID string  `json:"workbench_id"`
 		Path        string  `json:"path"`
@@ -3936,7 +3968,7 @@ func (e *Engine) ReviewGetPptxPreviewSlide(ctx context.Context, params json.RawM
 	if e.toolWorker == nil {
 		return nil, errinfo.ToolWorkerUnavailable(errinfo.PhaseReview, "tool worker unavailable")
 	}
-	if err := e.toolWorker.Call(ctx, "PptxRenderSlide", payload, &resp); err != nil {
+	if err := e.toolWorker.Call(ctx, method, payload, &resp); err != nil {
 		if errInfo := mapToolWorkerError(errinfo.PhaseReview, err); errInfo != nil {
 			return nil, errInfo
 		}
@@ -3951,6 +3983,14 @@ func (e *Engine) ReviewGetPptxPreviewSlide(ctx context.Context, params json.RawM
 }
 
 func (e *Engine) ReviewGetXlsxPreviewGrid(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewPreviewGrid(ctx, params, "XlsxRenderGrid")
+}
+
+func (e *Engine) ReviewGetOdsPreviewGrid(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	return e.reviewPreviewGrid(ctx, params, "OdsRenderGrid")
+}
+
+func (e *Engine) reviewPreviewGrid(ctx context.Context, params json.RawMessage, method string) (any, *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID string `json:"workbench_id"`
 		Path        string `json:"path"`
@@ -3992,7 +4032,7 @@ func (e *Engine) ReviewGetXlsxPreviewGrid(ctx context.Context, params json.RawMe
 	if e.toolWorker == nil {
 		return nil, errinfo.ToolWorkerUnavailable(errinfo.PhaseReview, "tool worker unavailable")
 	}
-	if err := e.toolWorker.Call(ctx, "XlsxRenderGrid", payload, &resp); err != nil {
+	if err := e.toolWorker.Call(ctx, method, payload, &resp); err != nil {
 		if errInfo := mapToolWorkerError(errinfo.PhaseReview, err); errInfo != nil {
 			return nil, errInfo
 		}
@@ -4142,7 +4182,15 @@ func (e *Engine) reviewPreviewPage(ctx context.Context, params json.RawMessage, 
 	}, nil
 }
 
-func (e *Engine) readDocxSectionContent(ctx context.Context, workbenchID, path, root string, sectionIndex int) (*docxSectionContent, error) {
+func (e *Engine) readDocxSectionContent(ctx context.Context, workbenchID, path, root string, sectionIndex int) (*officeSectionContent, error) {
+	return e.readOfficeSectionContent(ctx, "DocxGetSectionContent", workbenchID, path, root, sectionIndex)
+}
+
+func (e *Engine) readOdtSectionContent(ctx context.Context, workbenchID, path, root string, sectionIndex int) (*officeSectionContent, error) {
+	return e.readOfficeSectionContent(ctx, "OdtGetSectionContent", workbenchID, path, root, sectionIndex)
+}
+
+func (e *Engine) readOfficeSectionContent(ctx context.Context, method, workbenchID, path, root string, sectionIndex int) (*officeSectionContent, error) {
 	if e.toolWorker == nil {
 		return nil, toolworker.ErrUnavailable
 	}
@@ -4152,8 +4200,8 @@ func (e *Engine) readDocxSectionContent(ctx context.Context, workbenchID, path, 
 		"root":          root,
 		"section_index": sectionIndex,
 	}
-	var resp docxSectionContent
-	if err := e.toolWorker.Call(ctx, "DocxGetSectionContent", params, &resp); err != nil {
+	var resp officeSectionContent
+	if err := e.toolWorker.Call(ctx, method, params, &resp); err != nil {
 		return nil, err
 	}
 	if resp.Section == nil {
@@ -4162,7 +4210,15 @@ func (e *Engine) readDocxSectionContent(ctx context.Context, workbenchID, path, 
 	return &resp, nil
 }
 
-func (e *Engine) readPptxSlideContent(ctx context.Context, workbenchID, path, root string, slideIndex int) (*pptxSlideContent, error) {
+func (e *Engine) readPptxSlideContent(ctx context.Context, workbenchID, path, root string, slideIndex int) (*officeSlideContent, error) {
+	return e.readOfficeSlideContent(ctx, "PptxGetSlideContent", workbenchID, path, root, slideIndex)
+}
+
+func (e *Engine) readOdpSlideContent(ctx context.Context, workbenchID, path, root string, slideIndex int) (*officeSlideContent, error) {
+	return e.readOfficeSlideContent(ctx, "OdpGetSlideContent", workbenchID, path, root, slideIndex)
+}
+
+func (e *Engine) readOfficeSlideContent(ctx context.Context, method, workbenchID, path, root string, slideIndex int) (*officeSlideContent, error) {
 	if e.toolWorker == nil {
 		return nil, toolworker.ErrUnavailable
 	}
@@ -4173,9 +4229,9 @@ func (e *Engine) readPptxSlideContent(ctx context.Context, workbenchID, path, ro
 		"slide_index":  slideIndex,
 		"detail":       "positioned",
 	}
-	var resp pptxSlideContent
-	if err := e.toolWorker.Call(ctx, "PptxGetSlideContent", params, &resp); err != nil {
-		if !shouldFallbackPptxSlideLegacy(err) {
+	var resp officeSlideContent
+	if err := e.toolWorker.Call(ctx, method, params, &resp); err != nil {
+		if !shouldFallbackSlideLegacy(err) {
 			return nil, err
 		}
 		legacyParams := map[string]any{
@@ -4184,7 +4240,7 @@ func (e *Engine) readPptxSlideContent(ctx context.Context, workbenchID, path, ro
 			"root":         root,
 			"slide_index":  slideIndex,
 		}
-		if legacyErr := e.toolWorker.Call(ctx, "PptxGetSlideContent", legacyParams, &resp); legacyErr != nil {
+		if legacyErr := e.toolWorker.Call(ctx, method, legacyParams, &resp); legacyErr != nil {
 			return nil, legacyErr
 		}
 	}
@@ -4194,7 +4250,7 @@ func (e *Engine) readPptxSlideContent(ctx context.Context, workbenchID, path, ro
 	return &resp, nil
 }
 
-func shouldFallbackPptxSlideLegacy(err error) bool {
+func shouldFallbackSlideLegacy(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -4210,6 +4266,10 @@ func shouldFallbackPptxSlideLegacy(err error) bool {
 		return true
 	}
 	return false
+}
+
+func shouldFallbackPptxSlideLegacy(err error) bool {
+	return shouldFallbackSlideLegacy(err)
 }
 
 func (e *Engine) ensureDraftExists(workbenchID string) *errinfo.ErrorInfo {
@@ -4533,7 +4593,7 @@ The file manifest and contents below are already available to you.
 
 Capabilities:
 - You can create or update Workbench files directly.
-- Office files (.docx, .xlsx, .pptx) can be modified by the system using structured operations.
+- Office files (.docx, .odt, .xlsx, .ods, .pptx, .odp) can be modified by the system using structured operations.
 - Do not offer external scripts or claim you cannot write files in this environment.
 
 Do not ask the user to upload or re-send files that appear in the manifest.
@@ -4645,9 +4705,9 @@ func limitContextForFile(kind string, content string, remaining int) (string, bo
 
 func contextDetailRequestHint(kind string) string {
 	switch kind {
-	case workbench.FileKindXlsx:
+	case workbench.FileKindXlsx, workbench.FileKindOds:
 		return "Ask the user for the sheet name and row/column range."
-	case workbench.FileKindPptx:
+	case workbench.FileKindPptx, workbench.FileKindOdp:
 		return "Ask the user for the slide number or the specific text to focus on."
 	case workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindPdf:
 		return "Ask the user for the page/section or to paste the relevant excerpt."
@@ -4742,7 +4802,7 @@ func (e *Engine) buildWorkshopFileContext(ctx context.Context, workbenchID strin
 			}
 			manifest.WriteString("\n")
 			remaining -= len(content)
-		case workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindXlsx, workbench.FileKindPptx, workbench.FileKindPdf:
+		case workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindXlsx, workbench.FileKindOds, workbench.FileKindPptx, workbench.FileKindOdp, workbench.FileKindPdf:
 			text, err := e.extractText(ctx, workbenchID, area, kind, file.Path)
 			if err != nil {
 				manifest.WriteString(workshopContentUnavailable + "\n")
@@ -4819,7 +4879,7 @@ func (e *Engine) buildChatMessages(ctx context.Context, workbenchID string) ([]l
 	return messages, nil
 }
 
-const proposalSystemPrompt = "You are KeenBench. Return a single JSON object that matches Proposal schema v2. Output only JSON (no markdown or code fences).\nRequired shape:\n{\"schema_version\":2,\"summary\":\"...\",\"no_changes\":false,\"writes\":[{\"path\":\"file.md\",\"content\":\"...\"}],\"ops\":[{\"path\":\"report.docx\",\"kind\":\"docx\",\"summary\":\"...\",\"ops\":[{\"op\":\"set_paragraphs\",\"paragraphs\":[{\"text\":\"...\",\"style\":\"Heading1\"}]}]}],\"warnings\":[]}\nRules:\n- summary must be non-empty.\n- If no file edits are needed, set \"no_changes\": true and leave writes/ops empty.\n- Otherwise, either writes or ops (or both) must be present.\n- No delete operations.\n- Paths must be flat (no folders).\n- Writes allowed only for text/code extensions: .md, .txt, .csv, .json, .xml, .yaml, .yml, .html, .js, .ts, .py, .java, .go, .rb, .rs, .c, .cpp, .h, .css, .sql.\n- Ops are only for .docx/.xlsx/.pptx with kind docx/xlsx/pptx matching the extension.\n- Max 10 writes, max 100 ops per file, max 500 ops total.\n- Each ops entry must include a per-file summary.\nAllowed ops:\nDocx: set_paragraphs, append_paragraph, replace_text.\nXlsx: ensure_sheet, set_cells, set_range, set_column_widths, set_row_heights, freeze_panes.\nPptx: add_slide, set_slide_text, append_bullets."
+const proposalSystemPrompt = "You are KeenBench. Return a single JSON object that matches Proposal schema v2. Output only JSON (no markdown or code fences).\nRequired shape:\n{\"schema_version\":2,\"summary\":\"...\",\"no_changes\":false,\"writes\":[{\"path\":\"file.md\",\"content\":\"...\"}],\"ops\":[{\"path\":\"report.docx\",\"kind\":\"docx\",\"summary\":\"...\",\"ops\":[{\"op\":\"set_paragraphs\",\"paragraphs\":[{\"text\":\"...\",\"style\":\"Heading1\"}]}]}],\"warnings\":[]}\nRules:\n- summary must be non-empty.\n- If no file edits are needed, set \"no_changes\": true and leave writes/ops empty.\n- Otherwise, either writes or ops (or both) must be present.\n- No delete operations.\n- Paths must be flat (no folders).\n- Writes allowed only for text/code extensions: .md, .txt, .csv, .json, .xml, .yaml, .yml, .html, .js, .ts, .py, .java, .go, .rb, .rs, .c, .cpp, .h, .css, .sql.\n- Ops are only for .docx/.odt/.xlsx/.ods/.pptx/.odp with kind docx/odt/xlsx/ods/pptx/odp matching the extension.\n- Max 10 writes, max 100 ops per file, max 500 ops total.\n- Each ops entry must include a per-file summary.\nAllowed ops:\nDocx/Odt: set_paragraphs, append_paragraph, replace_text.\nXlsx/Ods: ensure_sheet, set_cells, set_range, set_column_widths, set_row_heights, freeze_panes.\nPptx/Odp: add_slide, set_slide_text, append_bullets."
 
 const proposalSystemPromptStrict = "You are KeenBench. Return a single JSON object matching Proposal schema v2 exactly:\n{\"schema_version\":2,\"summary\":\"...\",\"no_changes\":false,\"writes\":[{\"path\":\"summary.md\",\"content\":\"...\"}],\"ops\":[],\"warnings\":[]}\nRules:\n- Output only JSON (no markdown or code fences).\n- summary must be non-empty.\n- If no file edits are needed, set \"no_changes\": true and leave writes/ops empty.\n- Otherwise, either writes or ops must be present.\n- Allowed write extensions: .md, .txt, .csv, .json, .xml, .yaml, .yml, .html, .js, .ts, .py, .java, .go, .rb, .rs, .c, .cpp, .h, .css, .sql.\n- No delete operations."
 
@@ -4862,8 +4922,12 @@ func (e *Engine) extractText(ctx context.Context, workbenchID, root, kind, path 
 		method = "OdtExtractText"
 	case workbench.FileKindXlsx:
 		method = "XlsxExtractText"
+	case workbench.FileKindOds:
+		method = "OdsExtractText"
 	case workbench.FileKindPptx:
 		method = "PptxExtractText"
+	case workbench.FileKindOdp:
+		method = "OdpExtractText"
 	case workbench.FileKindPdf:
 		method = "PdfExtractText"
 	default:
@@ -5087,8 +5151,11 @@ func validateProposalOps(entries []ProposalOp) error {
 		ext := strings.ToLower(filepath.Ext(entry.Path))
 		expectedExt := map[string]string{
 			"docx": ".docx",
+			"odt":  ".odt",
 			"xlsx": ".xlsx",
+			"ods":  ".ods",
 			"pptx": ".pptx",
+			"odp":  ".odp",
 		}[kind]
 		if expectedExt == "" {
 			return errors.New("unsupported op kind")
@@ -5121,7 +5188,7 @@ func validateOpEntry(kind string, op map[string]any) error {
 		return errors.New("op missing op name")
 	}
 	switch kind {
-	case "docx":
+	case "docx", "odt":
 		switch name {
 		case "set_paragraphs":
 			if _, ok := op["paragraphs"].([]any); !ok {
@@ -5135,7 +5202,7 @@ func validateOpEntry(kind string, op map[string]any) error {
 		default:
 			return errors.New("unsupported docx op")
 		}
-	case "xlsx":
+	case "xlsx", "ods":
 		switch name {
 		case "ensure_sheet":
 			if _, ok := op["sheet"].(string); !ok {
@@ -5236,7 +5303,7 @@ func validateOpEntry(kind string, op map[string]any) error {
 		default:
 			return errors.New("unsupported xlsx op")
 		}
-	case "pptx":
+	case "pptx", "odp":
 		switch name {
 		case "add_slide":
 		case "set_slide_text":
@@ -5338,10 +5405,16 @@ func (e *Engine) applyOfficeOps(ctx context.Context, workbenchID, root string, e
 	switch strings.ToLower(entry.Kind) {
 	case workbench.FileKindDocx:
 		method = "DocxApplyOps"
+	case workbench.FileKindOdt:
+		method = "OdtApplyOps"
 	case workbench.FileKindXlsx:
 		method = "XlsxApplyOps"
+	case workbench.FileKindOds:
+		method = "OdsApplyOps"
 	case workbench.FileKindPptx:
 		method = "PptxApplyOps"
+	case workbench.FileKindOdp:
+		method = "OdpApplyOps"
 	default:
 		return errors.New("unsupported op kind")
 	}
@@ -5379,7 +5452,7 @@ func (e *Engine) ensureDraftBaseline(ctx context.Context, workbenchID, draftID s
 			kind, _ = workbench.FileKindForPath(file.Path)
 		}
 		switch kind {
-		case workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindXlsx, workbench.FileKindPptx, workbench.FileKindPdf:
+		case workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindXlsx, workbench.FileKindOds, workbench.FileKindPptx, workbench.FileKindOdp, workbench.FileKindPdf:
 			text, err := e.extractText(ctx, workbenchID, "draft", kind, file.Path)
 			if err != nil {
 				e.logger.Warn("review.baseline_extract_failed", "workbench_id", workbenchID, "path", file.Path, "error", err.Error())
@@ -5845,9 +5918,9 @@ func previewKindForFile(kind string, isOpaque bool) string {
 	switch kind {
 	case workbench.FileKindImage:
 		return "image"
-	case workbench.FileKindXlsx:
+	case workbench.FileKindXlsx, workbench.FileKindOds:
 		return "grid"
-	case workbench.FileKindText, workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindPptx, workbench.FileKindPdf:
+	case workbench.FileKindText, workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindPptx, workbench.FileKindOdp, workbench.FileKindPdf:
 		return "diff"
 	default:
 		return "none"
@@ -5863,6 +5936,8 @@ var mimeFallbacks = map[string]string{
 	".xml":  "application/xml",
 	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	".odt":  "application/vnd.oasis.opendocument.text",
+	".ods":  "application/vnd.oasis.opendocument.spreadsheet",
+	".odp":  "application/vnd.oasis.opendocument.presentation",
 	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	".pdf":  "application/pdf",

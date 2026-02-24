@@ -122,7 +122,7 @@ func fileWeight(file workbench.FileEntry) float64 {
 		return size / 4.0
 	case workbench.FileKindDocx, workbench.FileKindOdt, workbench.FileKindPdf:
 		return float64(baseDocTokens) + size/6.0
-	case workbench.FileKindXlsx, workbench.FileKindPptx:
+	case workbench.FileKindXlsx, workbench.FileKindOds, workbench.FileKindPptx, workbench.FileKindOdp:
 		return float64(baseOfficeTokens) + size/8.0
 	case workbench.FileKindImage:
 		return float64(baseImageTokens)
