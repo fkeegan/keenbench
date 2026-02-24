@@ -11,6 +11,12 @@ class AppKeys {
     'home_delete_workbench_confirm',
   );
   static const homeDeleteWorkbenchCancel = Key('home_delete_workbench_cancel');
+  static const homeRenameWorkbenchDialog = Key('home_rename_workbench_dialog');
+  static const homeRenameWorkbenchNameField = Key('home_rename_workbench_name');
+  static const homeRenameWorkbenchConfirm = Key(
+    'home_rename_workbench_confirm',
+  );
+  static const homeRenameWorkbenchCancel = Key('home_rename_workbench_cancel');
   static const homeForkWorkbenchDialog = Key('home_fork_workbench_dialog');
   static const homeForkWorkbenchNameField = Key('home_fork_workbench_name');
   static const homeForkWorkbenchModeSelector = Key(
@@ -30,6 +36,7 @@ class AppKeys {
 
   static const workbenchScreen = Key('workbench_screen');
   static const workbenchSettingsButton = Key('workbench_settings_button');
+  static const workbenchRenameButton = Key('workbench_rename_button');
   static const workbenchAddFilesButton = Key('workbench_add_files');
   static const workbenchAddContextButton = Key('workbench_add_context');
   static const workbenchFileList = Key('workbench_file_list');
@@ -68,6 +75,10 @@ class AppKeys {
     'workbench_remove_file_confirm',
   );
   static const workbenchRemoveFileCancel = Key('workbench_remove_file_cancel');
+  static const workbenchRenameDialog = Key('workbench_rename_dialog');
+  static const workbenchRenameNameField = Key('workbench_rename_name');
+  static const workbenchRenameConfirm = Key('workbench_rename_confirm');
+  static const workbenchRenameCancel = Key('workbench_rename_cancel');
 
   static const proposalCard = Key('proposal_card');
   static const proposalSummary = Key('proposal_summary');
@@ -171,6 +182,8 @@ class AppKeys {
       ValueKey<String>('workbench_tile_$id');
   static ValueKey<String> workbenchTileMenu(String id) =>
       ValueKey<String>('workbench_tile_menu_$id');
+  static ValueKey<String> workbenchTileRename(String id) =>
+      ValueKey<String>('workbench_tile_rename_$id');
   static ValueKey<String> workbenchTileDelete(String id) =>
       ValueKey<String>('workbench_tile_delete_$id');
   static ValueKey<String> workbenchTileFork(String id) =>

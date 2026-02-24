@@ -551,6 +551,76 @@ func TestWorkbenchDelete(t *testing.T) {
 	}
 }
 
+func TestWorkbenchRename(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	wb, err := mgr.Create("Before", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	previousUpdatedAt := wb.UpdatedAt
+
+	renamed, err := mgr.Rename(wb.ID, "After")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if renamed.Name != "After" {
+		t.Fatalf("expected renamed workbench name After, got %q", renamed.Name)
+	}
+	oldTimestamp, err := time.Parse(time.RFC3339, previousUpdatedAt)
+	if err != nil {
+		t.Fatalf("parse previous updated at: %v", err)
+	}
+	newTimestamp, err := time.Parse(time.RFC3339, renamed.UpdatedAt)
+	if err != nil {
+		t.Fatalf("parse renamed updated at: %v", err)
+	}
+	if newTimestamp.Before(oldTimestamp) {
+		t.Fatalf("expected updated_at to be >= previous updated_at; old=%s new=%s", previousUpdatedAt, renamed.UpdatedAt)
+	}
+
+	reloaded, err := mgr.Open(wb.ID)
+	if err != nil {
+		t.Fatalf("open renamed workbench: %v", err)
+	}
+	if reloaded.Name != "After" {
+		t.Fatalf("expected persisted workbench name After, got %q", reloaded.Name)
+	}
+}
+
+func TestWorkbenchRenameBlankFallsBackToUntitled(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	wb, err := mgr.Create("Original", "openai:gpt-5.2")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	renamed, err := mgr.Rename(wb.ID, "   ")
+	if err != nil {
+		t.Fatalf("rename blank: %v", err)
+	}
+	if renamed.Name != "Untitled Workbench" {
+		t.Fatalf("expected Untitled Workbench, got %q", renamed.Name)
+	}
+}
+
+func TestWorkbenchRenameNotFound(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(filepath.Join(root, "workbenches"))
+	if err := mgr.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if _, err := mgr.Rename("missing", "Renamed"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected os.ErrNotExist for missing workbench, got %v", err)
+	}
+}
+
 func TestWorkbenchForkCloneAllPreservesHistoryAndContext(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(filepath.Join(root, "workbenches"))

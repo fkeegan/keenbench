@@ -663,6 +663,95 @@ func TestWorkbenchDeleteRPC(t *testing.T) {
 	}
 }
 
+func TestWorkbenchRenameRPC(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "Before"}))
+	if errInfo != nil {
+		t.Fatalf("create: %v", errInfo)
+	}
+	workbenchID := createResp.(map[string]any)["workbench_id"].(string)
+
+	renameResp, errInfo := eng.WorkbenchRename(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"name":         "After",
+	}))
+	if errInfo != nil {
+		t.Fatalf("rename: %v", errInfo)
+	}
+	renamed := renameResp.(map[string]any)["workbench"].(*workbench.Workbench)
+	if renamed.ID != workbenchID {
+		t.Fatalf("expected renamed workbench id %q, got %q", workbenchID, renamed.ID)
+	}
+	if renamed.Name != "After" {
+		t.Fatalf("expected renamed workbench name %q, got %q", "After", renamed.Name)
+	}
+	if renamed.UpdatedAt == "" {
+		t.Fatalf("expected updated_at to be set")
+	}
+
+	openResp, errInfo := eng.WorkbenchOpen(ctx, mustJSON(t, map[string]any{"workbench_id": workbenchID}))
+	if errInfo != nil {
+		t.Fatalf("open: %v", errInfo)
+	}
+	opened := openResp.(map[string]any)["workbench"].(*workbench.Workbench)
+	if opened.Name != "After" {
+		t.Fatalf("expected open name After, got %q", opened.Name)
+	}
+
+	renameResp, errInfo = eng.WorkbenchRename(ctx, mustJSON(t, map[string]any{
+		"workbench_id": workbenchID,
+		"name":         "   ",
+	}))
+	if errInfo != nil {
+		t.Fatalf("rename blank: %v", errInfo)
+	}
+	renamed = renameResp.(map[string]any)["workbench"].(*workbench.Workbench)
+	if renamed.Name != "Untitled Workbench" {
+		t.Fatalf("expected blank rename fallback to Untitled Workbench, got %q", renamed.Name)
+	}
+}
+
+func TestWorkbenchRenameRPCValidation(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if _, errInfo := eng.WorkbenchRename(ctx, mustJSON(t, map[string]any{
+		"workbench_id": "  ",
+		"name":         "Invalid",
+	})); errInfo == nil {
+		t.Fatalf("expected invalid workbench id validation error")
+	} else if errInfo.Detail != "invalid workbench id" {
+		t.Fatalf("expected invalid workbench id detail, got %q", errInfo.Detail)
+	}
+
+	if _, errInfo := eng.WorkbenchRename(ctx, mustJSON(t, map[string]any{
+		"workbench_id": "missing",
+		"name":         "Renamed",
+	})); errInfo == nil {
+		t.Fatalf("expected workbench not found validation error")
+	} else if errInfo.Detail != "workbench not found" {
+		t.Fatalf("expected workbench not found detail, got %q", errInfo.Detail)
+	}
+}
+
 func TestWorkbenchForkRPC(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

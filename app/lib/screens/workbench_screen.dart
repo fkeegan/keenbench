@@ -922,6 +922,63 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     return result;
   }
 
+  Future<String?> _promptRenameWorkbenchName(String currentName) async {
+    final controller = TextEditingController(text: currentName);
+    final result = await showDialog<String>(
+      context: context,
+      barrierColor: KeenBenchTheme.colorSurfaceOverlay,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        void submit() => Navigator.of(dialogContext).pop(controller.text);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.workbenchRenameDialog,
+            title: const Text('Rename Workbench'),
+            content: TextField(
+              key: AppKeys.workbenchRenameNameField,
+              controller: controller,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(),
+              decoration: const InputDecoration(labelText: 'Workbench name'),
+            ),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.workbenchRenameCancel,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.workbenchRenameConfirm,
+                onPressed: submit,
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    return result;
+  }
+
+  Future<void> _renameCurrentWorkbench() async {
+    final state = context.read<WorkbenchState>();
+    final currentName = state.workbench?.name ?? '';
+    final name = await _promptRenameWorkbenchName(currentName);
+    if (name == null) {
+      return;
+    }
+    try {
+      _clearErrorSummary();
+      await state.renameWorkbench(name);
+    } on EngineError catch (err) {
+      await _handleEngineError(err, onRetry: () => state.renameWorkbench(name));
+    }
+  }
+
   Future<void> _forkCurrentWorkbench(String mode) async {
     final state = context.read<WorkbenchState>();
     if (state.hasDraft) {
@@ -1244,6 +1301,28 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                         score: state.clutter!.score,
                         level: state.clutter!.level,
                       ),
+                    const SizedBox(width: 16),
+                    Tooltip(
+                      message: 'Rename Workbench',
+                      child: IconButton(
+                        key: AppKeys.workbenchRenameButton,
+                        onPressed: workbench == null
+                            ? null
+                            : () => _renameCurrentWorkbench(),
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          size: 20,
+                          color: KeenBenchTheme.colorTextSecondary,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        splashRadius: 18,
+                        hoverColor: KeenBenchTheme.colorBackgroundHover,
+                      ),
+                    ),
                     const SizedBox(width: 16),
                     Tooltip(
                       message: state.hasDraft

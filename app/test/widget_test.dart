@@ -14,6 +14,15 @@ class FakeEngine implements EngineApi {
   final _controller = StreamController<EngineNotification>.broadcast();
   final List<String> calls = [];
   final Map<String, dynamic> lastCallParams = {};
+  final Map<String, String> _workbenchNames = {'wb-1': 'Sample Workbench'};
+
+  String _normalizedWorkbenchName(dynamic value) {
+    final name = value?.toString().trim() ?? '';
+    if (name.isEmpty) {
+      return 'Untitled Workbench';
+    }
+    return name;
+  }
 
   @override
   Stream<EngineNotification> get notifications => _controller.stream;
@@ -31,7 +40,7 @@ class FakeEngine implements EngineApi {
         'workbenches': [
           {
             'id': 'wb-1',
-            'name': 'Sample Workbench',
+            'name': _workbenchNames['wb-1'] ?? 'Sample Workbench',
             'created_at': '2026-01-01T00:00:00Z',
             'updated_at': '2026-01-02T00:00:00Z',
           },
@@ -39,16 +48,33 @@ class FakeEngine implements EngineApi {
       };
     }
     if (method == 'WorkbenchCreate') {
+      _workbenchNames['wb-2'] = _normalizedWorkbenchName(params?['name']);
       return {'workbench_id': 'wb-2'};
     }
     if (method == 'WorkbenchFork') {
+      _workbenchNames['wb-fork'] = _normalizedWorkbenchName(params?['name']);
       return {'workbench_id': 'wb-fork'};
     }
-    if (method == 'WorkbenchOpen') {
+    if (method == 'WorkbenchRename') {
+      final workbenchId = params?['workbench_id'] as String? ?? '';
+      final nextName = _normalizedWorkbenchName(params?['name']);
+      _workbenchNames[workbenchId] = nextName;
       return {
         'workbench': {
-          'id': params?['workbench_id'] as String? ?? 'wb-2',
-          'name': 'New Workbench',
+          'id': workbenchId,
+          'name': nextName,
+          'created_at': '2026-01-01T00:00:00Z',
+          'updated_at': '2026-01-02T00:00:00Z',
+          'default_model_id': 'openai/gpt-4o-mini',
+        },
+      };
+    }
+    if (method == 'WorkbenchOpen') {
+      final workbenchId = params?['workbench_id'] as String? ?? 'wb-2';
+      return {
+        'workbench': {
+          'id': workbenchId,
+          'name': _workbenchNames[workbenchId] ?? 'New Workbench',
           'created_at': '2026-01-01T00:00:00Z',
           'updated_at': '2026-01-02T00:00:00Z',
           'default_model_id': 'openai/gpt-4o-mini',
@@ -216,5 +242,74 @@ void main() {
     );
     expect(engine.lastCallParams['WorkbenchFork']['mode'], 'clone_all');
     expect(find.byKey(AppKeys.workbenchScreen), findsOneWidget);
+  });
+
+  testWidgets('home workbench menu renames workbench', (tester) async {
+    final engine = FakeEngine();
+    await pumpHome(tester, engine);
+
+    await tester.tap(find.byKey(AppKeys.workbenchTileMenu('wb-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(AppKeys.workbenchTileRename('wb-1')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(AppKeys.homeRenameWorkbenchDialog), findsOneWidget);
+    await tester.enterText(
+      find.byKey(AppKeys.homeRenameWorkbenchNameField),
+      'Renamed Workbench',
+    );
+    await tester.tap(find.byKey(AppKeys.homeRenameWorkbenchConfirm));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('WorkbenchRename'), 1);
+    expect(engine.lastCallParams['WorkbenchRename']['workbench_id'], 'wb-1');
+    expect(
+      engine.lastCallParams['WorkbenchRename']['name'],
+      'Renamed Workbench',
+    );
+    expect(find.text('Renamed Workbench'), findsOneWidget);
+  });
+
+  testWidgets('workbench screen rename updates title', (tester) async {
+    final engine = FakeEngine();
+    await pumpHome(tester, engine);
+
+    await tester.tap(find.byKey(AppKeys.workbenchTile('wb-1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(AppKeys.workbenchScreen), findsOneWidget);
+
+    await tester.tap(find.byKey(AppKeys.workbenchRenameButton));
+    await tester.pumpAndSettle();
+    expect(find.byKey(AppKeys.workbenchRenameDialog), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(AppKeys.workbenchRenameNameField),
+      'Renamed In Workbench',
+    );
+    await tester.tap(find.byKey(AppKeys.workbenchRenameConfirm));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('WorkbenchRename'), 1);
+    expect(engine.lastCallParams['WorkbenchRename']['workbench_id'], 'wb-1');
+    expect(find.text('Renamed In Workbench'), findsOneWidget);
+  });
+
+  testWidgets('workbench rename blank input falls back to untitled', (
+    tester,
+  ) async {
+    final engine = FakeEngine();
+    await pumpHome(tester, engine);
+
+    await tester.tap(find.byKey(AppKeys.workbenchTile('wb-1')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(AppKeys.workbenchRenameButton));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(AppKeys.workbenchRenameNameField), '   ');
+    await tester.tap(find.byKey(AppKeys.workbenchRenameConfirm));
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('WorkbenchRename'), 1);
+    expect(find.text('Untitled Workbench'), findsOneWidget);
   });
 }
