@@ -16,7 +16,7 @@ This applies to CSV/XLSX first, but the design must generalize to other file typ
 - `engine/tools/pyworker/worker.py`
 - `docs/improvements/2026-02-22-xlsx-mixed-sql-file-read-improvement.md`
 - `docs/issues/2026-02-22-rpi-research-recall-tool-result-payload-blowup.md`
-- `docs/plans/m2-improvements.md` (format/style reference)
+- `docs/plans/2026-02-05-m2-improvements.md` (format/style reference)
 
 ---
 

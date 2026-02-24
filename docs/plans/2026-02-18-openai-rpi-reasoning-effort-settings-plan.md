@@ -1,5 +1,8 @@
 # Implementation Plan: OpenAI RPI Reasoning-Effort Runtime Settings
 
+## Status
+Planned (2026-02-18)
+
 ## Summary
 Add provider-level runtime settings for RPI phase reasoning effort so OpenAI-backed runs can independently tune Research, Plan, and Implement effort for:
 - `openai`

@@ -74,4 +74,4 @@ If unsure, prefer a **no-changes** proposal:
 ## References
 - `docs/design/capabilities/workshop.md`
 - `docs/design/capabilities/file-operations.md`
-- `docs/plans/m1-implementation-plan.md`
+- `docs/plans/2026-01-31-m1-implementation-plan.md`

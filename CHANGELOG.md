@@ -26,7 +26,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-- Open-source readiness checklist (`docs/plans/open-source-readiness-checklist.md`)
+- Open-source readiness checklist (`docs/plans/implemented/2026-02-16-open-source-readiness-checklist.md`)
 - OSS governance baseline docs (`LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `GOVERNANCE.md`)
 - CI workflows split into default checks and secret-gated AI E2E runs
 

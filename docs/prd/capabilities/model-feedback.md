@@ -77,4 +77,4 @@ A repo-tracked markdown document produced by manual export from runtime records.
 - `docs/design/capabilities/model-feedback.md`
 - `docs/prd/capabilities/workshop.md`
 - `docs/design/capabilities/workshop.md`
-- `docs/plans/model-feedback-product-fit-implementation-plan.md`
+- `docs/plans/2026-02-22-model-feedback-product-fit-implementation-plan.md`
