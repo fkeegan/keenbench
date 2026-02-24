@@ -1,7 +1,7 @@
 # Implementation Plan: Accessibility Capability (WCAG 2.1 AA Baseline)
 
 ## Status
-In progress (started 2026-02-18)
+In Progress (started 2026-02-18)
 
 ## References
 - `docs/prd/capabilities/accessibility.md`

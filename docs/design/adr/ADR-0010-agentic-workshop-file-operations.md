@@ -335,4 +335,4 @@ Tool calls and results are stored in the conversation history:
 ## References
 - [OpenAI Function Calling](https://platform.openai.com/docs/guides/function-calling)
 - Claude Code architecture (similar agentic pattern)
-- Original M1 plan: `docs/plans/m1-implementation-plan.md`
+- Original M1 plan: `docs/plans/2026-01-31-m1-implementation-plan.md`

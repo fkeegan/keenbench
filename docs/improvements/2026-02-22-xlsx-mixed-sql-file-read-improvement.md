@@ -17,7 +17,7 @@ Companion write/preservation plan: `docs/improvements/2026-02-23-xlsx-merged-cel
 - `engine/internal/engine/engine.go`
 - `engine/tools/pyworker/worker.py`
 - `docs/issues/2026-02-22-rpi-research-recall-tool-result-payload-blowup.md`
-- `docs/plans/m2-improvements.md` (format/style reference)
+- `docs/plans/2026-02-05-m2-improvements.md` (format/style reference)
 
 ---
 

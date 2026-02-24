@@ -1,5 +1,8 @@
 # OpenAI Subscription OAuth (OpenAI First) Implementation Plan
 
+## Status
+Planned (2026-02-18)
+
 ## Summary
 This plan adds OpenAI subscription authentication to KeenBench alongside existing API-key auth.
 

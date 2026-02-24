@@ -1,5 +1,8 @@
 # Implementation Plan: RPI Agent Workflow (Research → Plan → Implement)
 
+## Status
+Planned (2026-02-18)
+
 ## Context
 
 The current workshop agent runs as a single unbounded loop: the model receives the full conversation history + file manifest and calls tools until it finishes or hits the turn limit. This causes context bloat, no upfront planning, no resumability, and no progress visibility. The RPI workflow replaces this with three distinct phases, each running with fresh API context. State transfers between phases via markdown files in workbench metadata.
@@ -260,7 +263,7 @@ Uses `scriptedToolOpenAI` pattern (plumbing tests, not AI behavior).
 | `docs/design/capabilities/workshop.md` | Replace "Agent Loop Intelligence" section with RPI phase descriptions |
 | `docs/design/adr/ADR-0010-agentic-workshop-file-operations.md` | Add "Superseded by RPI" note, reference rpi-agent-workflow.md |
 | `docs/prd/capabilities/workshop.md` | Update "Agent Loop Intelligence" requirements for RPI semantics |
-| `docs/plans/m4-implementation-plan.md` | Update agent loop references to reflect RPI |
+| `docs/plans/2026-02-16-m4-implementation-plan.md` | Update agent loop references to reflect RPI |
 | `docs/design/capabilities/workbench-context.md` | Note context injection in all three RPI phases |
 | `docs/test/test-plan.md` | Add TC-RPI-01 through TC-RPI-08 test cases |
 

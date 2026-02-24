@@ -1,5 +1,8 @@
 # Implementation Plan: Product-Model-Fit Feedback
 
+## Status
+Planned (2026-02-22)
+
 ## Summary
 
 Add an opt-in model-feedback capability so KeenBench can treat the model as an internal customer of the toolset.
