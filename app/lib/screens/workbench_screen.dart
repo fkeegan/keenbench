@@ -1,3 +1,4 @@
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -78,6 +79,8 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
   String? _dismissedDraftToken;
   String? _restoringCheckpointId;
   String? _errorSummary;
+
+  bool _isDraggingFiles = false;
 
   String? _lastAnnouncedPhaseLabel;
   bool _lastToolExecutingAnnounced = false;
@@ -1462,16 +1465,43 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Row(
                           children: [
-                            Container(
-                              width: sidebarWidth,
-                              decoration: const BoxDecoration(
-                                border: Border(
-                                  right: BorderSide(
-                                    color: KeenBenchTheme.colorBorderDefault,
-                                  ),
-                                ),
-                                color: KeenBenchTheme.colorBackgroundSecondary,
-                              ),
+                            DropTarget(
+                              onDragEntered: (_) {
+                                if (!state.hasDraft) {
+                                  setState(() => _isDraggingFiles = true);
+                                }
+                              },
+                              onDragExited: (_) =>
+                                  setState(() => _isDraggingFiles = false),
+                              onDragDone: (detail) async {
+                                setState(() => _isDraggingFiles = false);
+                                if (state.hasDraft) return;
+                                final paths =
+                                    detail.files.map((f) => f.path).toList();
+                                if (paths.isEmpty) return;
+                                try {
+                                  await state.addFiles(paths);
+                                } catch (err) {
+                                  if (!context.mounted) return;
+                                  _showMessage(err.toString(), isError: true);
+                                }
+                              },
+                              child: Stack(
+                                children: [
+                                  Container(
+                                    key: AppKeys.workbenchDropZone,
+                                    width: sidebarWidth,
+                                    decoration: BoxDecoration(
+                                      border: Border(
+                                        right: BorderSide(
+                                          color: _isDraggingFiles
+                                              ? KeenBenchTheme.colorInfoBorder
+                                              : KeenBenchTheme.colorBorderDefault,
+                                        ),
+                                      ),
+                                      color: KeenBenchTheme
+                                          .colorBackgroundSecondary,
+                                    ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -1719,6 +1749,44 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                       ),
                                     ),
                                   ),
+                                ],
+                              ),
+                                  ),
+                                  if (_isDraggingFiles && !state.hasDraft)
+                                    Positioned.fill(
+                                      child: IgnorePointer(
+                                        child: Container(
+                                          color: KeenBenchTheme
+                                              .colorInfoBackground
+                                              .withValues(alpha: 0.9),
+                                          child: Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons.file_download_outlined,
+                                                size: 40,
+                                                color: KeenBenchTheme
+                                                    .colorInfoText,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'Drop files here',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: KeenBenchTheme
+                                                          .colorInfoText,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),

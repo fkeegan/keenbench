@@ -38,6 +38,7 @@ class AppKeys {
   static const workbenchSettingsButton = Key('workbench_settings_button');
   static const workbenchRenameButton = Key('workbench_rename_button');
   static const workbenchAddFilesButton = Key('workbench_add_files');
+  static const workbenchDropZone = Key('workbench_drop_zone');
   static const workbenchAddContextButton = Key('workbench_add_context');
   static const workbenchFileList = Key('workbench_file_list');
   static const workbenchMessageList = Key('workbench_message_list');
