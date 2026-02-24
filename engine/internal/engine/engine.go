@@ -967,6 +967,32 @@ func (e *Engine) WorkbenchOpen(ctx context.Context, params json.RawMessage) (any
 	return map[string]any{"workbench": wb}, nil
 }
 
+func (e *Engine) WorkbenchRename(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	var req struct {
+		WorkbenchID string `json:"workbench_id"`
+		Name        string `json:"name"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "invalid params")
+	}
+	req.WorkbenchID = strings.TrimSpace(req.WorkbenchID)
+	if req.WorkbenchID == "" {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "invalid workbench id")
+	}
+	wb, err := e.workbenches.Rename(req.WorkbenchID, req.Name)
+	if err != nil {
+		if errors.Is(err, workbench.ErrInvalidPath) || strings.Contains(err.Error(), "invalid workbench id") {
+			return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, err.Error())
+		}
+		if os.IsNotExist(err) {
+			return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "workbench not found")
+		}
+		return nil, errinfo.FileWriteFailed(errinfo.PhaseWorkbench, err.Error())
+	}
+	e.logger.Info("workbench.rename", "workbench_id", wb.ID, "name", wb.Name)
+	return map[string]any{"workbench": wb}, nil
+}
+
 func (e *Engine) WorkbenchFilesList(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
 	var req struct {
 		WorkbenchID string `json:"workbench_id"`

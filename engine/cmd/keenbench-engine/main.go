@@ -90,6 +90,7 @@ func main() {
 	register("WorkbenchCreate", eng.WorkbenchCreate)
 	register("WorkbenchFork", eng.WorkbenchFork)
 	register("WorkbenchOpen", eng.WorkbenchOpen)
+	register("WorkbenchRename", eng.WorkbenchRename)
 	register("WorkbenchList", eng.WorkbenchList)
 	register("WorkbenchGetScope", eng.WorkbenchGetScope)
 	register("WorkbenchFilesList", eng.WorkbenchFilesList)

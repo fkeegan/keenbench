@@ -436,6 +436,28 @@ func (m *Manager) Open(id string) (*Workbench, error) {
 	return &wb, nil
 }
 
+func (m *Manager) Rename(id, name string) (*Workbench, error) {
+	root, err := m.workbenchRoot(id)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(root, metaFolder, "workbench.json")
+	var wb Workbench
+	if err := readJSON(path, &wb); err != nil {
+		return nil, err
+	}
+	normalizedName := strings.TrimSpace(name)
+	if normalizedName == "" {
+		normalizedName = "Untitled Workbench"
+	}
+	wb.Name = normalizedName
+	wb.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := writeJSON(path, &wb); err != nil {
+		return nil, err
+	}
+	return &wb, nil
+}
+
 func (m *Manager) Delete(id string) error {
 	root, err := m.workbenchRoot(id)
 	if err != nil {

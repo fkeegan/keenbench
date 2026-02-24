@@ -449,6 +449,19 @@ class WorkbenchState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> renameWorkbench(String name) async {
+    AppLog.info('workbench.rename_workbench', {'workbench_id': workbenchId});
+    final response = await engine.call('WorkbenchRename', {
+      'workbench_id': workbenchId,
+      'name': name,
+    });
+    final workbenchJson = _asMap(response['workbench']);
+    if (workbenchJson.isNotEmpty) {
+      workbench = Workbench.fromJson(workbenchJson);
+    }
+    notifyListeners();
+  }
+
   Future<void> publishDraft() async {
     AppLog.info('workbench.publish_draft', {'workbench_id': workbenchId});
     await engine.call('DraftPublish', {'workbench_id': workbenchId});

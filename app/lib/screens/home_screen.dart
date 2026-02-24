@@ -155,6 +155,66 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _renameWorkbench(Workbench wb) async {
+    final controller = TextEditingController(text: wb.name);
+    final name = await showDialog<String>(
+      context: context,
+      barrierColor: KeenBenchTheme.colorSurfaceOverlay,
+      builder: (dialogContext) {
+        void cancel() => Navigator.of(dialogContext).pop();
+
+        void submit() => Navigator.of(dialogContext).pop(controller.text);
+
+        return DialogKeyboardShortcuts(
+          onCancel: cancel,
+          onSubmit: submit,
+          child: AlertDialog(
+            key: AppKeys.homeRenameWorkbenchDialog,
+            title: const Text('Rename Workbench'),
+            content: TextField(
+              key: AppKeys.homeRenameWorkbenchNameField,
+              controller: controller,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(),
+              decoration: const InputDecoration(labelText: 'Workbench name'),
+            ),
+            actions: [
+              OutlinedButton(
+                key: AppKeys.homeRenameWorkbenchCancel,
+                onPressed: cancel,
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                key: AppKeys.homeRenameWorkbenchConfirm,
+                onPressed: submit,
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (name == null) {
+      return;
+    }
+    final engine = context.read<EngineApi>();
+    try {
+      AppLog.info('home.rename_workbench', {'workbench_id': wb.id});
+      await engine.call('WorkbenchRename', {
+        'workbench_id': wb.id,
+        'name': name,
+      });
+      await _load();
+    } on EngineError catch (err) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(err.message)));
+    }
+  }
+
   Future<void> _forkWorkbench(Workbench wb) async {
     final engine = context.read<EngineApi>();
     final controller = TextEditingController(text: wb.name);
@@ -381,6 +441,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                               KeenBenchTheme.colorTextSecondary,
                                         ),
                                         onSelected: (value) {
+                                          if (value == 'rename') {
+                                            _renameWorkbench(wb);
+                                            return;
+                                          }
                                           if (value == 'fork') {
                                             _forkWorkbench(wb);
                                             return;
@@ -390,6 +454,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                           }
                                         },
                                         itemBuilder: (context) => [
+                                          PopupMenuItem<String>(
+                                            key: AppKeys.workbenchTileRename(
+                                              wb.id,
+                                            ),
+                                            value: 'rename',
+                                            child: Text(
+                                              'Rename Workbench',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodyMedium,
+                                            ),
+                                          ),
                                           PopupMenuItem<String>(
                                             key: AppKeys.workbenchTileFork(
                                               wb.id,
