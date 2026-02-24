@@ -1476,8 +1476,9 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                               onDragDone: (detail) async {
                                 setState(() => _isDraggingFiles = false);
                                 if (state.hasDraft) return;
-                                final paths =
-                                    detail.files.map((f) => f.path).toList();
+                                final paths = detail.files
+                                    .map((f) => f.path)
+                                    .toList();
                                 if (paths.isEmpty) return;
                                 try {
                                   await state.addFiles(paths);
@@ -1496,261 +1497,285 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                                         right: BorderSide(
                                           color: _isDraggingFiles
                                               ? KeenBenchTheme.colorInfoBorder
-                                              : KeenBenchTheme.colorBorderDefault,
+                                              : KeenBenchTheme
+                                                    .colorBorderDefault,
                                         ),
                                       ),
                                       color: KeenBenchTheme
                                           .colorBackgroundSecondary,
                                     ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.all(16),
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Wrap(
-                                          crossAxisAlignment:
-                                              WrapCrossAlignment.center,
-                                          spacing: 8,
-                                          runSpacing: 6,
-                                          children: [
-                                            Text(
-                                              'Workbench Files',
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.headlineSmall,
-                                            ),
-                                            if (scope != null)
-                                              Container(
-                                                key:
-                                                    AppKeys.workbenchScopeBadge,
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 2,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: KeenBenchTheme
-                                                      .colorInfoBackground,
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                        999,
-                                                      ),
-                                                  border: Border.all(
-                                                    color: KeenBenchTheme
-                                                        .colorInfoBorder,
+                                        Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Wrap(
+                                                crossAxisAlignment:
+                                                    WrapCrossAlignment.center,
+                                                spacing: 8,
+                                                runSpacing: 6,
+                                                children: [
+                                                  Text(
+                                                    'Workbench Files',
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.headlineSmall,
                                                   ),
-                                                ),
-                                                child: Text(
-                                                  'Scoped',
+                                                  if (scope != null)
+                                                    Container(
+                                                      key: AppKeys
+                                                          .workbenchScopeBadge,
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 2,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: KeenBenchTheme
+                                                            .colorInfoBackground,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              999,
+                                                            ),
+                                                        border: Border.all(
+                                                          color: KeenBenchTheme
+                                                              .colorInfoBorder,
+                                                        ),
+                                                      ),
+                                                      child: Text(
+                                                        'Scoped',
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .labelSmall
+                                                            ?.copyWith(
+                                                              color: KeenBenchTheme
+                                                                  .colorInfoText,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              letterSpacing:
+                                                                  0.4,
+                                                            ),
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'Files are copied into the Workbench. Originals stay untouched.',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                      color: KeenBenchTheme
+                                                          .colorTextSecondary,
+                                                    ),
+                                              ),
+                                              if (scopeLimitsText
+                                                  .isNotEmpty) ...[
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  scopeLimitsText,
+                                                  key: AppKeys
+                                                      .workbenchScopeLimits,
                                                   style: Theme.of(context)
                                                       .textTheme
-                                                      .labelSmall
+                                                      .bodySmall
                                                       ?.copyWith(
                                                         color: KeenBenchTheme
-                                                            .colorInfoText,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        letterSpacing: 0.4,
+                                                            .colorTextSecondary,
                                                       ),
                                                 ),
+                                              ],
+                                              const SizedBox(height: 12),
+                                              Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.stretch,
+                                                children: [
+                                                  Tooltip(
+                                                    message: state.hasDraft
+                                                        ? 'Publish or discard the Draft to add files.'
+                                                        : 'Add files to the Workbench.',
+                                                    child: SizedBox(
+                                                      width: double.infinity,
+                                                      child: ElevatedButton.icon(
+                                                        key: AppKeys
+                                                            .workbenchAddFilesButton,
+                                                        onPressed:
+                                                            state.hasDraft
+                                                            ? null
+                                                            : () async {
+                                                                final files =
+                                                                    await openFiles();
+                                                                final paths = files
+                                                                    .map(
+                                                                      (
+                                                                        file,
+                                                                      ) => file
+                                                                          .path,
+                                                                    )
+                                                                    .toList();
+                                                                if (paths
+                                                                    .isNotEmpty) {
+                                                                  try {
+                                                                    await state
+                                                                        .addFiles(
+                                                                          paths,
+                                                                        );
+                                                                  } catch (
+                                                                    err
+                                                                  ) {
+                                                                    if (!context
+                                                                        .mounted) {
+                                                                      return;
+                                                                    }
+                                                                    _showMessage(
+                                                                      err.toString(),
+                                                                      isError:
+                                                                          true,
+                                                                    );
+                                                                  }
+                                                                }
+                                                              },
+                                                        icon: const Icon(
+                                                          Icons.add,
+                                                        ),
+                                                        label: const Text(
+                                                          'Add files',
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Tooltip(
+                                                    message: state.hasDraft
+                                                        ? 'View context. Add/edit/delete are blocked while a Draft exists.'
+                                                        : 'Add or edit workbench context.',
+                                                    child: SizedBox(
+                                                      width: double.infinity,
+                                                      child: OutlinedButton.icon(
+                                                        key: AppKeys
+                                                            .workbenchAddContextButton,
+                                                        onPressed:
+                                                            _openContextOverview,
+                                                        icon: const Icon(
+                                                          Icons.auto_awesome,
+                                                        ),
+                                                        label: const Text(
+                                                          'Add context',
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
-                                          ],
+                                              if (state
+                                                      .clutter
+                                                      ?.contextWarning ==
+                                                  true) ...[
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  'Context is using a large share of the prompt window. Consider shortening context items.',
+                                                  key: AppKeys
+                                                      .workbenchContextWarning,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: KeenBenchTheme
+                                                            .colorWarningText,
+                                                      ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Files are copied into the Workbench. Originals stay untouched.',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
+                                        Expanded(
+                                          child: Focus(
+                                            focusNode: _fileListFocusNode,
+                                            child: Semantics(
+                                              label: 'Workbench file list',
+                                              child: ListView.builder(
+                                                key: AppKeys.workbenchFileList,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 16,
+                                                    ),
+                                                itemCount: state.files.length,
+                                                itemBuilder: (context, index) {
+                                                  final file =
+                                                      state.files[index];
+                                                  return Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          bottom: 8,
+                                                        ),
+                                                    child: _WorkbenchFileRow(
+                                                      file: file,
+                                                      canExtract:
+                                                          !state.hasDraft,
+                                                      onExtract: () =>
+                                                          _extractFile(file),
+                                                      canRemove:
+                                                          !state.hasDraft,
+                                                      onRemove: () =>
+                                                          _confirmRemoveFile(
+                                                            file,
+                                                          ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            8,
+                                            0,
+                                            8,
+                                            8,
+                                          ),
+                                          child: Align(
+                                            alignment: Alignment.bottomLeft,
+                                            child: Tooltip(
+                                              message: 'Settings',
+                                              child: IconButton(
+                                                key: AppKeys
+                                                    .workbenchSettingsButton,
+                                                onPressed: () =>
+                                                    Navigator.of(context).push(
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            const SettingsScreen(),
+                                                      ),
+                                                    ),
+                                                icon: const Icon(
+                                                  Icons.settings_outlined,
+                                                ),
+                                                iconSize: 20,
+                                                padding: EdgeInsets.zero,
+                                                constraints:
+                                                    const BoxConstraints.tightFor(
+                                                      width: 32,
+                                                      height: 32,
+                                                    ),
                                                 color: KeenBenchTheme
                                                     .colorTextSecondary,
-                                              ),
-                                        ),
-                                        if (scopeLimitsText.isNotEmpty) ...[
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            scopeLimitsText,
-                                            key: AppKeys.workbenchScopeLimits,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(
-                                                  color: KeenBenchTheme
-                                                      .colorTextSecondary,
-                                                ),
-                                          ),
-                                        ],
-                                        const SizedBox(height: 12),
-                                        Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
-                                          children: [
-                                            Tooltip(
-                                              message: state.hasDraft
-                                                  ? 'Publish or discard the Draft to add files.'
-                                                  : 'Add files to the Workbench.',
-                                              child: SizedBox(
-                                                width: double.infinity,
-                                                child: ElevatedButton.icon(
-                                                  key: AppKeys
-                                                      .workbenchAddFilesButton,
-                                                  onPressed: state.hasDraft
-                                                      ? null
-                                                      : () async {
-                                                          final files =
-                                                              await openFiles();
-                                                          final paths = files
-                                                              .map(
-                                                                (file) =>
-                                                                    file.path,
-                                                              )
-                                                              .toList();
-                                                          if (paths
-                                                              .isNotEmpty) {
-                                                            try {
-                                                              await state
-                                                                  .addFiles(
-                                                                    paths,
-                                                                  );
-                                                            } catch (err) {
-                                                              if (!context
-                                                                  .mounted) {
-                                                                return;
-                                                              }
-                                                              _showMessage(
-                                                                err.toString(),
-                                                                isError: true,
-                                                              );
-                                                            }
-                                                          }
-                                                        },
-                                                  icon: const Icon(Icons.add),
-                                                  label: const Text(
-                                                    'Add files',
-                                                  ),
-                                                ),
+                                                hoverColor: KeenBenchTheme
+                                                    .colorBackgroundHover,
+                                                splashRadius: 18,
                                               ),
                                             ),
-                                            const SizedBox(height: 8),
-                                            Tooltip(
-                                              message: state.hasDraft
-                                                  ? 'View context. Add/edit/delete are blocked while a Draft exists.'
-                                                  : 'Add or edit workbench context.',
-                                              child: SizedBox(
-                                                width: double.infinity,
-                                                child: OutlinedButton.icon(
-                                                  key: AppKeys
-                                                      .workbenchAddContextButton,
-                                                  onPressed:
-                                                      _openContextOverview,
-                                                  icon: const Icon(
-                                                    Icons.auto_awesome,
-                                                  ),
-                                                  label: const Text(
-                                                    'Add context',
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        if (state.clutter?.contextWarning ==
-                                            true) ...[
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Context is using a large share of the prompt window. Consider shortening context items.',
-                                            key:
-                                                AppKeys.workbenchContextWarning,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(
-                                                  color: KeenBenchTheme
-                                                      .colorWarningText,
-                                                ),
                                           ),
-                                        ],
+                                        ),
                                       ],
                                     ),
-                                  ),
-                                  Expanded(
-                                    child: Focus(
-                                      focusNode: _fileListFocusNode,
-                                      child: Semantics(
-                                        label: 'Workbench file list',
-                                        child: ListView.builder(
-                                          key: AppKeys.workbenchFileList,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                          ),
-                                          itemCount: state.files.length,
-                                          itemBuilder: (context, index) {
-                                            final file = state.files[index];
-                                            return Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 8,
-                                              ),
-                                              child: _WorkbenchFileRow(
-                                                file: file,
-                                                canExtract: !state.hasDraft,
-                                                onExtract: () =>
-                                                    _extractFile(file),
-                                                canRemove: !state.hasDraft,
-                                                onRemove: () =>
-                                                    _confirmRemoveFile(file),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      8,
-                                      0,
-                                      8,
-                                      8,
-                                    ),
-                                    child: Align(
-                                      alignment: Alignment.bottomLeft,
-                                      child: Tooltip(
-                                        message: 'Settings',
-                                        child: IconButton(
-                                          key: AppKeys.workbenchSettingsButton,
-                                          onPressed: () =>
-                                              Navigator.of(context).push(
-                                                MaterialPageRoute(
-                                                  builder: (_) =>
-                                                      const SettingsScreen(),
-                                                ),
-                                              ),
-                                          icon: const Icon(
-                                            Icons.settings_outlined,
-                                          ),
-                                          iconSize: 20,
-                                          padding: EdgeInsets.zero,
-                                          constraints:
-                                              const BoxConstraints.tightFor(
-                                                width: 32,
-                                                height: 32,
-                                              ),
-                                          color:
-                                              KeenBenchTheme.colorTextSecondary,
-                                          hoverColor: KeenBenchTheme
-                                              .colorBackgroundHover,
-                                          splashRadius: 18,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
                                   ),
                                   if (_isDraggingFiles && !state.hasDraft)
                                     Positioned.fill(
