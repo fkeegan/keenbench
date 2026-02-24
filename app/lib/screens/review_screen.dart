@@ -192,7 +192,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       _imagePublished = null;
       _hasPublishedImage = change.changeType != 'added';
       final hint = change.focusHint;
-      if (change.fileKind == 'xlsx' && hint != null) {
+      if (_isSpreadsheetKind(change.fileKind) && hint != null) {
         final sheet = hint['sheet'] as String?;
         final rowStart = (hint['row_start'] as num?)?.toInt();
         final colStart = (hint['col_start'] as num?)?.toInt();
@@ -206,13 +206,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
           _colStart = colStart;
         }
       }
-      if (change.fileKind == 'docx' && hint != null) {
+      if (_isWordProcessingKind(change.fileKind) && hint != null) {
         final sectionIndex = (hint['section_index'] as num?)?.toInt();
         if (sectionIndex != null && sectionIndex >= 0) {
           _structuredIndex = sectionIndex;
         }
       }
-      if (change.fileKind == 'pptx' && hint != null) {
+      if (_isSlideKind(change.fileKind) && hint != null) {
         final slideIndex = (hint['slide_index'] as num?)?.toInt();
         if (slideIndex != null && slideIndex >= 0) {
           _pageIndex = slideIndex;
@@ -230,8 +230,17 @@ class _ReviewScreenState extends State<ReviewScreen> {
     await _loadPreview(change);
   }
 
+  bool _isSpreadsheetKind(String kind) => kind == 'xlsx' || kind == 'ods';
+
+  bool _isWordProcessingKind(String kind) => kind == 'docx' || kind == 'odt';
+
+  bool _isSlideKind(String kind) => kind == 'pptx' || kind == 'odp';
+
+  bool _supportsStructuredContentDiffKind(String kind) =>
+      _isWordProcessingKind(kind) || _isSlideKind(kind);
+
   bool _shouldLoadDiff(ChangeItem change) {
-    if (change.fileKind == 'pptx') {
+    if (_isSlideKind(change.fileKind)) {
       return false;
     }
     if (change.changeType == 'added') {
@@ -241,9 +250,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
       return false;
     }
     return change.fileKind == 'text' ||
-        change.fileKind == 'docx' ||
-        change.fileKind == 'odt' ||
-        change.fileKind == 'xlsx' ||
+        _isWordProcessingKind(change.fileKind) ||
+        _isSpreadsheetKind(change.fileKind) ||
         change.fileKind == 'pdf';
   }
 
@@ -292,20 +300,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
       await _loadImagePreview(change.path);
       return;
     }
-    if (change.fileKind == 'xlsx') {
+    if (_isSpreadsheetKind(change.fileKind)) {
       await _loadXlsxPreview(change);
       return;
     }
-    if (change.fileKind == 'pptx') {
+    if (_isSlideKind(change.fileKind)) {
       final loadedStructured = await _loadStructuredContentDiff(change);
       if (!loadedStructured) {
         await _loadSlidePreview(change);
       }
       return;
     }
-    if (change.fileKind == 'pdf' ||
-        change.fileKind == 'docx' ||
-        change.fileKind == 'odt') {
+    if (change.fileKind == 'pdf' || _isWordProcessingKind(change.fileKind)) {
       await _loadPagePreview(change);
     }
   }
@@ -360,7 +366,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       if (!mounted) {
         return;
       }
-      if (change.fileKind == 'docx') {
+      if (_isWordProcessingKind(change.fileKind)) {
         final loadedFallback = await _loadStructuredContentDiff(change);
         if (!mounted) {
           return;
@@ -382,13 +388,16 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   Future<void> _loadSlidePreview(ChangeItem change) async {
     final engine = context.read<EngineApi>();
+    final method = change.fileKind == 'odp'
+        ? 'ReviewGetOdpPreviewSlide'
+        : 'ReviewGetPptxPreviewSlide';
     setState(() {
       _previewLoading = true;
       _previewError = null;
     });
     try {
       final draftResp =
-          await engine.call('ReviewGetPptxPreviewSlide', {
+          await engine.call(method, {
                 'workbench_id': widget.workbenchId,
                 'path': change.path,
                 'version': 'draft',
@@ -400,7 +409,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       if (change.changeType != 'added') {
         try {
           pubResp =
-              await engine.call('ReviewGetPptxPreviewSlide', {
+              await engine.call(method, {
                     'workbench_id': widget.workbenchId,
                     'path': change.path,
                     'version': 'published',
@@ -449,7 +458,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   Future<bool> _loadStructuredContentDiff(ChangeItem change) async {
-    if (change.fileKind != 'docx' && change.fileKind != 'pptx') {
+    if (!_supportsStructuredContentDiffKind(change.fileKind)) {
       return false;
     }
     final engine = context.read<EngineApi>();
@@ -460,15 +469,15 @@ class _ReviewScreenState extends State<ReviewScreen> {
       _previewLoading = false;
     });
     try {
-      final method = change.fileKind == 'docx'
-          ? 'ReviewGetDocxContentDiff'
-          : 'ReviewGetPptxContentDiff';
-      final indexKey = change.fileKind == 'docx'
-          ? 'section_index'
-          : 'slide_index';
-      final countKey = change.fileKind == 'docx'
-          ? 'section_count'
-          : 'slide_count';
+      final isWordProcessing = _isWordProcessingKind(change.fileKind);
+      final method = switch (change.fileKind) {
+        'docx' => 'ReviewGetDocxContentDiff',
+        'odt' => 'ReviewGetOdtContentDiff',
+        'odp' => 'ReviewGetOdpContentDiff',
+        _ => 'ReviewGetPptxContentDiff',
+      };
+      final indexKey = isWordProcessing ? 'section_index' : 'slide_index';
+      final countKey = isWordProcessing ? 'section_count' : 'slide_count';
       final response =
           await engine.call(method, {
                 'workbench_id': widget.workbenchId,
@@ -585,7 +594,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
     required String sheet,
   }) async {
     final engine = context.read<EngineApi>();
-    return await engine.call('ReviewGetXlsxPreviewGrid', {
+    final method = change.fileKind == 'ods'
+        ? 'ReviewGetOdsPreviewGrid'
+        : 'ReviewGetXlsxPreviewGrid';
+    return await engine.call(method, {
           'workbench_id': widget.workbenchId,
           'path': change.path,
           'version': version,
@@ -667,11 +679,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
     final kind = change.fileKind;
     return kind == 'image' ||
-        kind == 'xlsx' ||
+        _isSpreadsheetKind(kind) ||
         kind == 'pdf' ||
-        kind == 'docx' ||
-        kind == 'odt' ||
-        kind == 'pptx';
+        _isWordProcessingKind(kind) ||
+        _isSlideKind(kind);
   }
 
   Widget _buildSummaryPanel(ChangeItem change) {
@@ -904,7 +915,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   Widget _buildPreviewPanel(ChangeItem change) {
-    if ((change.fileKind == 'docx' || change.fileKind == 'pptx') &&
+    if (_supportsStructuredContentDiffKind(change.fileKind) &&
         _structuredFallbackActive) {
       return _buildStructuredFallbackPreview(change);
     }
@@ -922,13 +933,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
     if (change.previewKind == 'image') {
       return _buildImagePreview();
     }
-    if (change.fileKind == 'xlsx') {
+    if (_isSpreadsheetKind(change.fileKind)) {
       return _buildGridPreview(change);
     }
     if (change.fileKind == 'pdf' ||
-        change.fileKind == 'docx' ||
-        change.fileKind == 'odt' ||
-        change.fileKind == 'pptx') {
+        _isWordProcessingKind(change.fileKind) ||
+        _isSlideKind(change.fileKind)) {
       return _buildPagePreview(change);
     }
     if (change.isOpaque) {
@@ -950,7 +960,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
       );
     }
     final hasPublished = change.changeType != 'added';
-    final label = change.fileKind == 'docx' ? 'Sections' : 'Slides';
+    final label = _isWordProcessingKind(change.fileKind)
+        ? 'Sections'
+        : 'Slides';
     var leftLabel = 'Reference';
     if (_structuredReferenceSource == 'published_current_fallback') {
       leftLabel = 'Reference (Published fallback)';
@@ -962,14 +974,14 @@ class _ReviewScreenState extends State<ReviewScreen> {
       children: [
         _buildPreviewToolbar(
           label: label,
-          navigationNoun: change.fileKind == 'pptx' ? 'slide' : 'page',
+          navigationNoun: _isSlideKind(change.fileKind) ? 'slide' : 'page',
           count: _structuredCount,
           currentIndex: _structuredIndex,
           onPrev: _structuredIndex > 0
               ? () {
                   setState(() {
                     _structuredIndex -= 1;
-                    if (change.fileKind == 'pptx') {
+                    if (_isSlideKind(change.fileKind)) {
                       _pageIndex = _structuredIndex;
                     }
                   });
@@ -981,7 +993,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
               ? () {
                   setState(() {
                     _structuredIndex += 1;
-                    if (change.fileKind == 'pptx') {
+                    if (_isSlideKind(change.fileKind)) {
                       _pageIndex = _structuredIndex;
                     }
                   });
@@ -1010,7 +1022,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
             ),
           ),
         Expanded(
-          child: change.fileKind == 'pptx'
+          child: _isSlideKind(change.fileKind)
               ? _buildPptxPositionedOrFallbackComparison(
                   hasPublished: hasPublished,
                   leftLabel: leftLabel,
@@ -1040,10 +1052,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
     if (payload == null) {
       return const Center(child: Text('No structured content.'));
     }
-    if (change.fileKind == 'docx') {
+    if (_isWordProcessingKind(change.fileKind)) {
       return _buildDocxStructured(payload);
     }
-    if (change.fileKind == 'pptx') {
+    if (_isSlideKind(change.fileKind)) {
       return _buildPptxStructured(payload);
     }
     return const Center(child: Text('No structured content.'));
@@ -1618,8 +1630,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildPreviewToolbar(
-          label: change.fileKind == 'pptx' ? 'Slides' : 'Pages',
-          navigationNoun: change.fileKind == 'pptx' ? 'slide' : 'page',
+          label: _isSlideKind(change.fileKind) ? 'Slides' : 'Pages',
+          navigationNoun: _isSlideKind(change.fileKind) ? 'slide' : 'page',
           count: _pageCount,
           currentIndex: _pageIndex,
           onPrev: _pageIndex > 0

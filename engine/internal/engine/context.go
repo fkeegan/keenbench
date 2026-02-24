@@ -1377,6 +1377,9 @@ var formatStyleKeywords = map[string][]string{
 	"xlsx": {"spreadsheet", "excel", "workbook", "worksheet"},
 	"docx": {"docx", "word document", "word doc", "ms word"},
 	"pptx": {"pptx", "powerpoint", "presentation", "slide deck", "slides"},
+	"ods":  {"ods", "open document spreadsheet", "opendocument spreadsheet", "openoffice calc", "libreoffice calc"},
+	"odt":  {"odt", "open document text", "opendocument text", "openoffice writer", "libreoffice writer"},
+	"odp":  {"odp", "open document presentation", "opendocument presentation", "openoffice impress", "libreoffice impress"},
 }
 
 var mergeStopWords = map[string]struct{}{
@@ -1474,8 +1477,8 @@ func writeWorkbenchSkillInjection(builder *strings.Builder, skill contextSkillIn
 
 func (e *Engine) buildFormatSkillInjections(workbenchID string, hasDocumentStyle bool, documentStyleFiles []contextArtifactFile) []contextSkillInjection {
 	relevant := e.detectRelevantStyleFormats(workbenchID)
-	injections := make([]contextSkillInjection, 0, 3)
-	for _, format := range []string{"xlsx", "docx", "pptx"} {
+	injections := make([]contextSkillInjection, 0, 6)
+	for _, format := range []string{"xlsx", "docx", "pptx", "ods", "odt", "odp"} {
 		if !relevant[format] {
 			continue
 		}
@@ -1578,7 +1581,7 @@ func (e *Engine) appendStyleGuidanceNotice(workbenchID, code, format, message st
 }
 
 func (e *Engine) detectRelevantStyleFormats(workbenchID string) map[string]bool {
-	relevant := make(map[string]bool, 3)
+	relevant := make(map[string]bool, 6)
 	for format, include := range e.detectFormatsInManifest(workbenchID) {
 		if include {
 			relevant[format] = true
@@ -1597,6 +1600,9 @@ func (e *Engine) detectFormatsInManifest(workbenchID string) map[string]bool {
 		"xlsx": false,
 		"docx": false,
 		"pptx": false,
+		"ods":  false,
+		"odt":  false,
+		"odp":  false,
 	}
 	files, err := e.workbenches.FilesList(workbenchID)
 	if err != nil {
@@ -1611,6 +1617,12 @@ func (e *Engine) detectFormatsInManifest(workbenchID string) map[string]bool {
 			formats["docx"] = true
 		case "pptx":
 			formats["pptx"] = true
+		case "ods":
+			formats["ods"] = true
+		case "odt":
+			formats["odt"] = true
+		case "odp":
+			formats["odp"] = true
 		}
 	}
 	return formats
@@ -1621,6 +1633,9 @@ func (e *Engine) detectFormatsFromConversationIntent(workbenchID string) map[str
 		"xlsx": false,
 		"docx": false,
 		"pptx": false,
+		"ods":  false,
+		"odt":  false,
+		"odp":  false,
 	}
 	items, err := e.readConversation(workbenchID)
 	if err != nil {
@@ -1659,6 +1674,24 @@ func markFormatsFromText(text string, formats map[string]bool) {
 		formats["pptx"] = true
 	case containsAny(lower, formatStyleKeywords["pptx"]):
 		formats["pptx"] = true
+	}
+	switch {
+	case strings.Contains(lower, ".ods"):
+		formats["ods"] = true
+	case containsAny(lower, formatStyleKeywords["ods"]):
+		formats["ods"] = true
+	}
+	switch {
+	case strings.Contains(lower, ".odt"):
+		formats["odt"] = true
+	case containsAny(lower, formatStyleKeywords["odt"]):
+		formats["odt"] = true
+	}
+	switch {
+	case strings.Contains(lower, ".odp"):
+		formats["odp"] = true
+	case containsAny(lower, formatStyleKeywords["odp"]):
+		formats["odp"] = true
 	}
 }
 

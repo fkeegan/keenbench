@@ -27,7 +27,7 @@ var WorkshopTools = []llm.Tool{
 		Type: "function",
 		Function: llm.FunctionDef{
 			Name:        "get_file_info",
-			Description: "Get detailed information about a specific file. For xlsx returns sheet names and dimensions. For pdf returns page count. For images returns dimensions.",
+			Description: "Get detailed information about a specific file. For xlsx/ods returns sheet names and dimensions. For pdf returns page count. For images returns dimensions.",
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -42,12 +42,12 @@ var WorkshopTools = []llm.Tool{
 		Function: llm.FunctionDef{
 			Name: "get_file_map",
 			Description: `Get a structural map of a file showing its internal layout without reading content. Use this before read_file to understand file structure:
-- xlsx: sheets with used ranges, data islands, chunk boundaries, and flags (charts, merged cells, formulas)
-- docx: sections by heading with char counts, tables, images
-- pptx: slides with titles, layouts, media flags
-- pdf: page count, table of contents, page chunks
-- csv: tabular schema/chunk map (also available via table_get_map)
-- text: line count, char count, line chunks
+	- xlsx/ods: sheets with used ranges, data islands, chunk boundaries, and flags (charts, merged cells, formulas)
+	- docx/odt: sections by heading with char counts, tables, images
+	- pptx/odp: slides with titles, layouts, media flags
+	- pdf: page count, table of contents, page chunks
+	- csv: tabular schema/chunk map (also available via table_get_map)
+	- text: line count, char count, line chunks
 The map tells you what regions exist and how large they are. Then use read_file with specific coordinates to read content.`,
 			Parameters: json.RawMessage(`{
 				"type": "object",
@@ -63,20 +63,20 @@ The map tells you what regions exist and how large they are. Then use read_file 
 		Function: llm.FunctionDef{
 			Name: "read_file",
 			Description: `Read content from a file. For large files, use get_file_map first to see the structural map, then read specific regions:
-- xlsx: specify sheet name and optional range (e.g. A1:E50)
-- docx: specify section heading or index to read a specific section
-- pptx: specify slide_index (0-based) to read a specific slide
-- pdf: specify pages range (e.g. "1-5") to read specific pages
-- text: specify line_start and line_count for large files
+	- xlsx/ods: specify sheet name and optional range (e.g. A1:E50)
+	- docx/odt: specify section heading or index to read a specific section
+	- pptx/odp: specify slide_index (0-based) to read a specific slide
+	- pdf: specify pages range (e.g. "1-5") to read specific pages
+	- text: specify line_start and line_count for large files
 The map in the file context shows available regions, sizes, and chunk boundaries. Always check the map before reading to avoid requesting more data than needed.`,
 			Parameters: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "File path in the workbench"},
-					"sheet": {"type": "string", "description": "Sheet name (xlsx only)"},
-					"range": {"type": "string", "description": "Cell range like A1:D100 (xlsx only, optional)"},
-					"section": {"type": "string", "description": "Section heading text or index (docx only)"},
-					"slide_index": {"type": "integer", "description": "Slide index, 0-based (pptx only)"},
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "File path in the workbench"},
+						"sheet": {"type": "string", "description": "Sheet name (xlsx/ods only)"},
+						"range": {"type": "string", "description": "Cell range like A1:D100 (xlsx/ods only, optional)"},
+						"section": {"type": "string", "description": "Section heading text or index (docx/odt only)"},
+						"slide_index": {"type": "integer", "description": "Slide index, 0-based (pptx/odp only)"},
 					"pages": {"type": "string", "description": "Page range like '1-5' (pdf only)"},
 					"line_start": {"type": "integer", "description": "Starting line number, 1-indexed (text only)"},
 					"line_count": {"type": "integer", "description": "Number of lines to read (text only)"}
@@ -396,7 +396,180 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 					}
 				},
 				"required": ["path", "operations"]
-			}`),
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "ods_operations",
+			Description: "Create or modify an ODS spreadsheet. Can copy from existing file or create new. Operations: ensure_sheet, set_range, set_cells, summarize_by_category, set_column_widths, set_row_heights, freeze_panes.",
+			Parameters: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"path": {"type": "string", "description": "Target filename (no directory prefix, e.g. report.ods)"},
+							"create_new": {"type": "boolean", "description": "If true, creates a new file (otherwise modifies existing)"},
+							"copy_from": {"type": "string", "description": "Source filename to copy from when creating new (no directory prefix)"},
+							"operations": {
+								"type": "array",
+								"description": "List of operations to apply",
+								"items": {
+									"type": "object",
+									"properties": {
+										"op": {"type": "string", "enum": ["ensure_sheet", "set_range", "set_cells", "summarize_by_category", "set_column_widths", "set_row_heights", "freeze_panes"], "description": "Operation type"},
+										"sheet": {"type": "string", "description": "Target sheet name"},
+										"start": {"type": "string", "description": "Starting cell for set_range (e.g. A1)"},
+										"values": {
+											"type": "array",
+											"description": "2D array of values for set_range",
+											"items": {"type": "array", "items": {"type": "string"}}
+										},
+										"style": {
+											"type": "object",
+											"description": "Optional style object for style-capable ods write operations",
+											"properties": {
+												"font_name": {"type": "string"},
+												"font_size": {"type": "number"},
+												"font_bold": {"type": "boolean"},
+												"font_italic": {"type": "boolean"},
+												"font_color": {"type": "string"},
+												"fill_color": {"type": "string"},
+												"fill_pattern": {"type": "string"},
+												"number_format": {"type": "string"},
+												"h_align": {"type": "string"},
+												"v_align": {"type": "string"},
+												"wrap_text": {"type": "boolean"},
+												"border_top": {
+													"type": "object",
+													"properties": {
+														"style": {"type": "string"},
+														"color": {"type": "string"}
+													}
+												},
+												"border_bottom": {
+													"type": "object",
+													"properties": {
+														"style": {"type": "string"},
+														"color": {"type": "string"}
+													}
+												},
+												"border_left": {
+													"type": "object",
+													"properties": {
+														"style": {"type": "string"},
+														"color": {"type": "string"}
+													}
+												},
+												"border_right": {
+													"type": "object",
+													"properties": {
+														"style": {"type": "string"},
+														"color": {"type": "string"}
+													}
+												}
+											},
+											"additionalProperties": true
+										},
+										"source_sheets": {
+											"type": "array",
+											"description": "Source sheet names for summarize_by_category (for example [\"Q1\",\"Q2\",\"Q3\",\"Q4\"])",
+											"items": {"type": "string"}
+										},
+										"category_col": {"type": "string", "description": "Category column for summarize_by_category (default B; accepts letter or 1-based index)"},
+										"amount_col": {"type": "string", "description": "Amount column for summarize_by_category (default C; accepts letter or 1-based index)"},
+										"category_header": {"type": "string", "description": "Optional header label for the category column (default Category)"},
+										"columns": {
+											"type": "array",
+											"description": "Column width updates for set_column_widths",
+											"items": {
+												"type": "object",
+												"properties": {
+													"column": {"type": "string", "description": "Column identifier (e.g. A, B, C or 1-based index)"},
+													"width": {"type": "number", "description": "Column width in spreadsheet character units"}
+												},
+												"required": ["column", "width"]
+											}
+										},
+										"rows": {
+											"type": "array",
+											"description": "Row height updates for set_row_heights",
+											"items": {
+												"type": "object",
+												"properties": {
+													"row": {"type": "integer", "description": "1-based row index"},
+													"height": {"type": "number", "description": "Row height in points"}
+												},
+												"required": ["row", "height"]
+											}
+										},
+										"row": {"type": "integer", "description": "First unfrozen row (0-based) for freeze_panes"},
+										"column": {"type": "integer", "description": "First unfrozen column (0-based) for freeze_panes"},
+										"cells": {
+											"type": "array",
+											"description": "Array of {cell, value} for set_cells",
+											"items": {
+												"type": "object",
+												"properties": {
+													"cell": {"type": "string"},
+													"value": {"description": "Cell value", "anyOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]},
+													"type": {"type": "string", "description": "Optional value type hint"},
+													"style": {
+														"type": "object",
+														"description": "Optional style object for this cell",
+														"properties": {
+															"font_name": {"type": "string"},
+															"font_size": {"type": "number"},
+															"font_bold": {"type": "boolean"},
+															"font_italic": {"type": "boolean"},
+															"font_color": {"type": "string"},
+															"fill_color": {"type": "string"},
+															"fill_pattern": {"type": "string"},
+															"number_format": {"type": "string"},
+															"h_align": {"type": "string"},
+															"v_align": {"type": "string"},
+															"wrap_text": {"type": "boolean"},
+															"border_top": {
+																"type": "object",
+																"properties": {
+																	"style": {"type": "string"},
+																	"color": {"type": "string"}
+																}
+															},
+															"border_bottom": {
+																"type": "object",
+																"properties": {
+																	"style": {"type": "string"},
+																	"color": {"type": "string"}
+																}
+															},
+															"border_left": {
+																"type": "object",
+																"properties": {
+																	"style": {"type": "string"},
+																	"color": {"type": "string"}
+																}
+															},
+															"border_right": {
+																"type": "object",
+																"properties": {
+																	"style": {"type": "string"},
+																	"color": {"type": "string"}
+																}
+															}
+														},
+														"additionalProperties": true
+													}
+												},
+												"required": ["cell", "value"]
+											}
+										}
+								},
+								"required": ["op"]
+							}
+						}
+					},
+					"required": ["path", "operations"]
+				}`),
 		},
 	},
 	{
@@ -487,7 +660,98 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 						}
 				},
 				"required": ["path", "operations"]
-			}`),
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "odt_operations",
+			Description: "Create or modify an ODT document. Operations: set_paragraphs, append_paragraph, replace_text.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "Target file path"},
+						"create_new": {"type": "boolean", "description": "If true, creates a new file"},
+						"copy_from": {"type": "string", "description": "Source file to copy from when creating new"},
+						"operations": {
+							"type": "array",
+							"description": "List of operations to apply",
+							"items": {
+									"type": "object",
+									"properties": {
+										"op": {"type": "string", "enum": ["set_paragraphs", "append_paragraph", "replace_text"], "description": "Operation type"},
+										"paragraphs": {
+											"type": "array",
+											"description": "Array of {text, style} for set_paragraphs",
+											"items": {
+												"type": "object",
+												"properties": {
+													"text": {"type": "string"},
+													"style": {"type": "string"},
+													"runs": {
+														"type": "array",
+														"description": "Optional run-level styled text for this paragraph",
+														"items": {
+															"type": "object",
+															"properties": {
+																"text": {"type": "string"},
+																"font_name": {"type": "string"},
+																"font_size": {"type": "number"},
+																"bold": {"type": "boolean"},
+																"italic": {"type": "boolean"},
+																"underline": {"type": "boolean"},
+																"font_color": {"type": "string"},
+																"highlight_color": {"type": "string"}
+															}
+														}
+													},
+													"alignment": {"type": "string", "description": "Paragraph alignment (left, center, right, justify)"},
+													"space_before": {"type": "number", "description": "Space before paragraph in points"},
+													"space_after": {"type": "number", "description": "Space after paragraph in points"},
+													"line_spacing": {"type": "number", "description": "Line spacing multiplier"},
+													"indent_left": {"type": "number", "description": "Left indent in inches"},
+													"indent_right": {"type": "number", "description": "Right indent in inches"},
+													"indent_first_line": {"type": "number", "description": "First-line indent in inches"}
+												}
+											}
+										},
+										"text": {"type": "string", "description": "Text content for append_paragraph"},
+										"style": {"type": "string", "description": "Paragraph style (Normal, Heading1, etc.)"},
+										"runs": {
+											"type": "array",
+											"description": "Optional run-level styled text for append_paragraph",
+											"items": {
+												"type": "object",
+												"properties": {
+													"text": {"type": "string"},
+													"font_name": {"type": "string"},
+													"font_size": {"type": "number"},
+													"bold": {"type": "boolean"},
+													"italic": {"type": "boolean"},
+													"underline": {"type": "boolean"},
+													"font_color": {"type": "string"},
+													"highlight_color": {"type": "string"}
+												}
+											}
+										},
+										"alignment": {"type": "string", "description": "Paragraph alignment (left, center, right, justify)"},
+										"space_before": {"type": "number", "description": "Space before paragraph in points"},
+										"space_after": {"type": "number", "description": "Space after paragraph in points"},
+										"line_spacing": {"type": "number", "description": "Line spacing multiplier"},
+										"indent_left": {"type": "number", "description": "Left indent in inches"},
+										"indent_right": {"type": "number", "description": "Right indent in inches"},
+										"indent_first_line": {"type": "number", "description": "First-line indent in inches"},
+										"search": {"type": "string", "description": "Text to find for replace_text"},
+										"replace": {"type": "string", "description": "Replacement text for replace_text"},
+										"match_case": {"type": "boolean", "description": "Whether replace_text matching is case-sensitive"}
+									},
+									"required": ["op"]
+								}
+							}
+					},
+					"required": ["path", "operations"]
+				}`),
 		},
 	},
 	{
@@ -557,7 +821,77 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 					}
 				},
 				"required": ["path", "operations"]
-			}`),
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "odp_operations",
+			Description: "Create or modify an ODP presentation. Operations: add_slide, set_slide_text, append_bullets.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "Target file path"},
+						"create_new": {"type": "boolean", "description": "If true, creates a new file"},
+						"copy_from": {"type": "string", "description": "Source file to copy from when creating new"},
+						"operations": {
+							"type": "array",
+							"description": "List of operations to apply",
+							"items": {
+									"type": "object",
+									"properties": {
+										"op": {"type": "string", "enum": ["add_slide", "set_slide_text", "append_bullets"], "description": "Operation type"},
+										"layout": {"type": "string", "description": "Slide layout for add_slide"},
+										"title": {"type": "string", "description": "Slide title"},
+										"body": {"type": "string", "description": "Slide body text"},
+										"title_runs": {
+											"type": "array",
+											"description": "Optional styled runs for title text",
+											"items": {
+												"type": "object",
+												"properties": {
+													"text": {"type": "string"},
+													"font_name": {"type": "string"},
+													"font_size": {"type": "number"},
+													"bold": {"type": "boolean"},
+													"italic": {"type": "boolean"},
+													"underline": {"type": "boolean"},
+													"font_color": {"type": "string"},
+													"highlight_color": {"type": "string"}
+												}
+											}
+										},
+										"body_runs": {
+											"type": "array",
+											"description": "Optional styled runs for body text",
+											"items": {
+												"type": "object",
+												"properties": {
+													"text": {"type": "string"},
+													"font_name": {"type": "string"},
+													"font_size": {"type": "number"},
+													"bold": {"type": "boolean"},
+													"italic": {"type": "boolean"},
+													"underline": {"type": "boolean"},
+													"font_color": {"type": "string"},
+													"highlight_color": {"type": "string"}
+												}
+											}
+										},
+										"alignment": {"type": "string", "description": "Paragraph alignment (left, center, right)"},
+										"space_before": {"type": "number", "description": "Space before paragraph in points"},
+										"space_after": {"type": "number", "description": "Space after paragraph in points"},
+										"line_spacing": {"type": "number", "description": "Line spacing multiplier"},
+										"index": {"type": "integer", "description": "Target slide index (0-based)"},
+										"bullets": {"type": "array", "items": {"type": "string"}, "description": "Bullet points for append_bullets"}
+									},
+									"required": ["op"]
+							}
+						}
+					},
+					"required": ["path", "operations"]
+				}`),
 		},
 	},
 	{
@@ -592,7 +926,42 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 					}
 				},
 				"required": ["source_path", "target_path", "assets"]
-			}`),
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "ods_get_styles",
+			Description: "Query style metadata from an ODS spreadsheet (sheet styles, formats, and related descriptors). Use this for derivative fidelity tasks.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "ODS file path"},
+						"sheet": {"type": "string", "description": "Optional sheet name to scope style query"}
+					},
+					"required": ["path"]
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "ods_copy_assets",
+			Description: "Copy styles/assets from a source ODS file into a target ODS file in Draft. Assets are explicit selectors returned by style tools or known identifiers.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"source_path": {"type": "string", "description": "Source ODS file path"},
+						"target_path": {"type": "string", "description": "Target ODS file path"},
+						"assets": {
+							"type": "array",
+							"description": "Asset selectors to copy (string selectors or objects such as {type, id, name})",
+							"items": {"type": "string"}
+						}
+					},
+					"required": ["source_path", "target_path", "assets"]
+				}`),
 		},
 	},
 	{
@@ -626,7 +995,41 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 					}
 				},
 				"required": ["source_path", "target_path", "assets"]
-			}`),
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "odt_get_styles",
+			Description: "Query style metadata from an ODT document (paragraph/character styles and related descriptors). Use this for derivative fidelity tasks.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "ODT document path"}
+					},
+					"required": ["path"]
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "odt_copy_assets",
+			Description: "Copy styles/assets from a source ODT document into a target ODT document in Draft. Assets are explicit selectors returned by style tools or known identifiers.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"source_path": {"type": "string", "description": "Source ODT document path"},
+						"target_path": {"type": "string", "description": "Target ODT document path"},
+						"assets": {
+							"type": "array",
+							"description": "Asset selectors to copy (string selectors or objects such as {type, id, name})",
+							"items": {"type": "string"}
+						}
+					},
+					"required": ["source_path", "target_path", "assets"]
+				}`),
 		},
 	},
 	{
@@ -660,7 +1063,41 @@ The map in the file context shows available regions, sizes, and chunk boundaries
 					}
 				},
 				"required": ["source_path", "target_path", "assets"]
-			}`),
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "odp_get_styles",
+			Description: "Query style metadata from an ODP presentation (masters/layout/style descriptors). Use this for derivative fidelity tasks.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "ODP file path"}
+					},
+					"required": ["path"]
+				}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: llm.FunctionDef{
+			Name:        "odp_copy_assets",
+			Description: "Copy styles/assets from a source ODP file into a target ODP file in Draft. Assets are explicit selectors returned by style tools or known identifiers.",
+			Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"source_path": {"type": "string", "description": "Source ODP file path"},
+						"target_path": {"type": "string", "description": "Target ODP file path"},
+						"assets": {
+							"type": "array",
+							"description": "Asset selectors to copy (string selectors or objects such as {type, id, name})",
+							"items": {"type": "string"}
+						}
+					},
+					"required": ["source_path", "target_path", "assets"]
+				}`),
 		},
 	},
 	{
@@ -698,8 +1135,11 @@ func init() {
 		"table_read_rows",
 		"table_query",
 		"xlsx_get_styles",
+		"ods_get_styles",
 		"docx_get_styles",
+		"odt_get_styles",
 		"pptx_get_styles",
+		"odp_get_styles",
 	)
 	PlanTools = selectWorkshopTools("read_file", "recall_tool_result")
 }
@@ -853,22 +1293,40 @@ func (h *ToolHandler) Execute(call llm.ToolCall) (string, error) {
 		return h.writeTextFile(call.Function.Arguments)
 	case "xlsx_operations":
 		return h.xlsxOperations(call.Function.Arguments)
+	case "ods_operations":
+		return h.odsOperations(call.Function.Arguments)
 	case "docx_operations":
 		return h.docxOperations(call.Function.Arguments)
+	case "odt_operations":
+		return h.odtOperations(call.Function.Arguments)
 	case "pptx_operations":
 		return h.pptxOperations(call.Function.Arguments)
+	case "odp_operations":
+		return h.odpOperations(call.Function.Arguments)
 	case "xlsx_get_styles":
 		return h.xlsxGetStyles(call.Function.Arguments)
+	case "ods_get_styles":
+		return h.odsGetStyles(call.Function.Arguments)
 	case "xlsx_copy_assets":
 		return h.xlsxCopyAssets(call.Function.Arguments)
+	case "ods_copy_assets":
+		return h.odsCopyAssets(call.Function.Arguments)
 	case "docx_get_styles":
 		return h.docxGetStyles(call.Function.Arguments)
+	case "odt_get_styles":
+		return h.odtGetStyles(call.Function.Arguments)
 	case "docx_copy_assets":
 		return h.docxCopyAssets(call.Function.Arguments)
+	case "odt_copy_assets":
+		return h.odtCopyAssets(call.Function.Arguments)
 	case "pptx_get_styles":
 		return h.pptxGetStyles(call.Function.Arguments)
+	case "odp_get_styles":
+		return h.odpGetStyles(call.Function.Arguments)
 	case "pptx_copy_assets":
 		return h.pptxCopyAssets(call.Function.Arguments)
+	case "odp_copy_assets":
+		return h.odpCopyAssets(call.Function.Arguments)
 	case "recall_tool_result":
 		return h.recallToolResult(call.Function.Arguments)
 	default:
@@ -946,7 +1404,7 @@ func (h *ToolHandler) getFileInfo(argsJSON string) (string, error) {
 	}
 
 	switch fileEntry.FileKind {
-	case workbench.FileKindXlsx:
+	case workbench.FileKindXlsx, workbench.FileKindOds:
 		if h.engine.toolWorker != nil {
 			var resp struct {
 				Sheets []struct {
@@ -960,7 +1418,11 @@ func (h *ToolHandler) getFileInfo(argsJSON string) (string, error) {
 				"path":         args.Path,
 				"root":         area,
 			}
-			if err := h.engine.toolWorker.Call(h.ctx, "XlsxGetInfo", params, &resp); err == nil {
+			method := "XlsxGetInfo"
+			if fileEntry.FileKind == workbench.FileKindOds {
+				method = "OdsGetInfo"
+			}
+			if err := h.engine.toolWorker.Call(h.ctx, method, params, &resp); err == nil {
 				result["sheets"] = resp.Sheets
 			}
 		}
@@ -1061,6 +1523,21 @@ func (h *ToolHandler) getFileMap(argsJSON string) (string, error) {
 		}
 		return string(resp), nil
 
+	case workbench.FileKindOds:
+		if h.engine.toolWorker == nil {
+			return "", toolworker.ErrUnavailable
+		}
+		var resp json.RawMessage
+		params := map[string]any{
+			"workbench_id": h.workbenchID,
+			"path":         args.Path,
+			"root":         area,
+		}
+		if err := h.engine.toolWorker.Call(h.ctx, "OdsGetMap", params, &resp); err != nil {
+			return "", err
+		}
+		return string(resp), nil
+
 	case workbench.FileKindDocx:
 		if h.engine.toolWorker == nil {
 			return "", toolworker.ErrUnavailable
@@ -1076,6 +1553,21 @@ func (h *ToolHandler) getFileMap(argsJSON string) (string, error) {
 		}
 		return string(resp), nil
 
+	case workbench.FileKindOdt:
+		if h.engine.toolWorker == nil {
+			return "", toolworker.ErrUnavailable
+		}
+		var resp json.RawMessage
+		params := map[string]any{
+			"workbench_id": h.workbenchID,
+			"path":         args.Path,
+			"root":         area,
+		}
+		if err := h.engine.toolWorker.Call(h.ctx, "OdtGetMap", params, &resp); err != nil {
+			return "", err
+		}
+		return string(resp), nil
+
 	case workbench.FileKindPptx:
 		if h.engine.toolWorker == nil {
 			return "", toolworker.ErrUnavailable
@@ -1087,6 +1579,21 @@ func (h *ToolHandler) getFileMap(argsJSON string) (string, error) {
 			"root":         area,
 		}
 		if err := h.engine.toolWorker.Call(h.ctx, "PptxGetMap", params, &resp); err != nil {
+			return "", err
+		}
+		return string(resp), nil
+
+	case workbench.FileKindOdp:
+		if h.engine.toolWorker == nil {
+			return "", toolworker.ErrUnavailable
+		}
+		var resp json.RawMessage
+		params := map[string]any{
+			"workbench_id": h.workbenchID,
+			"path":         args.Path,
+			"root":         area,
+		}
+		if err := h.engine.toolWorker.Call(h.ctx, "OdpGetMap", params, &resp); err != nil {
 			return "", err
 		}
 		return string(resp), nil
@@ -1641,6 +2148,31 @@ func (h *ToolHandler) readFile(argsJSON string) (string, error) {
 		}
 		return string(resp), nil
 
+	case workbench.FileKindOds:
+		if h.engine.toolWorker == nil {
+			return "", toolworker.ErrUnavailable
+		}
+		params := map[string]any{
+			"workbench_id": h.workbenchID,
+			"path":         args.Path,
+			"root":         area,
+		}
+		if args.Sheet != "" {
+			params["sheet"] = args.Sheet
+		}
+		if args.Range != "" {
+			params["range"] = args.Range
+		}
+		method := "OdsExtractText"
+		if args.Sheet != "" {
+			method = "OdsReadRange"
+		}
+		var resp json.RawMessage
+		if err := h.engine.toolWorker.Call(h.ctx, method, params, &resp); err != nil {
+			return "", err
+		}
+		return string(resp), nil
+
 	case workbench.FileKindDocx:
 		if h.engine.toolWorker == nil {
 			return "", toolworker.ErrUnavailable
@@ -1660,11 +2192,22 @@ func (h *ToolHandler) readFile(argsJSON string) (string, error) {
 		return string(resp), nil
 
 	case workbench.FileKindOdt:
-		text, err := h.engine.extractText(h.ctx, h.workbenchID, area, fileEntry.FileKind, args.Path)
-		if err != nil {
+		if h.engine.toolWorker == nil {
+			return "", toolworker.ErrUnavailable
+		}
+		params := map[string]any{
+			"workbench_id": h.workbenchID,
+			"path":         args.Path,
+			"root":         area,
+		}
+		if args.Section != "" {
+			params["section"] = args.Section
+		}
+		var resp json.RawMessage
+		if err := h.engine.toolWorker.Call(h.ctx, "OdtExtractText", params, &resp); err != nil {
 			return "", err
 		}
-		return text, nil
+		return string(resp), nil
 
 	case workbench.FileKindPptx:
 		if h.engine.toolWorker == nil {
@@ -1680,6 +2223,24 @@ func (h *ToolHandler) readFile(argsJSON string) (string, error) {
 		}
 		var resp json.RawMessage
 		if err := h.engine.toolWorker.Call(h.ctx, "PptxExtractText", params, &resp); err != nil {
+			return "", err
+		}
+		return string(resp), nil
+
+	case workbench.FileKindOdp:
+		if h.engine.toolWorker == nil {
+			return "", toolworker.ErrUnavailable
+		}
+		params := map[string]any{
+			"workbench_id": h.workbenchID,
+			"path":         args.Path,
+			"root":         area,
+		}
+		if args.SlideIndex != nil {
+			params["slide_index"] = *args.SlideIndex
+		}
+		var resp json.RawMessage
+		if err := h.engine.toolWorker.Call(h.ctx, "OdpExtractText", params, &resp); err != nil {
 			return "", err
 		}
 		return string(resp), nil
@@ -1819,6 +2380,70 @@ func (h *ToolHandler) xlsxOperations(argsJSON string) (string, error) {
 	return fmt.Sprintf("%s %s with %d operations", action, args.Path, len(args.Operations)), nil
 }
 
+func (h *ToolHandler) odsOperations(argsJSON string) (string, error) {
+	var args struct {
+		Path       string           `json:"path"`
+		CreateNew  bool             `json:"create_new"`
+		CopyFrom   string           `json:"copy_from"`
+		Operations []map[string]any `json:"operations"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.Path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	args.Path = sanitizeFlatPath(args.Path)
+	if args.CopyFrom != "" {
+		args.CopyFrom = sanitizeFlatPath(args.CopyFrom)
+	}
+	if len(args.Operations) == 0 {
+		return "", fmt.Errorf("operations is required")
+	}
+
+	if h.engine.toolWorker == nil {
+		return "", toolworker.ErrUnavailable
+	}
+
+	// Ensure draft exists
+	ds, err := h.engine.workbenches.DraftState(h.workbenchID)
+	if err != nil || ds == nil {
+		_, err := h.engine.workbenches.CreateDraftWithSource(h.workbenchID, "workshop", "agent")
+		if err != nil {
+			return "", fmt.Errorf("failed to create draft: %w", err)
+		}
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"path":         args.Path,
+		"ops":          args.Operations,
+		"root":         "draft",
+	}
+	if args.CreateNew {
+		params["create_new"] = true
+	}
+	if args.CopyFrom != "" {
+		params["copy_from"] = args.CopyFrom
+	}
+
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := h.engine.toolWorker.Call(h.ctx, "OdsApplyOps", params, &resp); err != nil {
+		return "", fmt.Errorf("ods operation failed: %w", err)
+	}
+	if hint := buildXlsxFocusHint(args.Operations); hint != nil {
+		h.setFocusHint(args.Path, hint)
+	}
+
+	action := "Modified"
+	if args.CreateNew {
+		action = "Created"
+	}
+	return fmt.Sprintf("%s %s with %d operations", action, args.Path, len(args.Operations)), nil
+}
+
 func (h *ToolHandler) docxOperations(argsJSON string) (string, error) {
 	var args struct {
 		Path       string           `json:"path"`
@@ -1884,6 +2509,71 @@ func (h *ToolHandler) docxOperations(argsJSON string) (string, error) {
 	return fmt.Sprintf("%s %s with %d operations", action, args.Path, len(args.Operations)), nil
 }
 
+func (h *ToolHandler) odtOperations(argsJSON string) (string, error) {
+	var args struct {
+		Path       string           `json:"path"`
+		CreateNew  bool             `json:"create_new"`
+		CopyFrom   string           `json:"copy_from"`
+		Operations []map[string]any `json:"operations"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.Path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	args.Path = sanitizeFlatPath(args.Path)
+	if args.CopyFrom != "" {
+		args.CopyFrom = sanitizeFlatPath(args.CopyFrom)
+	}
+	if len(args.Operations) == 0 {
+		return "", fmt.Errorf("operations is required")
+	}
+	normalizeDocxOperationAliases(args.Operations)
+
+	if h.engine.toolWorker == nil {
+		return "", toolworker.ErrUnavailable
+	}
+
+	// Ensure draft exists
+	ds, err := h.engine.workbenches.DraftState(h.workbenchID)
+	if err != nil || ds == nil {
+		_, err := h.engine.workbenches.CreateDraftWithSource(h.workbenchID, "workshop", "agent")
+		if err != nil {
+			return "", fmt.Errorf("failed to create draft: %w", err)
+		}
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"path":         args.Path,
+		"ops":          args.Operations,
+		"root":         "draft",
+	}
+	if args.CreateNew {
+		params["create_new"] = true
+	}
+	if args.CopyFrom != "" {
+		params["copy_from"] = args.CopyFrom
+	}
+
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := h.engine.toolWorker.Call(h.ctx, "OdtApplyOps", params, &resp); err != nil {
+		return "", fmt.Errorf("odt operation failed: %w", err)
+	}
+	if hint := buildDocxFocusHint(args.Operations); hint != nil {
+		h.setFocusHint(args.Path, hint)
+	}
+
+	action := "Modified"
+	if args.CreateNew {
+		action = "Created"
+	}
+	return fmt.Sprintf("%s %s with %d operations", action, args.Path, len(args.Operations)), nil
+}
+
 func (h *ToolHandler) pptxOperations(argsJSON string) (string, error) {
 	var args struct {
 		Path       string           `json:"path"`
@@ -1937,6 +2627,71 @@ func (h *ToolHandler) pptxOperations(argsJSON string) (string, error) {
 	}
 	if err := h.engine.toolWorker.Call(h.ctx, "PptxApplyOps", params, &resp); err != nil {
 		return "", fmt.Errorf("pptx operation failed: %w", err)
+	}
+	if hint := h.resolvePptxFocusHint(args.Path, args.Operations); hint != nil {
+		h.setFocusHint(args.Path, hint)
+	}
+
+	action := "Modified"
+	if args.CreateNew {
+		action = "Created"
+	}
+	return fmt.Sprintf("%s %s with %d operations", action, args.Path, len(args.Operations)), nil
+}
+
+func (h *ToolHandler) odpOperations(argsJSON string) (string, error) {
+	var args struct {
+		Path       string           `json:"path"`
+		CreateNew  bool             `json:"create_new"`
+		CopyFrom   string           `json:"copy_from"`
+		Operations []map[string]any `json:"operations"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.Path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	args.Path = sanitizeFlatPath(args.Path)
+	if args.CopyFrom != "" {
+		args.CopyFrom = sanitizeFlatPath(args.CopyFrom)
+	}
+	if len(args.Operations) == 0 {
+		return "", fmt.Errorf("operations is required")
+	}
+	normalizePptxOperationAliases(args.Operations)
+
+	if h.engine.toolWorker == nil {
+		return "", toolworker.ErrUnavailable
+	}
+
+	// Ensure draft exists
+	ds, err := h.engine.workbenches.DraftState(h.workbenchID)
+	if err != nil || ds == nil {
+		_, err := h.engine.workbenches.CreateDraftWithSource(h.workbenchID, "workshop", "agent")
+		if err != nil {
+			return "", fmt.Errorf("failed to create draft: %w", err)
+		}
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"path":         args.Path,
+		"ops":          args.Operations,
+		"root":         "draft",
+	}
+	if args.CreateNew {
+		params["create_new"] = true
+	}
+	if args.CopyFrom != "" {
+		params["copy_from"] = args.CopyFrom
+	}
+
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := h.engine.toolWorker.Call(h.ctx, "OdpApplyOps", params, &resp); err != nil {
+		return "", fmt.Errorf("odp operation failed: %w", err)
 	}
 	if hint := h.resolvePptxFocusHint(args.Path, args.Operations); hint != nil {
 		h.setFocusHint(args.Path, hint)
@@ -2132,6 +2887,63 @@ func (h *ToolHandler) xlsxCopyAssets(argsJSON string) (string, error) {
 	return h.callJSONWorker("XlsxCopyAssets", params)
 }
 
+func (h *ToolHandler) odsGetStyles(argsJSON string) (string, error) {
+	var args struct {
+		Path  string `json:"path"`
+		Sheet string `json:"sheet"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", workshopValidationError("invalid arguments")
+	}
+	if err := validateOfficeToolPath(args.Path, workbench.FileKindOds, "path"); err != nil {
+		return "", err
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"path":         strings.TrimSpace(args.Path),
+		"root":         h.workshopReadRoot(),
+	}
+	if sheet := strings.TrimSpace(args.Sheet); sheet != "" {
+		params["sheet"] = sheet
+	}
+	return h.callJSONWorker("OdsGetStyles", params)
+}
+
+func (h *ToolHandler) odsCopyAssets(argsJSON string) (string, error) {
+	var args struct {
+		SourcePath string `json:"source_path"`
+		TargetPath string `json:"target_path"`
+		Assets     []any  `json:"assets"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", workshopValidationError("invalid arguments")
+	}
+	if err := validateOfficeToolPath(args.SourcePath, workbench.FileKindOds, "source_path"); err != nil {
+		return "", err
+	}
+	if err := validateOfficeToolPath(args.TargetPath, workbench.FileKindOds, "target_path"); err != nil {
+		return "", err
+	}
+	if err := validateAssetSelectors(args.Assets); err != nil {
+		return "", err
+	}
+	if err := h.ensureDraftForCopyTools(); err != nil {
+		return "", err
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"source_path":  strings.TrimSpace(args.SourcePath),
+		"target_path":  strings.TrimSpace(args.TargetPath),
+		"assets":       args.Assets,
+		"root":         "draft",
+		"source_root":  "draft",
+		"target_root":  "draft",
+	}
+	return h.callJSONWorker("OdsCopyAssets", params)
+}
+
 func (h *ToolHandler) docxGetStyles(argsJSON string) (string, error) {
 	var args struct {
 		Path string `json:"path"`
@@ -2185,6 +2997,59 @@ func (h *ToolHandler) docxCopyAssets(argsJSON string) (string, error) {
 	return h.callJSONWorker("DocxCopyAssets", params)
 }
 
+func (h *ToolHandler) odtGetStyles(argsJSON string) (string, error) {
+	var args struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", workshopValidationError("invalid arguments")
+	}
+	if err := validateOfficeToolPath(args.Path, workbench.FileKindOdt, "path"); err != nil {
+		return "", err
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"path":         strings.TrimSpace(args.Path),
+		"root":         h.workshopReadRoot(),
+	}
+	return h.callJSONWorker("OdtGetStyles", params)
+}
+
+func (h *ToolHandler) odtCopyAssets(argsJSON string) (string, error) {
+	var args struct {
+		SourcePath string `json:"source_path"`
+		TargetPath string `json:"target_path"`
+		Assets     []any  `json:"assets"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", workshopValidationError("invalid arguments")
+	}
+	if err := validateOfficeToolPath(args.SourcePath, workbench.FileKindOdt, "source_path"); err != nil {
+		return "", err
+	}
+	if err := validateOfficeToolPath(args.TargetPath, workbench.FileKindOdt, "target_path"); err != nil {
+		return "", err
+	}
+	if err := validateAssetSelectors(args.Assets); err != nil {
+		return "", err
+	}
+	if err := h.ensureDraftForCopyTools(); err != nil {
+		return "", err
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"source_path":  strings.TrimSpace(args.SourcePath),
+		"target_path":  strings.TrimSpace(args.TargetPath),
+		"assets":       args.Assets,
+		"root":         "draft",
+		"source_root":  "draft",
+		"target_root":  "draft",
+	}
+	return h.callJSONWorker("OdtCopyAssets", params)
+}
+
 func (h *ToolHandler) pptxGetStyles(argsJSON string) (string, error) {
 	var args struct {
 		Path string `json:"path"`
@@ -2236,6 +3101,59 @@ func (h *ToolHandler) pptxCopyAssets(argsJSON string) (string, error) {
 		"target_root":  "draft",
 	}
 	return h.callJSONWorker("PptxCopyAssets", params)
+}
+
+func (h *ToolHandler) odpGetStyles(argsJSON string) (string, error) {
+	var args struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", workshopValidationError("invalid arguments")
+	}
+	if err := validateOfficeToolPath(args.Path, workbench.FileKindOdp, "path"); err != nil {
+		return "", err
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"path":         strings.TrimSpace(args.Path),
+		"root":         h.workshopReadRoot(),
+	}
+	return h.callJSONWorker("OdpGetStyles", params)
+}
+
+func (h *ToolHandler) odpCopyAssets(argsJSON string) (string, error) {
+	var args struct {
+		SourcePath string `json:"source_path"`
+		TargetPath string `json:"target_path"`
+		Assets     []any  `json:"assets"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", workshopValidationError("invalid arguments")
+	}
+	if err := validateOfficeToolPath(args.SourcePath, workbench.FileKindOdp, "source_path"); err != nil {
+		return "", err
+	}
+	if err := validateOfficeToolPath(args.TargetPath, workbench.FileKindOdp, "target_path"); err != nil {
+		return "", err
+	}
+	if err := validateAssetSelectors(args.Assets); err != nil {
+		return "", err
+	}
+	if err := h.ensureDraftForCopyTools(); err != nil {
+		return "", err
+	}
+
+	params := map[string]any{
+		"workbench_id": h.workbenchID,
+		"source_path":  strings.TrimSpace(args.SourcePath),
+		"target_path":  strings.TrimSpace(args.TargetPath),
+		"assets":       args.Assets,
+		"root":         "draft",
+		"source_root":  "draft",
+		"target_root":  "draft",
+	}
+	return h.callJSONWorker("OdpCopyAssets", params)
 }
 
 const (
@@ -2382,7 +3300,7 @@ Rules:
 6. Do not edit/remove/reorder existing items in your response.
 7. Finish with a concise implementation summary for this item.
 8. The file manifest below shows all current workbench files and their structure. Do NOT call list_files or get_file_info to discover files — use the manifest. Only call list_files after creating a new file to confirm it exists.
-9. For xlsx files, the manifest map shows existing sheet names and dimensions. Do NOT call ensure_sheet for sheets that already appear in the manifest — they already exist.
+9. For xlsx/ods files, the manifest map shows existing sheet names and dimensions. Do NOT call ensure_sheet for sheets that already appear in the manifest — they already exist.
 10. Prefer table_update_from_export to write query results into existing xlsx workbooks/sheets. Use table_export for stand-alone csv/xlsx outputs.
 11. Keep SQL queries efficient: use GROUP BY/aggregation instead of SELECT * followed by manual processing. Double-quote column names with special characters in DuckDB.
 12. SCRATCH/INTERMEDIATE FILES: Any file you create as a working copy, intermediate step, or scratch space MUST have a name starting with "_" (e.g. "_work.xlsx", "_filtered.csv"). Only files the user explicitly requested should have a regular name. Underscore-prefixed files are hidden from the user and deleted on publish.`
@@ -2410,7 +3328,7 @@ YOU MUST USE TOOLS to accomplish tasks. Do not just describe what you would do -
 
 Available tools:
 - list_files: See all available files with their types and sizes
-- get_file_info: Get lightweight metadata about a file (sheets for xlsx, pages for pdf, etc.)
+- get_file_info: Get lightweight metadata about a file (sheets for xlsx/ods, pages for pdf, etc.)
 - get_file_map: Get structural map of a file showing internal layout, regions, and chunk boundaries
 - read_file: Read file content with optional region selectors (sheet/range, section, slide_index, pages, line_start/line_count)
 - table_get_map: Get structural map of a CSV file with schema, chunks, and encoding metadata
@@ -2422,14 +3340,17 @@ Available tools:
 - table_update_from_export: Write CSV data/query results into existing Draft xlsx workbook/sheet
 - write_text_file: Create or update text files
 - xlsx_operations: Create or modify Excel files (use copy_from to copy an existing file)
+- ods_operations: Create or modify ODS spreadsheets (use copy_from to copy an existing file)
 - docx_operations: Create or modify Word documents
+- odt_operations: Create or modify ODT documents
 - pptx_operations: Create or modify PowerPoint presentations
-- xlsx_get_styles / docx_get_styles / pptx_get_styles: Inspect style descriptors for fidelity-sensitive derivative tasks
-- xlsx_copy_assets / docx_copy_assets / pptx_copy_assets: Copy style/layout/media assets between same-format files in Draft
+- odp_operations: Create or modify ODP presentations
+- xlsx_get_styles / ods_get_styles / docx_get_styles / odt_get_styles / pptx_get_styles / odp_get_styles: Inspect style descriptors for fidelity-sensitive derivative tasks
+- xlsx_copy_assets / ods_copy_assets / docx_copy_assets / odt_copy_assets / pptx_copy_assets / odp_copy_assets: Copy style/layout/media assets between same-format files in Draft
 - recall_tool_result: Retrieve a bounded chunk of a previous tool result by entry ID with optional offset/length paging
 
 MAP-FIRST WORKFLOW:
-For structured files (xlsx, docx, pptx, pdf), CSV files, and large text files, follow this approach:
+For structured files (xlsx, ods, docx, odt, pptx, odp, pdf), CSV files, and large text files, follow this approach:
 1. The file manifest below shows what files exist with structural maps already included.
 2. Use the map to understand the file layout (sheets, sections, slides, pages, chunks, or table schema/chunks).
 3. Use read_file or table tools with specific coordinates/query windows to read only the data you need.
@@ -2452,11 +3373,11 @@ TASK COMPLETION:
 
 CRITICAL RULES:
 1. ALWAYS call tools to accomplish tasks - never just describe what you would do
-2. For file modifications, ALWAYS use the appropriate tool (xlsx_operations, docx_operations, etc.)
+2. For file modifications, ALWAYS use the appropriate tool (xlsx_operations/ods_operations, docx_operations/odt_operations, pptx_operations/odp_operations, etc.)
 3. To copy and modify a file, use create_new=true with copy_from pointing to the source file
-4. For xlsx: use read_file with sheet and range (e.g. A1:E50) based on the map
-5. For docx: use read_file with section parameter to read specific sections
-6. For pptx: use read_file with slide_index to read specific slides
+4. For xlsx/ods: use read_file with sheet and range (e.g. A1:E50) based on the map
+5. For docx/odt: use read_file with section parameter to read specific sections
+6. For pptx/odp: use read_file with slide_index to read specific slides
 7. For pdf: use read_file with pages parameter (e.g. "1-5") to read specific pages
 8. For text: use read_file with line_start and line_count for large files
 9. For CSV analysis tasks, prefer table_* tools over line-based read_file.
@@ -2464,14 +3385,14 @@ CRITICAL RULES:
 11. All modifications go to a draft - users will review before publishing
 12. PDF and image files are read-only
 21. SCRATCH/INTERMEDIATE FILES: Any file you create as a working copy, intermediate step, or scratch space MUST have a name starting with "_" (e.g. "_work.xlsx", "_filtered.csv"). Only files the user explicitly requested should have a regular name. Underscore-prefixed files are hidden from the user and deleted on publish.
-13. For docx replace_text use "search"/"replace"; for pptx set_slide_text/append_bullets use "index" for slide number
+13. For docx/odt replace_text use "search"/"replace"; for pptx/odp set_slide_text/append_bullets use "index" for slide number
 14. For CSV merge/join tasks, NEVER return header-only output when source files contain rows. If join keys are missing or mismatched, perform a deterministic best-effort merge (for example, assign rows from the second file in order / round-robin) and include a row for each primary-source record.
 15. For requests to edit an existing file, keep the same filename/path unless the user explicitly asks for a new file.
 16. For DOCX template-fill tasks, replace ALL placeholders that exist in the document, including placeholders inside table cells (for example {{items_table}}). Never leave unresolved {{...}} tokens when source data exists.
 17. For PPTX slide-creation tasks that require action items/bullets, ensure the body/content placeholder actually contains the requested items (not title-only output). Use append_bullets or multiline body text and verify with read_file on the target slide if needed.
-18. For XLSX summary/aggregation tasks, use xlsx_operations with op="summarize_by_category" so totals are computed from source-sheet data deterministically. Do not hand-calculate, invent, or guess totals.
-19. For derivative fidelity tasks (preserve formatting/theme/layout/branding), prefer style/asset tools: query styles first (xlsx_get_styles/docx_get_styles/pptx_get_styles), then copy required assets with matching *_copy_assets tools before content edits.
-20. Style/asset copy tools are format-specific: xlsx->xlsx, docx->docx, pptx->pptx.
+18. For XLSX/ODS summary/aggregation tasks, use xlsx_operations/ods_operations with op="summarize_by_category" so totals are computed from source-sheet data deterministically. Do not hand-calculate, invent, or guess totals.
+19. For derivative fidelity tasks (preserve formatting/theme/layout/branding), prefer style/asset tools: query styles first (xlsx_get_styles/ods_get_styles/docx_get_styles/odt_get_styles/pptx_get_styles/odp_get_styles), then copy required assets with matching *_copy_assets tools before content edits.
+20. Style/asset copy tools are format-specific: xlsx->xlsx, ods->ods, docx->docx, odt->odt, pptx->pptx, odp->odp.
 
 DuckDB SQL PATTERNS (table_query uses DuckDB):
 - Column names with spaces/special chars require double-quotes: SELECT "Issue Type", "Component/s" FROM data
@@ -2480,12 +3401,12 @@ DuckDB SQL PATTERNS (table_query uses DuckDB):
 - String aggregation: SELECT "App", string_agg(DISTINCT "Label", ', ') AS labels FROM data GROUP BY "App"
 - Write results to xlsx: use table_export(path, target_path, format="xlsx", sheet="SheetName", query="SELECT ...") for stand-alone outputs, or table_update_from_export(...) for existing workbook/sheet targets
 
-When asked to translate or modify an Excel file:
+When asked to translate or modify a spreadsheet file (xlsx/ods):
 1. Review the map to see sheet names, ranges, and data islands
 2. Call read_file with the sheet name and range to see content chunk by chunk
-3. Call xlsx_operations with create_new=true, copy_from=original_file, and operations to modify cells
+3. Call xlsx_operations or ods_operations with create_new=true, copy_from=original_file, and operations to modify cells
 
 When asked to create a copy of a file:
-1. Use xlsx_operations (or docx_operations/pptx_operations) with create_new=true and copy_from=source_path
+1. Use the matching operations tool (xlsx_operations/ods_operations, docx_operations/odt_operations, or pptx_operations/odp_operations) with create_new=true and copy_from=source_path
 
 Be direct. Use tools immediately. Don't ask questions you can answer with tools. Complete the entire task — never stop to describe what you would do next.`

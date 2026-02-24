@@ -33,6 +33,8 @@ const (
 	FileKindText   = "text"
 	FileKindDocx   = "docx"
 	FileKindOdt    = "odt"
+	FileKindOds    = "ods"
+	FileKindOdp    = "odp"
 	FileKindXlsx   = "xlsx"
 	FileKindPptx   = "pptx"
 	FileKindPdf    = "pdf"
@@ -66,6 +68,8 @@ var textWriteExtensions = map[string]bool{
 var officeExtensions = map[string]string{
 	".docx": FileKindDocx,
 	".odt":  FileKindOdt,
+	".ods":  FileKindOds,
+	".odp":  FileKindOdp,
 	".xlsx": FileKindXlsx,
 	".pptx": FileKindPptx,
 }
@@ -88,6 +92,8 @@ var mimeFallbacks = map[string]string{
 	".xml":  "application/xml",
 	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	".odt":  "application/vnd.oasis.opendocument.text",
+	".ods":  "application/vnd.oasis.opendocument.spreadsheet",
+	".odp":  "application/vnd.oasis.opendocument.presentation",
 	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	".pdf":  "application/pdf",
@@ -1433,7 +1439,7 @@ func normalizeLegacyFileKind(path, kind string) string {
 	switch normalized {
 	case "":
 		return ""
-	case FileKindText, FileKindDocx, FileKindOdt, FileKindXlsx, FileKindPptx, FileKindPdf, FileKindImage, FileKindBinary:
+	case FileKindText, FileKindDocx, FileKindOdt, FileKindOds, FileKindOdp, FileKindXlsx, FileKindPptx, FileKindPdf, FileKindImage, FileKindBinary:
 		return normalized
 	}
 

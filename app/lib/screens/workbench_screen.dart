@@ -2199,10 +2199,7 @@ class _WorkbenchFileRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final extension = _extensionLabel(file.path);
     final icon = _fileIcon(extension);
-    final readOnly =
-        file.fileKind == 'pdf' ||
-        file.fileKind == 'image' ||
-        file.fileKind == 'odt';
+    final readOnly = file.fileKind == 'pdf' || file.fileKind == 'image';
     return Semantics(
       container: true,
       label: _semanticLabel(extension, readOnly),
@@ -2864,12 +2861,18 @@ String _toolStatusLabel(String toolName) {
     case 'get_file_map':
       return 'Mapping file structure...';
     case 'xlsx_get_styles':
+    case 'ods_get_styles':
     case 'docx_get_styles':
+    case 'odt_get_styles':
     case 'pptx_get_styles':
+    case 'odp_get_styles':
       return 'Inspecting styles...';
     case 'xlsx_copy_assets':
+    case 'ods_copy_assets':
     case 'docx_copy_assets':
+    case 'odt_copy_assets':
     case 'pptx_copy_assets':
+    case 'odp_copy_assets':
       return 'Copying styles/assets...';
     default:
       if (toolName.isEmpty) {

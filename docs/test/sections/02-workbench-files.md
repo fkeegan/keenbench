@@ -33,7 +33,7 @@ See `CLAUDE.md` for the full testing policy.
 | `multi-sheet.xlsx` | `engine/testdata/office/` | Excel workbook with multiple sheets |
 | `slides.pptx` | `engine/testdata/office/` | PowerPoint with 2-3 slides |
 | `report.pdf` | `engine/testdata/office/` | PDF report (read-only) |
-| `notes.odt` | `engine/testdata/office/` | OpenDocument text (read-only) |
+| `notes.odt` | `engine/testdata/office/` | OpenDocument text document (read/write via office tool worker) |
 | `chart.png` | `engine/testdata/office/` | PNG image (read-only) |
 | `logo.svg` | `engine/testdata/office/` | SVG image (read-only) |
 | `unknown.bin` | `engine/testdata/office/` | Unknown binary format (opaque) |
@@ -71,8 +71,8 @@ Key elements for this section:
 
 ## File Type Semantics
 
-- **Read+Write:** txt, csv, md, json, xml, yaml, html, code files, docx, xlsx, pptx
-- **Read-only:** pdf, odt, images (png, jpg, gif, webp, svg)
+- **Read+Write:** txt, csv, md, json, xml, yaml, html, code files, docx, odt, xlsx, ods, pptx, odp
+- **Read-only:** pdf, images (png, jpg, gif, webp, svg)
 - **Opaque:** any other type (metadata only)
 
 ---
@@ -105,16 +105,16 @@ Key elements for this section:
   3. Verify the scope badge (`AppKeys.workbenchScopeBadge`) shows "Scoped" or the scope limits text updates to reflect the file count.
      Expected: The file count in the scope area reflects 2 files.
 
-#### TC-009: Add office files (DOCX, XLSX, PPTX, PDF, images)
+#### TC-009: Add office files (DOCX, ODT, XLSX, PPTX, PDF, images)
 - Priority: P0
 - Preconditions: Workbench open, no Draft.
 - Steps:
-  1. Add `simple.docx`, `multi-sheet.xlsx`, `slides.pptx`, `report.pdf`, `chart.png`, `logo.svg` via `WorkbenchFilesAdd`.
-     Expected: All 6 files appear in the file list with appropriate badges: "DOCX", "XLSX", "PPTX", "PDF", "PNG", "SVG".
+  1. Add `simple.docx`, `notes.odt`, `multi-sheet.xlsx`, `slides.pptx`, `report.pdf`, `chart.png`, `logo.svg` via `WorkbenchFilesAdd`.
+     Expected: All 7 files appear in the file list with appropriate badges: "DOCX", "ODT", "XLSX", "PPTX", "PDF", "PNG", "SVG".
   2. Verify `report.pdf`, `chart.png`, `logo.svg` show a "Read-only" badge on their file rows.
      Expected: Read-only files are visually distinguished.
   3. Verify the file count in scope limits reflects the correct total.
-     Expected: File count shows the correct number (2 previous + 6 = 8, or per the test setup).
+     Expected: File count shows the correct number (2 previous + 7 = 9, or per the test setup).
 
 #### TC-010: Add opaque file
 - Priority: P1

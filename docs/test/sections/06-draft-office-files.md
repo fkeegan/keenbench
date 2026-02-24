@@ -27,6 +27,7 @@ See `CLAUDE.md` for the full testing policy.
 |------|----------|-------------|
 | `data.csv` | `app/integration_test/support/` | Employee roster CSV (name, role, location, availability) with 5 rows |
 | `simple.docx` | `engine/testdata/office/` | Simple Word document with paragraphs and headings |
+| `notes.odt` | `engine/testdata/office/` | OpenDocument text document for ODF parity runs |
 | `multi-sheet.xlsx` | `engine/testdata/office/` | Excel workbook with multiple sheets |
 | `slides.pptx` | `engine/testdata/office/` | PowerPoint with 2-3 slides |
 
@@ -49,8 +50,11 @@ Key elements for this section:
 
 The engine uses a Python tool worker (`engine/tools/pyworker/`) for office file operations:
 - `docx_operations`: Create and modify Word documents (headings, paragraphs, tables)
+- `odt_operations`: Create and modify OpenDocument text documents (headings, paragraphs, tables)
 - `xlsx_operations`: Create and modify Excel workbooks (sheets, cells, formulas)
+- `ods_operations`: Create and modify OpenDocument spreadsheets (sheets, cells, formulas)
 - `pptx_operations`: Create and modify PowerPoint presentations (slides, text, layouts)
+- `odp_operations`: Create and modify OpenDocument presentations (slides, text, layouts)
 
 ---
 
@@ -114,3 +118,42 @@ The engine uses a Python tool worker (`engine/tools/pyworker/`) for office file 
      Expected: The grid preview shows data in the Summary sheet. Cell A1 area is visible.
   5. Verify the draft XLSX on disk.
      Expected: The workbook has a "Summary" sheet. Cell A1 contains "Summary of all sheets" (or close text). Cell A2 is not empty.
+
+#### TC-054: Create an ODT report from CSV data `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has `data.csv`. No existing Draft.
+- Steps:
+  1. Type: "Create `team_report_odf.odt` with heading 'Team Overview' and a paragraph for each employee name and role from the CSV." Click Send.
+     Expected: The assistant reads `data.csv` and uses `odt_operations`.
+  2. Wait for Draft creation.
+     Expected: Draft created with `team_report_odf.odt`. Timeout: 120 seconds.
+  3. Navigate to review and select `team_report_odf.odt`.
+     Expected: "ADDED" badge and "ODT" type badge. Detail pane shows word-processing diff/preview.
+  4. Verify the draft ODT on disk.
+     Expected: The file is valid ODT and includes heading text plus multiple employee entries.
+
+#### TC-055: Create an ODS summary spreadsheet from CSV `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has `data.csv`. No existing Draft.
+- Steps:
+  1. Type: "Create `team_summary.ods` with sheet `Summary` and columns Name, Role, Location filled from the CSV." Click Send.
+     Expected: The assistant reads `data.csv` and uses `ods_operations`.
+  2. Wait for Draft creation.
+     Expected: Draft created with `team_summary.ods`. Timeout: 120 seconds.
+  3. Navigate to review and select `team_summary.ods`.
+     Expected: "ADDED" badge and "ODS" type badge. Detail pane shows spreadsheet grid preview.
+  4. Verify the draft ODS on disk.
+     Expected: The workbook contains a `Summary` sheet (or close variant), a header row, and at least 3 populated rows.
+
+#### TC-056: Create an ODP deck from CSV data `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has `data.csv`. No existing Draft.
+- Steps:
+  1. Type: "Create `team_deck_odf.odp` with 3 slides: title, team member roles, and next steps." Click Send.
+     Expected: The assistant reads relevant data and uses `odp_operations`.
+  2. Wait for Draft creation.
+     Expected: Draft created with `team_deck_odf.odp`. Timeout: 120 seconds.
+  3. Navigate to review and select `team_deck_odf.odp`.
+     Expected: "ADDED" badge and "ODP" type badge. Detail pane shows slide preview with navigation controls.
+  4. Verify the draft ODP on disk.
+     Expected: The file opens as a valid presentation with at least 3 slides and expected section titles.

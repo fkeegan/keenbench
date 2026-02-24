@@ -17,8 +17,8 @@ This test plan covers all milestones (M0 through M3):
 - Egress consent: per-workbench, per-scope, per-provider/model
 - Draft: auto-propose, auto-apply, review, publish, discard
 - Review: offline diffs, side-by-side previews, text extraction diffs
-- Office files: DOCX, XLSX, PPTX read/write via tool worker
-- PDF, ODT, images: read-only ingest with previews
+- Office files: DOCX/ODT, XLSX/ODS, PPTX/ODP read/write via tool worker
+- PDF and images: read-only ingest with previews
 - Multi-provider: OpenAI, OpenAI Codex, Anthropic, Gemini, Mistral
 - Checkpoints: create, list, restore
 - Clutter bar: context usage signal
@@ -49,7 +49,7 @@ This test plan covers all milestones (M0 through M3):
 | `multi-sheet.xlsx` | `engine/testdata/office/` | Excel workbook with multiple sheets |
 | `slides.pptx` | `engine/testdata/office/` | PowerPoint with 2-3 slides |
 | `report.pdf` | `engine/testdata/office/` | PDF report (read-only) |
-| `notes.odt` | `engine/testdata/office/` | OpenDocument text (read-only) |
+| `notes.odt` | `engine/testdata/office/` | OpenDocument text document (read/write via office tool worker) |
 | `chart.png` | `engine/testdata/office/` | PNG image (read-only) |
 | `logo.svg` | `engine/testdata/office/` | SVG image (read-only) |
 | `unknown.bin` | `engine/testdata/office/` | Unknown binary format (opaque) |
@@ -214,16 +214,16 @@ This test plan covers all milestones (M0 through M3):
   3. Verify the scope badge (`AppKeys.workbenchScopeBadge`) shows "Scoped" or the scope limits text updates to reflect the file count.
      Expected: The file count in the scope area reflects 2 files.
 
-#### TC-009: Add office files (DOCX, XLSX, PPTX, PDF, images)
+#### TC-009: Add office files (DOCX, ODT, XLSX, PPTX, PDF, images)
 - Priority: P0
 - Preconditions: Workbench open, no Draft.
 - Steps:
-  1. Add `simple.docx`, `multi-sheet.xlsx`, `slides.pptx`, `report.pdf`, `chart.png`, `logo.svg` via `WorkbenchFilesAdd`.
-     Expected: All 6 files appear in the file list with appropriate badges: "DOCX", "XLSX", "PPTX", "PDF", "PNG", "SVG".
+  1. Add `simple.docx`, `notes.odt`, `multi-sheet.xlsx`, `slides.pptx`, `report.pdf`, `chart.png`, `logo.svg` via `WorkbenchFilesAdd`.
+     Expected: All 7 files appear in the file list with appropriate badges: "DOCX", "ODT", "XLSX", "PPTX", "PDF", "PNG", "SVG".
   2. Verify `report.pdf`, `chart.png`, `logo.svg` show a "Read-only" badge on their file rows.
      Expected: Read-only files are visually distinguished.
   3. Verify the file count in scope limits reflects the correct total.
-     Expected: File count shows the correct number (2 previous + 6 = 8, or per the test setup).
+     Expected: File count shows the correct number (2 previous + 7 = 9, or per the test setup).
 
 #### TC-010: Add opaque file
 - Priority: P1
@@ -568,6 +568,45 @@ This test plan covers all milestones (M0 through M3):
      Expected: The grid preview shows data in the Summary sheet. Cell A1 area is visible.
   5. Verify the draft XLSX on disk.
      Expected: The workbook has a "Summary" sheet. Cell A1 contains "Summary of all sheets" (or close text). Cell A2 is not empty.
+
+#### TC-054: Create an ODT report from CSV data `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has `data.csv`. No existing Draft.
+- Steps:
+  1. Type: "Create `team_report_odf.odt` with heading 'Team Overview' and a paragraph for each employee name and role from the CSV." Click Send.
+     Expected: The assistant reads `data.csv` and uses `odt_operations`.
+  2. Wait for Draft creation.
+     Expected: Draft created with `team_report_odf.odt`. Timeout: 120 seconds.
+  3. Navigate to review and select `team_report_odf.odt`.
+     Expected: "ADDED" badge and "ODT" type badge. Detail pane shows word-processing diff/preview.
+  4. Verify the draft ODT on disk.
+     Expected: The file is valid ODT and includes heading text plus multiple employee entries.
+
+#### TC-055: Create an ODS summary spreadsheet from CSV `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has `data.csv`. No existing Draft.
+- Steps:
+  1. Type: "Create `team_summary.ods` with sheet `Summary` and columns Name, Role, Location filled from the CSV." Click Send.
+     Expected: The assistant reads `data.csv` and uses `ods_operations`.
+  2. Wait for Draft creation.
+     Expected: Draft created with `team_summary.ods`. Timeout: 120 seconds.
+  3. Navigate to review and select `team_summary.ods`.
+     Expected: "ADDED" badge and "ODS" type badge. Detail pane shows spreadsheet grid preview.
+  4. Verify the draft ODS on disk.
+     Expected: The workbook contains a `Summary` sheet (or close variant), a header row, and at least 3 populated rows.
+
+#### TC-056: Create an ODP deck from CSV data `[AI]`
+- Priority: P1
+- Preconditions: Consent granted. Workbench has `data.csv`. No existing Draft.
+- Steps:
+  1. Type: "Create `team_deck_odf.odp` with 3 slides: title, team member roles, and next steps." Click Send.
+     Expected: The assistant reads relevant data and uses `odp_operations`.
+  2. Wait for Draft creation.
+     Expected: Draft created with `team_deck_odf.odp`. Timeout: 120 seconds.
+  3. Navigate to review and select `team_deck_odf.odp`.
+     Expected: "ADDED" badge and "ODP" type badge. Detail pane shows slide preview with navigation controls.
+  4. Verify the draft ODP on disk.
+     Expected: The file opens as a valid presentation with at least 3 slides and expected section titles.
 
 ---
 
@@ -1512,8 +1551,8 @@ Use one Workbench for most cases (TC-160 through TC-170), and a separate fresh W
 | Multi-provider support | M2 plan | TC-090 through TC-096 |
 | OpenAI Codex OAuth connect/disconnect (manual browser auth) | OAuth implementation plan | TC-093 through TC-095 |
 | Checkpoints create/restore | M2 plan | TC-073, TC-074, TC-080 through TC-082 |
-| Office file read/write (DOCX/XLSX/PPTX) | M1 plan | TC-050 through TC-053, TC-130, TC-132, TC-140, TC-150 |
-| Read-only files (PDF, images, ODT) | M1 plan | TC-009, TC-121 |
+| Office file read/write parity (DOCX/ODT, XLSX/ODS, PPTX/ODP) | M1 + ODF parity plans | TC-009, TC-050 through TC-056, TC-130, TC-132, TC-140, TC-150 |
+| Read-only files (PDF, images) | M1 plan | TC-009, TC-121 |
 | Opaque file support | M1 plan | TC-010 |
 | Review offline (no model calls during review) | M0 plan | TC-064 |
 | Publish creates checkpoint | M2 plan | TC-073 |

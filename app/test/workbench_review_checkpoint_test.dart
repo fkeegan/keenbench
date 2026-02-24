@@ -126,9 +126,12 @@ class _FakeWorkbenchEngine implements EngineApi {
     }
     if (failPublishedMethods.contains(method) &&
         params?['version'] == 'published') {
-      final message = method == 'ReviewGetXlsxPreviewGrid'
+      final message =
+          method == 'ReviewGetXlsxPreviewGrid' ||
+              method == 'ReviewGetOdsPreviewGrid'
           ? 'unknown sheet'
-          : method == 'ReviewGetPptxPreviewSlide'
+          : method == 'ReviewGetPptxPreviewSlide' ||
+                method == 'ReviewGetOdpPreviewSlide'
           ? 'invalid slide_index'
           : 'target missing';
       throw EngineError(message, {'error_code': 'VALIDATION_FAILED'});
@@ -265,6 +268,7 @@ class _FakeWorkbenchEngine implements EngineApi {
       case 'ReviewGetTextDiff':
         return {'hunks': [], 'too_large': false, 'baseline_missing': false};
       case 'ReviewGetDocxContentDiff':
+      case 'ReviewGetOdtContentDiff':
         final sectionIndex = (params?['section_index'] as num?)?.toInt() ?? 0;
         return {
           'baseline': {
@@ -295,6 +299,7 @@ class _FakeWorkbenchEngine implements EngineApi {
           'baseline_missing': false,
         };
       case 'ReviewGetPptxContentDiff':
+      case 'ReviewGetOdpContentDiff':
         final slideIndex = (params?['slide_index'] as num?)?.toInt() ?? 0;
         Map<String, dynamic> positionedPayload(String prefix) {
           final text = '$prefix block for slide ${slideIndex + 1}';
@@ -390,12 +395,14 @@ class _FakeWorkbenchEngine implements EngineApi {
           'scaled_down': false,
         };
       case 'ReviewGetPptxPreviewSlide':
+      case 'ReviewGetOdpPreviewSlide':
         return {
           'bytes_base64': _tinyPngBase64,
           'slide_count': 1,
           'scaled_down': false,
         };
       case 'ReviewGetXlsxPreviewGrid':
+      case 'ReviewGetOdsPreviewGrid':
         final sheet = (params?['sheet'] as String?)?.trim();
         final availableSheets = xlsxDraftAvailableSheets;
         if (params?['version'] == 'draft' && availableSheets != null) {
@@ -886,6 +893,42 @@ void main() {
     expect(requests.first?['col_start'], 3);
   });
 
+  testWidgets('ods focus hint drives initial preview request target', (
+    tester,
+  ) async {
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: true,
+      draftId: 'd-ods-focus',
+      messages: const [],
+      reviewChanges: const [
+        {
+          'path': 'quarterly_data.ods',
+          'change_type': 'modified',
+          'file_kind': 'ods',
+          'preview_kind': 'grid',
+          'mime_type': 'application/vnd.oasis.opendocument.spreadsheet',
+          'is_opaque': false,
+          'summary': '',
+          'focus_hint': {'sheet': 'Annual', 'row_start': 8, 'col_start': 3},
+        },
+      ],
+    );
+
+    await tester.pumpWidget(
+      appForTest(engine, const ReviewScreen(workbenchId: 'wb-1')),
+    );
+    await pumpUntilFound(tester, find.text('Annual:A1'));
+    await tester.pumpAndSettle();
+
+    final requests = engine.paramsHistory['ReviewGetOdsPreviewGrid'] ?? [];
+    expect(requests, isNotEmpty);
+    expect(requests.first?['version'], 'draft');
+    expect(requests.first?['sheet'], 'Annual');
+    expect(requests.first?['row_start'], 8);
+    expect(requests.first?['col_start'], 3);
+    expect(engine.callCount('ReviewGetXlsxPreviewGrid'), 0);
+  });
+
   testWidgets('xlsx stale focus hint retries draft preview with first sheet', (
     tester,
   ) async {
@@ -957,6 +1000,74 @@ void main() {
     expect(requests, isNotEmpty);
     expect(requests.first?['slide_index'], 3);
     expect(engine.callCount('ReviewGetPptxPreviewSlide'), 0);
+  });
+
+  testWidgets('odp focus hint drives initial structured diff request target', (
+    tester,
+  ) async {
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: true,
+      draftId: 'd-odp-focus',
+      messages: const [],
+      reviewChanges: const [
+        {
+          'path': 'slides.odp',
+          'change_type': 'modified',
+          'file_kind': 'odp',
+          'preview_kind': 'page',
+          'mime_type': 'application/vnd.oasis.opendocument.presentation',
+          'is_opaque': false,
+          'summary': '',
+          'focus_hint': {'slide_index': 2},
+        },
+      ],
+    );
+
+    await tester.pumpWidget(
+      appForTest(engine, const ReviewScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    final requests = engine.paramsHistory['ReviewGetOdpContentDiff'] ?? [];
+    expect(requests, isNotEmpty);
+    expect(requests.first?['slide_index'], 2);
+    expect(engine.callCount('ReviewGetPptxContentDiff'), 0);
+    expect(engine.callCount('ReviewGetOdpPreviewSlide'), 0);
+  });
+
+  testWidgets('odp structured diff failure falls back to odp slide preview', (
+    tester,
+  ) async {
+    final engine = _FakeWorkbenchEngine(
+      hasDraft: true,
+      draftId: 'd-odp-preview',
+      messages: const [],
+      failingMethods: const {'ReviewGetOdpContentDiff'},
+      reviewChanges: const [
+        {
+          'path': 'slides.odp',
+          'change_type': 'modified',
+          'file_kind': 'odp',
+          'preview_kind': 'page',
+          'mime_type': 'application/vnd.oasis.opendocument.presentation',
+          'is_opaque': false,
+          'summary': '',
+        },
+      ],
+    );
+
+    await tester.pumpWidget(
+      appForTest(engine, const ReviewScreen(workbenchId: 'wb-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(engine.callCount('ReviewGetOdpContentDiff'), 1);
+    expect(
+      engine.callCount('ReviewGetOdpPreviewSlide'),
+      greaterThanOrEqualTo(1),
+    );
+    expect(engine.callCount('ReviewGetPptxPreviewSlide'), 0);
+    expect(find.textContaining('Preview unavailable:'), findsNothing);
   });
 
   testWidgets('docx preview requests zoomed scale and fit-width rendering', (
@@ -1149,6 +1260,48 @@ void main() {
         engine.lastParams['ReviewGetDocxContentDiff']?['section_index'],
         1,
       );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'odt preview failure falls back to structured diff and uses focus hint',
+    (tester) async {
+      final engine = _FakeWorkbenchEngine(
+        hasDraft: true,
+        draftId: 'd-odt-fallback',
+        messages: const [],
+        failingMethods: const {'ReviewGetOdtPreviewPage'},
+        reviewChanges: const [
+          {
+            'path': 'report.odt',
+            'change_type': 'modified',
+            'file_kind': 'odt',
+            'preview_kind': 'page',
+            'mime_type': 'application/vnd.oasis.opendocument.text',
+            'is_opaque': false,
+            'summary': '',
+            'focus_hint': {'section_index': 2},
+          },
+        ],
+      );
+
+      await tester.pumpWidget(
+        appForTest(engine, const ReviewScreen(workbenchId: 'wb-1')),
+      );
+      await pumpUntilFound(
+        tester,
+        find.textContaining('Draft paragraph for section 3'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Draft paragraph for section 3'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Preview unavailable:'), findsNothing);
+      expect(engine.callCount('ReviewGetOdtContentDiff'), 1);
+      expect(engine.lastParams['ReviewGetOdtContentDiff']?['section_index'], 2);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     },
   );

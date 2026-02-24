@@ -1660,7 +1660,259 @@ def _docx_resolve_image(doc, selector: str) -> Tuple[Optional[str], Any]:
     return rel_id, rel.target_part
 
 
+# ------------------ ODF conversion-backed delegation helpers ------------------
+
+def _cleanup_temp_path(path: str) -> None:
+    if not path:
+        return
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+            return
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def _copy_file_with_worker_error(source: str, target: str, error_code: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copy2(source, target)
+    except Exception:
+        raise WorkerError(error_code, "conversion failed")
+
+
+def _odf_stage_root_for_write(params: Dict[str, Any]) -> str:
+    root = str(params.get("root") or "draft").strip() or "draft"
+    try:
+        validate_write_root(root)
+    except WorkerError:
+        root = "draft"
+    return root
+
+
+def _odf_temp_rel_path(params: Dict[str, Any], extension: str, root: str) -> Tuple[str, str]:
+    workbench_id = require_workbench_id(params)
+    validate_root(root)
+    ext = _normalize_soffice_format(extension)
+    rel_path = f".keenbench-stage-{os.getpid()}-{next(tempfile._get_candidate_names())}.{ext}"
+    abs_path = resolve_named_path(
+        {
+            "workbench_id": workbench_id,
+            "root": root,
+            "path": rel_path,
+        },
+        "path",
+        default_root=root,
+    )
+    return rel_path, abs_path
+
+
+def _odf_unique_read_stage_root() -> str:
+    token = str(next(tempfile._get_candidate_names()) or "").strip()
+    if not token:
+        token = str(int(time.time() * 1000))
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "", token)
+    if not safe:
+        safe = str(os.getpid())
+    return f"draft.odfread-{os.getpid()}-{safe}.staging"
+
+
+def _odf_stage_converted_file(
+    params: Dict[str, Any],
+    source_path: str,
+    delegate_extension: str,
+    stage_root: str,
+    error_code: str,
+) -> Tuple[str, str, str]:
+    converted_path = ""
+    converted_dir = ""
+    stage_rel = ""
+    stage_abs = ""
+    try:
+        converted_path, converted_dir = convert_with_soffice(source_path, delegate_extension, error_code=error_code)
+        stage_rel, stage_abs = _odf_temp_rel_path(params, delegate_extension, stage_root)
+        _copy_file_with_worker_error(converted_path, stage_abs, error_code)
+        return stage_rel, stage_abs, converted_dir
+    except Exception:
+        _cleanup_temp_path(stage_abs)
+        _cleanup_temp_path(converted_dir)
+        raise
+
+
+def _odf_delegate_read(
+    params: Dict[str, Any],
+    delegate_extension: str,
+    delegate_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+) -> Dict[str, Any]:
+    source_path = resolve_path(params)
+    stage_root = _odf_unique_read_stage_root()
+    converted_dir = ""
+    stage_abs = ""
+    stage_dir = ""
+    try:
+        _, stage_abs, converted_dir = _odf_stage_converted_file(
+            params,
+            source_path,
+            delegate_extension,
+            stage_root,
+            "FILE_READ_FAILED",
+        )
+        stage_dir = os.path.dirname(stage_abs)
+        stage_rel = os.path.basename(stage_abs)
+        delegate_params = dict(params)
+        delegate_params["root"] = stage_root
+        delegate_params["path"] = stage_rel
+        return delegate_fn(delegate_params)
+    finally:
+        _cleanup_temp_path(stage_abs)
+        _cleanup_temp_path(converted_dir)
+        _cleanup_temp_path(stage_dir)
+
+
+def _odf_delegate_apply_ops(
+    params: Dict[str, Any],
+    delegate_extension: str,
+    output_extension: str,
+    delegate_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+) -> Dict[str, Any]:
+    target_path = resolve_path(params)
+    stage_root = _odf_stage_root_for_write(params)
+    delegate_rel, delegate_abs = _odf_temp_rel_path(params, delegate_extension, stage_root)
+    copy_from_abs = ""
+    copy_from_convert_dir = ""
+    target_read_convert_dir = ""
+    output_convert_dir = ""
+    try:
+        create_new = bool(params.get("create_new", False))
+        copy_from = params.get("copy_from")
+        delegate_params = dict(params)
+        delegate_params["root"] = stage_root
+        delegate_params["path"] = delegate_rel
+
+        if create_new and copy_from:
+            source_params = dict(params)
+            source_params["path"] = copy_from
+            copy_from_source_path = resolve_path(source_params)
+            copy_from_rel, copy_from_abs, copy_from_convert_dir = _odf_stage_converted_file(
+                params,
+                copy_from_source_path,
+                delegate_extension,
+                stage_root,
+                "FILE_READ_FAILED",
+            )
+            delegate_params["copy_from"] = copy_from_rel
+        elif (not create_new) and os.path.exists(target_path):
+            target_docx_path, target_read_convert_dir = convert_with_soffice(
+                target_path,
+                delegate_extension,
+                error_code="FILE_READ_FAILED",
+            )
+            _copy_file_with_worker_error(target_docx_path, delegate_abs, "FILE_READ_FAILED")
+
+        result = delegate_fn(delegate_params)
+        if not os.path.exists(delegate_abs):
+            raise WorkerError("FILE_WRITE_FAILED", "conversion failed")
+
+        converted_output_path, output_convert_dir = convert_with_soffice(
+            delegate_abs,
+            output_extension,
+            error_code="FILE_WRITE_FAILED",
+        )
+        _copy_file_with_worker_error(converted_output_path, target_path, "FILE_WRITE_FAILED")
+        return result
+    finally:
+        _cleanup_temp_path(delegate_abs)
+        _cleanup_temp_path(copy_from_abs)
+        _cleanup_temp_path(copy_from_convert_dir)
+        _cleanup_temp_path(target_read_convert_dir)
+        _cleanup_temp_path(output_convert_dir)
+
+
+def _odf_delegate_copy_assets(
+    params: Dict[str, Any],
+    delegate_extension: str,
+    output_extension: str,
+    delegate_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+) -> Dict[str, Any]:
+    source_path = resolve_named_path(params, "source_path", "source_root", "draft")
+    target_path = resolve_named_path(params, "target_path", "target_root", "draft", require_write=True)
+    stage_root = _odf_stage_root_for_write(params)
+
+    source_rel = ""
+    source_abs = ""
+    source_convert_dir = ""
+    target_rel = ""
+    target_abs = ""
+    target_read_convert_dir = ""
+    output_convert_dir = ""
+    try:
+        source_rel, source_abs, source_convert_dir = _odf_stage_converted_file(
+            params,
+            source_path,
+            delegate_extension,
+            stage_root,
+            "FILE_READ_FAILED",
+        )
+        target_rel, target_abs = _odf_temp_rel_path(params, delegate_extension, stage_root)
+        if os.path.exists(target_path):
+            converted_target_path, target_read_convert_dir = convert_with_soffice(
+                target_path,
+                delegate_extension,
+                error_code="FILE_READ_FAILED",
+            )
+            _copy_file_with_worker_error(converted_target_path, target_abs, "FILE_READ_FAILED")
+
+        delegate_params = dict(params)
+        delegate_params["source_root"] = stage_root
+        delegate_params["target_root"] = stage_root
+        delegate_params["source_path"] = source_rel
+        delegate_params["target_path"] = target_rel
+        result = delegate_fn(delegate_params)
+        if not os.path.exists(target_abs):
+            raise WorkerError("FILE_WRITE_FAILED", "conversion failed")
+
+        converted_output_path, output_convert_dir = convert_with_soffice(
+            target_abs,
+            output_extension,
+            error_code="FILE_WRITE_FAILED",
+        )
+        _copy_file_with_worker_error(converted_output_path, target_path, "FILE_WRITE_FAILED")
+        return result
+    finally:
+        _cleanup_temp_path(source_abs)
+        _cleanup_temp_path(target_abs)
+        _cleanup_temp_path(source_convert_dir)
+        _cleanup_temp_path(target_read_convert_dir)
+        _cleanup_temp_path(output_convert_dir)
+
+
 # ------------------ ODT ------------------
+
+def odt_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_apply_ops(params, "docx", "odt", docx_apply_ops)
+
+
+def odt_get_styles(params: Dict[str, Any]) -> Dict[str, Any]:
+    result = _odf_delegate_read(params, "docx", docx_get_styles)
+    if isinstance(result, dict):
+        result = dict(result)
+        result["format"] = "odt"
+    return result
+
+
+def odt_copy_assets(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_copy_assets(params, "docx", "odt", docx_copy_assets)
+
+
+def odt_get_map(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "docx", docx_get_map)
+
+
+def odt_get_section_content(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "docx", docx_get_section_content)
+
 
 def odt_extract_text(params: Dict[str, Any]) -> Dict[str, Any]:
     odf = import_module("odf")
@@ -3069,6 +3321,44 @@ def _build_island(ws, start_row: int, end_row: int, min_col: int, max_col: int) 
     }
 
 
+# ------------------ ODS ------------------
+
+def ods_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_apply_ops(params, "xlsx", "ods", xlsx_apply_ops)
+
+
+def ods_extract_text(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "xlsx", xlsx_extract_text)
+
+
+def ods_get_info(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "xlsx", xlsx_get_info)
+
+
+def ods_read_range(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "xlsx", xlsx_read_range)
+
+
+def ods_render_grid(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "xlsx", xlsx_render_grid)
+
+
+def ods_get_map(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "xlsx", xlsx_get_map)
+
+
+def ods_get_styles(params: Dict[str, Any]) -> Dict[str, Any]:
+    result = _odf_delegate_read(params, "xlsx", xlsx_get_styles)
+    if isinstance(result, dict):
+        result = dict(result)
+        result["format"] = "ods"
+    return result
+
+
+def ods_copy_assets(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_copy_assets(params, "xlsx", "ods", xlsx_copy_assets)
+
+
 # ------------------ PPTX ------------------
 
 def pptx_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -4161,6 +4451,40 @@ def _pptx_length_value(length_value: Any) -> Optional[int]:
         return None
 
 
+# ------------------ ODP ------------------
+
+def odp_apply_ops(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_apply_ops(params, "pptx", "odp", pptx_apply_ops)
+
+
+def odp_extract_text(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "pptx", pptx_extract_text)
+
+
+def odp_render_slide(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "pptx", pptx_render_slide)
+
+
+def odp_get_map(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "pptx", pptx_get_map)
+
+
+def odp_get_styles(params: Dict[str, Any]) -> Dict[str, Any]:
+    result = _odf_delegate_read(params, "pptx", pptx_get_styles)
+    if isinstance(result, dict):
+        result = dict(result)
+        result["format"] = "odp"
+    return result
+
+
+def odp_copy_assets(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_copy_assets(params, "pptx", "odp", pptx_copy_assets)
+
+
+def odp_get_slide_content(params: Dict[str, Any]) -> Dict[str, Any]:
+    return _odf_delegate_read(params, "pptx", pptx_get_slide_content)
+
+
 # ------------------ PDF ------------------
 
 def pdf_extract_text(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -4351,29 +4675,95 @@ def find_preview_renderer() -> str:
     return soffice
 
 
-def convert_to_pdf(path: str) -> Tuple[str, str]:
+SOFFICE_CONVERT_FORMATS = {"docx", "odt", "xlsx", "ods", "pptx", "odp", "pdf"}
+
+
+def _normalize_soffice_format(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text.startswith("."):
+        text = text[1:]
+    if text not in SOFFICE_CONVERT_FORMATS:
+        raise WorkerError("VALIDATION_FAILED", f"unsupported conversion format: {value}")
+    return text
+
+
+def _find_converted_path(out_dir: str, source_path: str, output_format: str) -> str:
+    base = os.path.splitext(os.path.basename(source_path))[0]
+    expected = os.path.join(out_dir, f"{base}.{output_format}")
+    if os.path.exists(expected):
+        return expected
+
+    matching_base: List[str] = []
+    matching_ext: List[str] = []
+    for name in os.listdir(out_dir):
+        candidate = os.path.join(out_dir, name)
+        if not os.path.isfile(candidate):
+            continue
+        stem, ext = os.path.splitext(name)
+        if ext.lower() != f".{output_format}":
+            continue
+        matching_ext.append(candidate)
+        if stem == base:
+            matching_base.append(candidate)
+
+    if len(matching_base) == 1:
+        return matching_base[0]
+    if len(matching_base) > 1:
+        matching_base.sort()
+        return matching_base[0]
+    if len(matching_ext) == 1:
+        return matching_ext[0]
+    return ""
+
+
+def convert_with_soffice(path: str, output_format: str, error_code: str = "FILE_READ_FAILED") -> Tuple[str, str]:
+    normalized_output = _normalize_soffice_format(output_format)
+    if not os.path.exists(path):
+        raise WorkerError(error_code, "source file not found")
+    tmp_dir = tempfile.mkdtemp(prefix="keenbench-convert-")
+    try:
+        converted_path = convert_with_soffice_to_dir(
+            path,
+            normalized_output,
+            tmp_dir,
+            error_code=error_code,
+        )
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+    return converted_path, tmp_dir
+
+
+def convert_with_soffice_to_dir(
+    path: str,
+    output_format: str,
+    out_dir: str,
+    error_code: str = "FILE_READ_FAILED",
+) -> str:
+    normalized_output = _normalize_soffice_format(output_format)
     renderer = find_preview_renderer()
-    tmp_dir = tempfile.mkdtemp(prefix="keenbench-preview-")
+    os.makedirs(out_dir, exist_ok=True)
     cmd = [
         renderer,
         "--headless",
         "--convert-to",
-        "pdf",
+        normalized_output,
         "--outdir",
-        tmp_dir,
+        out_dir,
         path,
     ]
     try:
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     except Exception:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise WorkerError("FILE_READ_FAILED", "conversion failed")
-    base = os.path.splitext(os.path.basename(path))[0]
-    pdf_path = os.path.join(tmp_dir, base + ".pdf")
-    if not os.path.exists(pdf_path):
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise WorkerError("FILE_READ_FAILED", "conversion failed")
-    return pdf_path, tmp_dir
+        raise WorkerError(error_code, "conversion failed")
+    converted_path = _find_converted_path(out_dir, path, normalized_output)
+    if not converted_path:
+        raise WorkerError(error_code, "conversion failed")
+    return converted_path
+
+
+def convert_to_pdf(path: str) -> Tuple[str, str]:
+    return convert_with_soffice(path, "pdf", error_code="FILE_READ_FAILED")
 
 
 def render_docx_page_fallback(path: str, page_index: int, scale: float) -> Dict[str, Any]:
@@ -6177,20 +6567,35 @@ METHODS = {
     "DocxApplyOps": (docx_apply_ops, "write"),
     "DocxGetStyles": (docx_get_styles, "read"),
     "DocxCopyAssets": (docx_copy_assets, "write"),
+    "OdtApplyOps": (odt_apply_ops, "write"),
+    "OdtGetStyles": (odt_get_styles, "read"),
+    "OdtCopyAssets": (odt_copy_assets, "write"),
     "XlsxApplyOps": (xlsx_apply_ops, "write"),
     "XlsxGetStyles": (xlsx_get_styles, "read"),
     "XlsxCopyAssets": (xlsx_copy_assets, "write"),
+    "OdsApplyOps": (ods_apply_ops, "write"),
+    "OdsGetStyles": (ods_get_styles, "read"),
+    "OdsCopyAssets": (ods_copy_assets, "write"),
     "PptxApplyOps": (pptx_apply_ops, "write"),
     "PptxGetStyles": (pptx_get_styles, "read"),
     "PptxCopyAssets": (pptx_copy_assets, "write"),
+    "OdpApplyOps": (odp_apply_ops, "write"),
+    "OdpGetStyles": (odp_get_styles, "read"),
+    "OdpCopyAssets": (odp_copy_assets, "write"),
     "DocxExtractText": (docx_extract_text, "read"),
     "DocxGetSectionContent": (docx_get_section_content, "read"),
     "OdtExtractText": (odt_extract_text, "read"),
+    "OdtGetSectionContent": (odt_get_section_content, "read"),
     "XlsxExtractText": (xlsx_extract_text, "read"),
+    "OdsExtractText": (ods_extract_text, "read"),
     "XlsxGetInfo": (xlsx_get_info, "read"),
+    "OdsGetInfo": (ods_get_info, "read"),
     "XlsxReadRange": (xlsx_read_range, "read"),
+    "OdsReadRange": (ods_read_range, "read"),
     "PptxExtractText": (pptx_extract_text, "read"),
+    "OdpExtractText": (odp_extract_text, "read"),
     "PptxGetSlideContent": (pptx_get_slide_content, "read"),
+    "OdpGetSlideContent": (odp_get_slide_content, "read"),
     "PdfExtractText": (pdf_extract_text, "read"),
     "PdfGetInfo": (pdf_get_info, "read"),
     "ImageGetMetadata": (image_get_metadata, "read"),
@@ -6198,12 +6603,17 @@ METHODS = {
     "DocxRenderPage": (docx_render_page, "read"),
     "OdtRenderPage": (odt_render_page, "read"),
     "PptxRenderSlide": (pptx_render_slide, "read"),
+    "OdpRenderSlide": (odp_render_slide, "read"),
     "XlsxRenderGrid": (xlsx_render_grid, "read"),
+    "OdsRenderGrid": (ods_render_grid, "read"),
     "ImageRender": (image_render, "read"),
     # File map methods (M4)
     "XlsxGetMap": (xlsx_get_map, "read"),
+    "OdsGetMap": (ods_get_map, "read"),
     "DocxGetMap": (docx_get_map, "read"),
+    "OdtGetMap": (odt_get_map, "read"),
     "PptxGetMap": (pptx_get_map, "read"),
+    "OdpGetMap": (odp_get_map, "read"),
     "PdfGetMap": (pdf_get_map, "read"),
     "TextGetMap": (text_get_map, "read"),
     "TextReadLines": (text_read_lines, "read"),
