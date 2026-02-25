@@ -15,6 +15,9 @@ LINUX_APP_ID ?= com.keenbench.app
 LINUX_APP_BINARY ?= keenbench
 LINUX_APP_DISPLAY_NAME ?= KeenBench
 LINUX_APP_ICON_NAME ?= keenbench
+LINUX_APP_WM_CLASS ?= $(LINUX_APP_ID)
+LINUX_APP_STARTUP_WM_CLASS ?= $(LINUX_APP_WM_CLASS)
+LINUX_DEV_DESKTOP_EXEC ?= $(ROOT_DIR)/scripts/linux_dev_desktop_exec.sh
 
 help: ## Show available make targets
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -43,8 +46,9 @@ linux-desktop-dev: ## Install local Linux desktop metadata/icons so GNOME maps a
 	@mkdir -p "$(HOME)/.local/share/applications"
 	@sed \
 		-e 's|@APP_DISPLAY_NAME@|$(LINUX_APP_DISPLAY_NAME)|g' \
-		-e 's|@BINARY_NAME@|$(LINUX_APP_BINARY)|g' \
+		-e 's|@BINARY_NAME@|$(LINUX_DEV_DESKTOP_EXEC)|g' \
 		-e 's|@APP_ICON_NAME@|$(LINUX_APP_ICON_NAME)|g' \
+		-e 's|@APP_STARTUP_WM_CLASS@|$(LINUX_APP_STARTUP_WM_CLASS)|g' \
 		-e 's|@APPLICATION_ID@|$(LINUX_APP_ID)|g' \
 		app/linux/keenbench.desktop.in > "$(HOME)/.local/share/applications/$(LINUX_APP_ID).desktop"
 	@for size in 16 32 48 64 128 256 512; do \

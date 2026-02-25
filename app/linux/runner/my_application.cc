@@ -3,6 +3,8 @@
 #include <flutter_linux/flutter_linux.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
@@ -26,19 +28,145 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+static void apply_window_icon(GtkWindow* window);
+static void apply_x11_window_icon_property(GtkWindow* window);
+static gboolean apply_x11_window_icon_late_cb(gpointer user_data);
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  GtkWindow* window =
+      GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  gtk_widget_show(GTK_WIDGET(window));
+  apply_window_icon(window);
+  apply_x11_window_icon_property(window);
+  // Some GTK internals can rewrite _NET_WM_ICON after map; apply once more
+  // shortly after first frame.
+  g_timeout_add(150, apply_x11_window_icon_late_cb, g_object_ref(window));
+}
+
+static gchar* resolve_bundled_icon_path() {
+  g_autoptr(GError) readlink_error = nullptr;
+  g_autofree gchar* executable_path =
+      g_file_read_link("/proc/self/exe", &readlink_error);
+  if (executable_path == nullptr) {
+    return nullptr;
+  }
+
+  g_autofree gchar* executable_dir = g_path_get_dirname(executable_path);
+  return g_build_filename(executable_dir, "data", "icons", "hicolor",
+                          "256x256", "apps", APP_ICON_NAME ".png", nullptr);
+}
+
+static GdkPixbuf* load_window_icon_pixbuf() {
+  g_autofree gchar* bundled_icon_path = resolve_bundled_icon_path();
+  g_autoptr(GError) icon_error = nullptr;
+  if (bundled_icon_path != nullptr && g_strcmp0(bundled_icon_path, "") != 0) {
+    GdkPixbuf* bundled_icon =
+        gdk_pixbuf_new_from_file(bundled_icon_path, &icon_error);
+    if (bundled_icon != nullptr) {
+      return bundled_icon;
+    }
+  }
+  g_clear_error(&icon_error);
+
+  // Fallback for local/dev layouts where runner resources remain available at
+  // the source tree location baked in at compile time.
+  if (g_strcmp0(APP_ICON_SOURCE_PATH, "") != 0) {
+    GdkPixbuf* source_icon =
+        gdk_pixbuf_new_from_file(APP_ICON_SOURCE_PATH, &icon_error);
+    if (source_icon != nullptr) {
+      return source_icon;
+    }
+  }
+  return nullptr;
 }
 
 static void apply_window_icon(GtkWindow* window) {
-  g_autoptr(GError) icon_error = nullptr;
-  if (g_strcmp0(APP_ICON_SOURCE_PATH, "") != 0 &&
-      gtk_window_set_icon_from_file(window, APP_ICON_SOURCE_PATH, &icon_error)) {
+  g_autoptr(GdkPixbuf) icon_pixbuf = load_window_icon_pixbuf();
+  if (icon_pixbuf != nullptr) {
+    gtk_window_set_icon(window, icon_pixbuf);
     return;
   }
-  g_clear_error(&icon_error);
+
   gtk_window_set_icon_name(window, APP_ICON_NAME);
+}
+
+static void apply_x11_window_icon_property(GtkWindow* window) {
+#ifdef GDK_WINDOWING_X11
+  GdkWindow* gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
+  if (gdk_window == nullptr || !GDK_IS_X11_WINDOW(gdk_window)) {
+    return;
+  }
+
+  g_autoptr(GdkPixbuf) icon_pixbuf = load_window_icon_pixbuf();
+  if (icon_pixbuf == nullptr) {
+    return;
+  }
+
+  GdkPixbuf* net_wm_icon_pixbuf = icon_pixbuf;
+  g_autoptr(GdkPixbuf) scaled_pixbuf = nullptr;
+  constexpr int kMaxNetWmIconDimension = 128;
+  if (gdk_pixbuf_get_width(icon_pixbuf) > kMaxNetWmIconDimension ||
+      gdk_pixbuf_get_height(icon_pixbuf) > kMaxNetWmIconDimension) {
+    scaled_pixbuf = gdk_pixbuf_scale_simple(icon_pixbuf, kMaxNetWmIconDimension,
+                                            kMaxNetWmIconDimension,
+                                            GDK_INTERP_BILINEAR);
+    if (scaled_pixbuf != nullptr) {
+      net_wm_icon_pixbuf = scaled_pixbuf;
+    }
+  }
+
+  const int width = gdk_pixbuf_get_width(net_wm_icon_pixbuf);
+  const int height = gdk_pixbuf_get_height(net_wm_icon_pixbuf);
+  const int rowstride = gdk_pixbuf_get_rowstride(net_wm_icon_pixbuf);
+  const int n_channels = gdk_pixbuf_get_n_channels(net_wm_icon_pixbuf);
+  const gboolean has_alpha = gdk_pixbuf_get_has_alpha(net_wm_icon_pixbuf);
+  const guchar* pixels = gdk_pixbuf_get_pixels(net_wm_icon_pixbuf);
+
+  g_autofree gulong* icon_data = g_new(gulong, 2 + (width * height));
+  icon_data[0] = static_cast<gulong>(width);
+  icon_data[1] = static_cast<gulong>(height);
+
+  for (int y = 0; y < height; ++y) {
+    const guchar* row = pixels + (y * rowstride);
+    for (int x = 0; x < width; ++x) {
+      const guchar* px = row + (x * n_channels);
+      const guint8 r = px[0];
+      const guint8 g = px[1];
+      const guint8 b = px[2];
+      const guint8 a = has_alpha ? px[3] : 255;
+      icon_data[2 + (y * width) + x] =
+          (static_cast<gulong>(a) << 24) |
+          (static_cast<gulong>(r) << 16) |
+          (static_cast<gulong>(g) << 8) | static_cast<gulong>(b);
+    }
+  }
+
+  GdkDisplay* display = gdk_window_get_display(gdk_window);
+  Display* xdisplay = gdk_x11_display_get_xdisplay(display);
+  Window xid = gdk_x11_window_get_xid(gdk_window);
+  Atom net_wm_icon = XInternAtom(xdisplay, "_NET_WM_ICON", False);
+  Atom cardinal = XInternAtom(xdisplay, "CARDINAL", False);
+  XChangeProperty(xdisplay, xid, net_wm_icon, cardinal, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char*>(icon_data),
+                  2 + (width * height));
+  XFlush(xdisplay);
+#endif
+}
+
+static gboolean apply_x11_window_icon_late_cb(gpointer user_data) {
+  GtkWindow* window = GTK_WINDOW(user_data);
+  apply_x11_window_icon_property(window);
+  g_object_unref(window);
+  return G_SOURCE_REMOVE;
+}
+
+static gboolean window_map_event_cb(GtkWidget* widget,
+                                    GdkEvent* event,
+                                    gpointer user_data) {
+  apply_window_icon(GTK_WINDOW(widget));
+  apply_x11_window_icon_property(GTK_WINDOW(widget));
+  return FALSE;
 }
 
 // Implements GApplication::activate.
@@ -46,6 +174,8 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  g_signal_connect_after(window, "map-event", G_CALLBACK(window_map_event_cb),
+                         nullptr);
   apply_window_icon(window);
 
   // Use a header bar when running in GNOME as this is the common style used
@@ -95,6 +225,10 @@ static void my_application_activate(GApplication* application) {
   g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
                            self);
   gtk_widget_realize(GTK_WIDGET(view));
+  // Re-apply after realization so GTK/X11 exports _NET_WM_ICON for shells that
+  // don't rely purely on desktop-file matching (e.g. raw AppImage launches).
+  apply_window_icon(window);
+  apply_x11_window_icon_property(window);
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
@@ -160,11 +294,12 @@ static void my_application_init(MyApplication* self) {}
 
 MyApplication* my_application_new() {
   g_set_application_name(APP_DISPLAY_NAME);
-  // Set the program name to the application ID, which helps various systems
-  // like GTK and desktop environments map this running application to its
-  // corresponding .desktop file. This ensures better integration by allowing
-  // the application to be recognized beyond its binary name.
+  // GNOME/Wayland maps windows to desktop files by app ID. In GTK3 this comes
+  // from g_get_prgname(), so keep it aligned with APPLICATION_ID.
   g_set_prgname(APPLICATION_ID);
+#ifdef GDK_WINDOWING_X11
+  gdk_set_program_class(APPLICATION_ID);
+#endif
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",

@@ -37,6 +37,8 @@ APP_ID="${LINUX_APP_ID:-com.keenbench.app}"
 APP_BINARY="${LINUX_APP_BINARY:-keenbench}"
 APP_DISPLAY_NAME="${LINUX_APP_DISPLAY_NAME:-KeenBench}"
 APP_ICON_NAME="${LINUX_APP_ICON_NAME:-keenbench}"
+APP_WM_CLASS="${LINUX_APP_WM_CLASS:-$APP_ID}"
+APP_STARTUP_WM_CLASS="${LINUX_APP_STARTUP_WM_CLASS:-$APP_WM_CLASS}"
 
 DIST_ROOT="$ROOT/dist/linux"
 APPDIR="$DIST_ROOT/AppDir"
@@ -109,6 +111,7 @@ prepare_desktop_file() {
     -e "s|@APP_DISPLAY_NAME@|$APP_DISPLAY_NAME|g" \
     -e "s|@BINARY_NAME@|$APP_BINARY|g" \
     -e "s|@APP_ICON_NAME@|$APP_ICON_NAME|g" \
+    -e "s|@APP_STARTUP_WM_CLASS@|$APP_STARTUP_WM_CLASS|g" \
     -e "s|@APPLICATION_ID@|$APP_ID|g" \
     "$ROOT/app/linux/keenbench.desktop.in" > "$dst"
 }
@@ -143,22 +146,36 @@ stage_appdir() {
   prepare_desktop_file "$desktop_inside"
   ln -sf "usr/share/applications/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
 
-  local icon_src=""
   local icon_size=""
-  for icon_size in 512 256 128 64 48 32 16; do
-    if [[ -f "$ROOT/app/linux/runner/resources/${APP_ICON_NAME}_${icon_size}.png" ]]; then
-      icon_src="$ROOT/app/linux/runner/resources/${APP_ICON_NAME}_${icon_size}.png"
-      break
+  local found_icon="0"
+  for icon_size in 16 32 48 64 128 256 512; do
+    local icon_src="$ROOT/app/linux/runner/resources/${APP_ICON_NAME}_${icon_size}.png"
+    if [[ ! -f "$icon_src" ]]; then
+      continue
     fi
+
+    mkdir -p "$APPDIR/usr/share/icons/hicolor/${icon_size}x${icon_size}/apps"
+    cp "$icon_src" "$APPDIR/usr/share/icons/hicolor/${icon_size}x${icon_size}/apps/${APP_ICON_NAME}.png"
+    found_icon="1"
   done
-  if [[ -z "$icon_src" ]]; then
+  if [[ "$found_icon" != "1" ]]; then
     echo "ERROR: could not find app icon for $APP_ICON_NAME under app/linux/runner/resources" >&2
     exit 1
   fi
 
-  mkdir -p "$APPDIR/usr/share/icons/hicolor/${icon_size}x${icon_size}/apps"
-  cp "$icon_src" "$APPDIR/usr/share/icons/hicolor/${icon_size}x${icon_size}/apps/${APP_ICON_NAME}.png"
-  ln -sf "usr/share/icons/hicolor/${icon_size}x${icon_size}/apps/${APP_ICON_NAME}.png" "$APPDIR/${APP_ICON_NAME}.png"
+  local appdir_icon_size=""
+  for icon_size in 256 512 128 64 48 32 16; do
+    if [[ -f "$APPDIR/usr/share/icons/hicolor/${icon_size}x${icon_size}/apps/${APP_ICON_NAME}.png" ]]; then
+      appdir_icon_size="$icon_size"
+      break
+    fi
+  done
+  if [[ -z "$appdir_icon_size" ]]; then
+    echo "ERROR: no staged icon size available for $APP_ICON_NAME in AppDir" >&2
+    exit 1
+  fi
+
+  ln -sf "usr/share/icons/hicolor/${appdir_icon_size}x${appdir_icon_size}/apps/${APP_ICON_NAME}.png" "$APPDIR/${APP_ICON_NAME}.png"
   ln -sf "${APP_ICON_NAME}.png" "$APPDIR/.DirIcon"
 
   cat > "$APPDIR/AppRun" <<EOF
