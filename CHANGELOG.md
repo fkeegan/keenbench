@@ -12,6 +12,17 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+## [0.1.5] - 2026-02-25
+
+### Added
+
+- Workbench rename flow across engine and UI.
+- OS drag-and-drop file add support in the Workbench sidebar.
+
+### Fixed
+
+- Linux GNOME dock/taskbar app mapping now resolves KeenBench name and icon correctly for local dev runs and packaged builds.
+
 ## [0.1.1] - 2026-02-23
 
 ### Added
