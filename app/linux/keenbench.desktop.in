@@ -8,4 +8,5 @@ Icon=@APP_ICON_NAME@
 Terminal=false
 Categories=Office;
 StartupNotify=true
-StartupWMClass=@APPLICATION_ID@
+StartupWMClass=@APP_STARTUP_WM_CLASS@
+X-GNOME-WMClass=@APP_STARTUP_WM_CLASS@

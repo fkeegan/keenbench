@@ -16,6 +16,8 @@ add_executable(${BINARY_NAME}
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
+find_package(X11 REQUIRED)
+
 # Add preprocessor definitions for the application ID.
 add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 add_definitions(-DAPP_DISPLAY_NAME="${APP_DISPLAY_NAME}")
@@ -25,5 +27,6 @@ add_definitions(-DAPP_ICON_SOURCE_PATH="${CMAKE_SOURCE_DIR}/runner/resources/${A
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
+target_link_libraries(${BINARY_NAME} PRIVATE X11::X11)
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
