@@ -32,7 +32,7 @@ func TestWriteIssueDoc(t *testing.T) {
 	record := runtimeRecord{
 		Entry: indexEntry{
 			RecordID:         "mf-abc",
-			ModelID:          "openai:gpt-5.2",
+			ModelID:          "openai:gpt-5.4",
 			CollectionStatus: "collected",
 			CollectedAt:      "2026-02-22T10:11:12Z",
 			RunID:            "run-1",

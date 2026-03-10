@@ -1253,7 +1253,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                         child: Focus(
                           focusNode: _modelSelectorFocusNode,
                           child: Container(
-                            constraints: const BoxConstraints(maxWidth: 220),
+                            constraints: const BoxConstraints(maxWidth: 280),
                             padding: const EdgeInsets.symmetric(horizontal: 8),
                             decoration: BoxDecoration(
                               color: KeenBenchTheme.colorSurfaceSubtle,
@@ -1266,12 +1266,16 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                               child: DropdownButton<String>(
                                 value: selectedModelId,
                                 isExpanded: true,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: KeenBenchTheme.colorTextPrimary,
+                                    ),
                                 items: availableModels
                                     .map(
                                       (model) => DropdownMenuItem<String>(
                                         value: model.id,
                                         child: Text(
-                                          '${model.displayName} (${providerMap[model.providerId]?.displayName ?? model.providerId})',
+                                          model.displayName,
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),

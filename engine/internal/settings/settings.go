@@ -27,7 +27,7 @@ const (
 )
 
 const (
-	defaultUserModelID            = "openai:gpt-5.2"
+	defaultUserModelID            = "openai:gpt-5.4"
 	anthropicLegacyOpus45ModelID  = "anthropic:claude-opus-4.5"
 	anthropicDefaultSonnet46Model = "anthropic:claude-sonnet-4-6"
 )

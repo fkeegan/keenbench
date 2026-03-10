@@ -65,7 +65,7 @@ func TestCodexClientAddsCodexHeaders(t *testing.T) {
 	}
 	token := buildAccessTokenWithAccountID("acct_123")
 
-	_, err := client.Chat(context.Background(), token, "gpt-5.3-codex", []llm.Message{
+	_, err := client.Chat(context.Background(), token, "gpt-5.4", []llm.Message{
 		{Role: "user", Content: "hello"},
 	})
 	if err != nil {
@@ -97,7 +97,7 @@ func TestCodexClientPayloadIncludesInstructions(t *testing.T) {
 	}
 	token := buildAccessTokenWithAccountID("acct_123")
 
-	_, err := client.Chat(context.Background(), token, "gpt-5.3-codex", []llm.Message{
+	_, err := client.Chat(context.Background(), token, "gpt-5.4", []llm.Message{
 		{Role: "system", Content: "Follow the repo conventions."},
 		{Role: "user", Content: "hello"},
 	})
@@ -140,7 +140,7 @@ func TestCodexClientPayloadUsesFallbackInstructions(t *testing.T) {
 	}
 	token := buildAccessTokenWithAccountID("acct_123")
 
-	_, err := client.Chat(context.Background(), token, "gpt-5.3-codex", []llm.Message{
+	_, err := client.Chat(context.Background(), token, "gpt-5.4", []llm.Message{
 		{Role: "user", Content: "hello"},
 	})
 	if err != nil {
@@ -165,7 +165,7 @@ func TestCodexClientPayloadOmitsUnsupportedParams(t *testing.T) {
 	}
 	token := buildAccessTokenWithAccountID("acct_123")
 
-	_, err := client.Chat(context.Background(), token, "gpt-5.3-codex", []llm.Message{
+	_, err := client.Chat(context.Background(), token, "gpt-5.4", []llm.Message{
 		{Role: "user", Content: "hello"},
 	})
 	if err != nil {
@@ -196,7 +196,7 @@ func TestStandardOpenAIClientDoesNotSetCodexHeaders(t *testing.T) {
 	}
 	apiKey := "sk-test-123"
 
-	_, err := client.Chat(context.Background(), apiKey, "gpt-5.2", []llm.Message{
+	_, err := client.Chat(context.Background(), apiKey, "gpt-5.4", []llm.Message{
 		{Role: "system", Content: "System instructions stay in input for API-key mode."},
 		{Role: "user", Content: "hello"},
 	})
@@ -246,7 +246,7 @@ func TestCodexToolPayloadIncludesInstructionsAndSkipsSystemMessages(t *testing.T
 		{Role: "user", Content: "List files"},
 	}
 
-	_, err := client.ChatWithTools(context.Background(), token, "gpt-5.3-codex", messages, nil)
+	_, err := client.ChatWithTools(context.Background(), token, "gpt-5.4", messages, nil)
 	if err != nil {
 		t.Fatalf("ChatWithTools error: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestCodexUnauthorizedErrorIncludesDiagnostics(t *testing.T) {
 	}
 	token := buildAccessTokenWithAccountID("acct_123")
 
-	_, err := client.Chat(context.Background(), token, "gpt-5.3-codex", []llm.Message{
+	_, err := client.Chat(context.Background(), token, "gpt-5.4", []llm.Message{
 		{Role: "user", Content: "hello"},
 	})
 	if err == nil {

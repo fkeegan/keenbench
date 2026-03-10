@@ -889,10 +889,9 @@ func supportsSamplingParams(model, reasoningEffort string) bool {
 	if name == "" {
 		return true
 	}
-	// OpenAI GPT-5.2 migration guidance:
-	// temperature/top_p/logprobs are only compatible with GPT-5.2 and GPT-5.1
+	// temperature/top_p/logprobs are only compatible with GPT-5.4, GPT-5.2, and GPT-5.1
 	// when reasoning.effort is none, and are otherwise rejected for GPT-5 family models.
-	if strings.HasPrefix(name, "gpt-5.2") || strings.HasPrefix(name, "gpt-5.1") {
+	if strings.HasPrefix(name, "gpt-5.4") || strings.HasPrefix(name, "gpt-5.2") || strings.HasPrefix(name, "gpt-5.1") {
 		return effort == "none"
 	}
 	if strings.HasPrefix(name, "gpt-5") {

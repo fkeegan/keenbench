@@ -148,7 +148,7 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
     "anthropic": {"enabled": true},
     "google": {"enabled": true}
   },
-  "user_default_model_id": "openai:gpt-5.2"
+  "user_default_model_id": "openai:gpt-5.4"
 }`
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatalf("write legacy settings: %v", err)
@@ -282,7 +282,7 @@ func TestLoadNormalizesUserConsentMode(t *testing.T) {
     "google": {"enabled": true},
     "mistral": {"enabled": true}
   },
-  "user_default_model_id": "openai:gpt-5.2",
+  "user_default_model_id": "openai:gpt-5.4",
   "user_consent_mode": "ALLOW_ALL"
 }`
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
