@@ -1266,9 +1266,10 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                               child: DropdownButton<String>(
                                 value: selectedModelId,
                                 isExpanded: true,
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: KeenBenchTheme.colorTextPrimary,
-                                ),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: KeenBenchTheme.colorTextPrimary,
+                                    ),
                                 items: availableModels
                                     .map(
                                       (model) => DropdownMenuItem<String>(
