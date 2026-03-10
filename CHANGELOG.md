@@ -12,6 +12,18 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+## [0.1.6] - 2026-03-10
+
+### Changed
+
+- Updated OpenAI model IDs to `gpt-5.4` for both the standard API and Codex endpoint (replaces deprecated `gpt-5.2` / `gpt-5.3-codex`).
+- Shortened model display names in the selector dropdown (removed brand prefixes and provider parentheticals).
+- Widened model selector to 280px and reduced font to 13px (`small`) per the style guide.
+
+### Fixed
+
+- Codex provider no longer fails with a 400 error caused by passing `gpt-4.5` (unsupported on the ChatGPT Codex backend).
+
 ## [0.1.5] - 2026-02-25
 
 ### Added
