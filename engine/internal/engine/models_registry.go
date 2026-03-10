@@ -12,8 +12,8 @@ const (
 )
 
 const (
-	ModelOpenAIID                  = "openai:gpt-5.2"
-	ModelOpenAICodexID             = "openai-codex:gpt-5.3-codex"
+	ModelOpenAIID                  = "openai:gpt-4.5"
+	ModelOpenAICodexID             = "openai-codex:gpt-4.5"
 	ModelAnthropicSonnet46ID       = "anthropic:claude-sonnet-4-6"
 	ModelAnthropicOpus46ID         = "anthropic:claude-opus-4-6"
 	ModelAnthropicClaudeSonnet46ID = "anthropic-claude:claude-sonnet-4-6"
@@ -41,7 +41,7 @@ var modelRegistry = map[string]ModelInfo{
 	ModelOpenAIID: {
 		ModelID:           ModelOpenAIID,
 		ProviderID:        ProviderOpenAI,
-		DisplayName:       "OpenAI GPT-5.2",
+		DisplayName:       "OpenAI GPT-4.5",
 		ContextTokens:     200000,
 		SupportsFileRead:  true,
 		SupportsFileWrite: true,
@@ -51,7 +51,7 @@ var modelRegistry = map[string]ModelInfo{
 	ModelOpenAICodexID: {
 		ModelID:           ModelOpenAICodexID,
 		ProviderID:        ProviderOpenAICodex,
-		DisplayName:       "OpenAI Codex GPT-5.3",
+		DisplayName:       "OpenAI Codex GPT-4.5",
 		ContextTokens:     200000,
 		SupportsFileRead:  true,
 		SupportsFileWrite: true,

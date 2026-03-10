@@ -278,7 +278,7 @@ func (m *Manager) Create(name, defaultModelID string) (*Workbench, error) {
 		name = "Untitled Workbench"
 	}
 	if defaultModelID == "" {
-		defaultModelID = "openai:gpt-5.2"
+		defaultModelID = "openai:gpt-4.5"
 	}
 	id := newID()
 	root := filepath.Join(m.baseDir, id)

@@ -15,7 +15,7 @@ func TestFilesAddSemantics(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestFilesAddSymlinkRejected(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestFilesAddLimitRejectsBatch(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestFilesRemove(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestFilesRemoveCleansTabularArtifacts(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestDeleteRemovesWorkbenchIncludingTabularArtifacts(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestApplyDraftWriteCleansTabularArtifactsForCSV(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestFilesRemoveBlockedByDraft(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestFilesExtractAll(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestFilesExtractBlockedByDraft(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestFilesExtractRenamesExistingDestination(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestFilesExtractRepeatedUsesIncrementingSuffixes(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestFilesExtractUsesFirstAvailableSuffix(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestFilesExtractRenamesDotfileAndMultiDotNames(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -539,7 +539,7 @@ func TestWorkbenchDelete(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -557,7 +557,7 @@ func TestWorkbenchRename(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Before", "openai:gpt-5.2")
+	wb, err := mgr.Create("Before", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -597,7 +597,7 @@ func TestWorkbenchRenameBlankFallsBackToUntitled(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Original", "openai:gpt-5.2")
+	wb, err := mgr.Create("Original", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -627,7 +627,7 @@ func TestWorkbenchForkCloneAllPreservesHistoryAndContext(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	source, err := mgr.Create("Source", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create source: %v", err)
 	}
@@ -658,7 +658,7 @@ func TestWorkbenchForkCloneAllPreservesHistoryAndContext(t *testing.T) {
 	consent := &Consent{
 		Workshop: WorkshopConsent{
 			ProviderID: "openai",
-			ModelID:    "openai:gpt-5.2",
+			ModelID:    "openai:gpt-4.5",
 			ScopeHash:  "abc",
 		},
 	}
@@ -726,7 +726,7 @@ func TestWorkbenchForkCloneFilesAndContextNoChatClearsHistory(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	source, err := mgr.Create("Source", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create source: %v", err)
 	}
@@ -743,7 +743,7 @@ func TestWorkbenchForkCloneFilesAndContextNoChatClearsHistory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "workbenches", source.ID, "meta", "conversation.jsonl"), []byte("{\"id\":\"u-1\"}\n"), 0o600); err != nil {
 		t.Fatalf("write conversation: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "workbenches", source.ID, "meta", "workshop_state.json"), []byte("{\"active_model_id\":\"openai:gpt-5.2\"}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "workbenches", source.ID, "meta", "workshop_state.json"), []byte("{\"active_model_id\":\"openai:gpt-4.5\"}"), 0o600); err != nil {
 		t.Fatalf("write workshop state: %v", err)
 	}
 	contextDir := filepath.Join(root, "workbenches", source.ID, "meta", "context", "situation")
@@ -802,7 +802,7 @@ func TestWorkbenchForkCloneFilesOnlyClearsContext(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	source, err := mgr.Create("Source", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create source: %v", err)
 	}
@@ -844,7 +844,7 @@ func TestWorkbenchForkBlockedByDraft(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	source, err := mgr.Create("Source", "openai:gpt-5.2")
+	source, err := mgr.Create("Source", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create source: %v", err)
 	}
@@ -862,7 +862,7 @@ func TestDraftLifecycle(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestCheckpointRestorePublishedOnly(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Checkpoint", "openai:gpt-5.2")
+	wb, err := mgr.Create("Checkpoint", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -947,7 +947,7 @@ func TestCreateDraftWithSourcePersistsMetadata(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -973,7 +973,7 @@ func TestDraftStateLegacySourceCompatibility(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1010,7 +1010,7 @@ func TestInvalidDraftPath(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1032,7 +1032,7 @@ func TestReadFileInvalidPath(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1050,7 +1050,7 @@ func TestConsentAndChangeSet(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1098,7 +1098,7 @@ func TestComputeScopeHashIgnoresContentChanges(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1151,7 +1151,7 @@ func TestChangeSetDeletionDetected(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1180,7 +1180,7 @@ func TestFilesAddOpaqueAllowed(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1206,7 +1206,7 @@ func TestManifestMigrationAddsMetadata(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1248,7 +1248,7 @@ func TestManifestMigrationNormalizesLegacyExtensionFileKind(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1306,7 +1306,7 @@ func TestDraftStagingCommit(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Test", "openai:gpt-5.2")
+	wb, err := mgr.Create("Test", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -1348,7 +1348,7 @@ func TestDraftStagingIsolation(t *testing.T) {
 	if err := mgr.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wb, err := mgr.Create("Staging isolation", "openai:gpt-5.2")
+	wb, err := mgr.Create("Staging isolation", "openai:gpt-4.5")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
