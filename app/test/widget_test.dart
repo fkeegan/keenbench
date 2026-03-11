@@ -106,6 +106,13 @@ class FakeEngine implements EngineApi {
             'configured': false,
             'models': ['mistral:mistral-large'],
           },
+          {
+            'provider_id': 'openrouter',
+            'display_name': 'OpenRouter',
+            'enabled': true,
+            'configured': false,
+            'models': [],
+          },
         ],
       };
     }

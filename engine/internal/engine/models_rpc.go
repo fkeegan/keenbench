@@ -11,6 +11,11 @@ import (
 
 func (e *Engine) ModelsListSupported(ctx context.Context, _ json.RawMessage) (any, *errinfo.ErrorInfo) {
 	models := listSupportedModels()
+	e.openrouterMu.RLock()
+	for _, m := range e.openrouterModels {
+		models = append(models, m)
+	}
+	e.openrouterMu.RUnlock()
 	return map[string]any{"models": models}, nil
 }
 
@@ -22,7 +27,7 @@ func (e *Engine) ModelsGetCapabilities(ctx context.Context, params json.RawMessa
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
 	}
 	req.ModelID = canonicalModelID(req.ModelID)
-	model, ok := getModel(req.ModelID)
+	model, ok := e.findModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported model")
 	}
@@ -52,7 +57,7 @@ func (e *Engine) UserSetDefaultModel(ctx context.Context, params json.RawMessage
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
 	}
 	req.ModelID = canonicalModelID(req.ModelID)
-	if _, ok := getModel(req.ModelID); !ok {
+	if _, ok := e.findModel(req.ModelID); !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported model")
 	}
 	_, err := e.settings.Update(func(s *settings.Settings) {
@@ -145,7 +150,7 @@ func (e *Engine) WorkshopSetActiveModel(ctx context.Context, params json.RawMess
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "invalid params")
 	}
 	req.ModelID = canonicalModelID(req.ModelID)
-	model, ok := getModel(req.ModelID)
+	model, ok := e.findModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}

@@ -31,6 +31,13 @@ class _FakeWorkbenchEngine implements EngineApi {
           'configured': false,
           'models': ['mistral:mistral-large'],
         },
+        {
+          'provider_id': 'openrouter',
+          'display_name': 'OpenRouter',
+          'enabled': true,
+          'configured': false,
+          'models': [],
+        },
       ];
   static const List<Map<String, dynamic>> _defaultModels =
       <Map<String, dynamic>>[

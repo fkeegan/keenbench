@@ -70,6 +70,12 @@ func (e *Engine) providerKey(ctx context.Context, providerID string) (string, *e
 			return "", withProviderID(errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error()), providerID)
 		}
 		return key, nil
+	case ProviderOpenRouter:
+		key, err := e.secrets.GetOpenRouterKey()
+		if err != nil {
+			return "", withProviderID(errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error()), providerID)
+		}
+		return key, nil
 	default:
 		return "", withProviderID(errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported provider"), providerID)
 	}
@@ -95,6 +101,10 @@ func (e *Engine) setProviderKey(providerID, apiKey string) *errinfo.ErrorInfo {
 		}
 	case ProviderMistral:
 		if err := e.secrets.SetMistralKey(strings.TrimSpace(apiKey)); err != nil {
+			return withProviderID(errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error()), providerID)
+		}
+	case ProviderOpenRouter:
+		if err := e.secrets.SetOpenRouterKey(strings.TrimSpace(apiKey)); err != nil {
 			return withProviderID(errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error()), providerID)
 		}
 	default:
@@ -325,6 +335,15 @@ func modelsForProvider(providerID string) []string {
 	return models
 }
 
+// modelsForProvider returns model IDs for the given provider, using the dynamic
+// OpenRouter cache for ProviderOpenRouter and the static registry for all others.
+func (e *Engine) modelsForProvider(providerID string) []string {
+	if providerID == ProviderOpenRouter {
+		return e.openrouterModelIDs()
+	}
+	return modelsForProvider(providerID)
+}
+
 func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorInfo) {
 	state, err := e.readWorkshopState(workbenchID)
 	if err != nil {
@@ -332,7 +351,7 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 	}
 	if state.ActiveModelID != "" {
 		canonicalID := canonicalModelID(state.ActiveModelID)
-		if model, ok := getModel(canonicalID); ok {
+		if model, ok := e.findModel(canonicalID); ok {
 			if canonicalID != state.ActiveModelID {
 				state.ActiveModelID = canonicalID
 				if err := e.writeWorkshopState(workbenchID, state); err != nil {
@@ -348,7 +367,7 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 	}
 	if wb.DefaultModelID != "" {
 		canonicalID := canonicalModelID(wb.DefaultModelID)
-		if model, ok := getModel(canonicalID); ok {
+		if model, ok := e.findModel(canonicalID); ok {
 			if canonicalID != wb.DefaultModelID {
 				if errInfo := e.setWorkbenchDefaultModel(workbenchID, canonicalID); errInfo != nil {
 					return "", errInfo
@@ -363,7 +382,7 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 	}
 	if settingsData.UserDefaultModelID != "" {
 		canonicalID := canonicalModelID(settingsData.UserDefaultModelID)
-		if model, ok := getModel(canonicalID); ok {
+		if model, ok := e.findModel(canonicalID); ok {
 			if canonicalID != settingsData.UserDefaultModelID {
 				settingsData.UserDefaultModelID = canonicalID
 				if err := e.settings.Save(settingsData); err != nil {
@@ -378,7 +397,7 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 
 func (e *Engine) setActiveModel(workbenchID, modelID string) *errinfo.ErrorInfo {
 	modelID = canonicalModelID(modelID)
-	if _, ok := getModel(modelID); !ok {
+	if _, ok := e.findModel(modelID); !ok {
 		return errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
 	state, _ := e.readWorkshopState(workbenchID)
@@ -391,7 +410,7 @@ func (e *Engine) setActiveModel(workbenchID, modelID string) *errinfo.ErrorInfo 
 
 func (e *Engine) setWorkbenchDefaultModel(workbenchID, modelID string) *errinfo.ErrorInfo {
 	modelID = canonicalModelID(modelID)
-	if _, ok := getModel(modelID); !ok {
+	if _, ok := e.findModel(modelID); !ok {
 		return errinfo.ValidationFailed(errinfo.PhaseWorkbench, "unsupported model")
 	}
 	path := filepath.Join(e.workbenchesRoot(), workbenchID, "meta", "workbench.json")

@@ -17,6 +17,7 @@ const (
 	providerAnthropicClaude = "anthropic-claude"
 	providerGoogle          = "google"
 	providerMistral         = "mistral"
+	providerOpenRouter      = "openrouter"
 
 	reasoningEffortNone   = "none"
 	reasoningEffortLow    = "low"
@@ -102,6 +103,7 @@ func defaultSettings() *Settings {
 			providerAnthropicClaude: defaultProviderSettings(providerAnthropicClaude),
 			providerGoogle:          defaultProviderSettings(providerGoogle),
 			providerMistral:         defaultProviderSettings(providerMistral),
+		providerOpenRouter:      defaultProviderSettings(providerOpenRouter),
 		},
 		UserDefaultModelID: defaultUserModelID,
 		UserConsentMode:    UserConsentModeAsk,
@@ -130,6 +132,7 @@ func backfillSettings(settings *Settings) {
 	backfillProvider(settings.Providers, providerAnthropicClaude)
 	backfillProvider(settings.Providers, providerGoogle)
 	backfillProvider(settings.Providers, providerMistral)
+	backfillProvider(settings.Providers, providerOpenRouter)
 	if settings.UserDefaultModelID == "" {
 		settings.UserDefaultModelID = defaultUserModelID
 		return

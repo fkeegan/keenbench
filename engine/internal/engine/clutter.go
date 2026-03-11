@@ -64,7 +64,7 @@ func (e *Engine) computeClutter(workbenchID string) (*clutterState, *errinfo.Err
 	if errInfo != nil {
 		return nil, errInfo
 	}
-	model, ok := getModel(modelID)
+	model, ok := e.findModel(modelID)
 	contextTokens := 32000
 	if ok && model.ContextTokens > 0 {
 		contextTokens = model.ContextTokens

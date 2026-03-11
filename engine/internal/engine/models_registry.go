@@ -9,6 +9,7 @@ const (
 	ProviderAnthropicClaude = "anthropic-claude"
 	ProviderGoogle          = "google"
 	ProviderMistral         = "mistral"
+	ProviderOpenRouter      = "openrouter"
 )
 
 const (
@@ -156,6 +157,8 @@ func providerModelName(modelID string) string {
 	if modelID == ModelMistralID {
 		return "mistral-large-latest"
 	}
+	// SplitN(..., ":", 2) correctly handles OpenRouter model IDs that contain "/"
+	// e.g. "openrouter:meta-llama/llama-3.3-70b-instruct" → "meta-llama/llama-3.3-70b-instruct"
 	parts := strings.SplitN(modelID, ":", 2)
 	if len(parts) == 2 {
 		return parts[1]

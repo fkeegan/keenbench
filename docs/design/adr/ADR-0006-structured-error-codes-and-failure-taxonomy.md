@@ -81,7 +81,7 @@ The UI maps `actions[]` to affordances:
 - `retry` (re-run the failed operation from the same safe boundary)
 - `resume` (continue a paused job)
 - `switch_model` (choose a different provider/model, then retry/resume)
-- `open_settings` (configure provider keys, enable providers)
+- `open_settings` (configure provider credentials, enable providers)
 - `restore_checkpoint`
 - `free_disk_space`
 - `view_report`

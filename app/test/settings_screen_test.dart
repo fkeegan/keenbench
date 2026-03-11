@@ -169,6 +169,14 @@ class _FakeSettingsEngine implements EngineApi {
               'models': ['mistral:mistral-large'],
               'auth_mode': 'api_key',
             },
+            {
+              'provider_id': 'openrouter',
+              'display_name': 'OpenRouter',
+              'enabled': true,
+              'configured': false,
+              'models': [],
+              'auth_mode': 'api_key',
+            },
           ],
         };
       case 'ModelsListSupported':
@@ -931,6 +939,7 @@ void main() {
       'anthropic',
       'anthropic-claude',
       'mistral',
+      'openrouter',
     ];
     for (final providerId in providerIds) {
       expect(
@@ -1064,7 +1073,11 @@ void main() {
     expect(mistralField, findsOneWidget);
 
     await tester.enterText(mistralField, 'mistral-test-key');
-    final mistralSaveButton = find.text('Save & Validate').last;
+    // OpenRouter is added after Mistral; Mistral's "Save & Validate" is at index 3
+    // (0=OpenAI, 1=Anthropic, 2=Anthropic Claude, 3=Mistral, 4=OpenRouter)
+    final mistralSaveButton = find
+        .widgetWithText(ElevatedButton, 'Save & Validate')
+        .at(3);
     await tester.ensureVisible(mistralSaveButton);
     await tester.tap(mistralSaveButton);
     await tester.pumpAndSettle();
