@@ -23,6 +23,7 @@ import 'settings_screen.dart';
 import 'checkpoints_screen.dart';
 import 'workbench_context_screen.dart';
 import '../widgets/keenbench_app_bar.dart';
+import '../widgets/model_picker_dialog.dart';
 
 const _forkModeCloneFilesOnly = 'clone_files_only';
 const _forkModeCloneAll = 'clone_all';
@@ -64,6 +65,9 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
   final _mainContentFocusNode = FocusNode(debugLabel: 'workbench_main_content');
   final _fileListFocusNode = FocusNode(debugLabel: 'workbench_file_list');
   final _composerFocusNode = FocusNode(debugLabel: 'workbench_composer');
+  final _providerSelectorFocusNode = FocusNode(
+    debugLabel: 'workbench_provider_selector',
+  );
   final _modelSelectorFocusNode = FocusNode(
     debugLabel: 'workbench_model_selector',
   );
@@ -97,6 +101,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
     _mainContentFocusNode.dispose();
     _fileListFocusNode.dispose();
     _composerFocusNode.dispose();
+    _providerSelectorFocusNode.dispose();
     _modelSelectorFocusNode.dispose();
     _errorSummaryFocusNode.dispose();
     super.dispose();
@@ -669,8 +674,7 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
       _showMessage('Run canceled.');
       return;
     }
-    if (err.errorCode == 'PROVIDER_NOT_CONFIGURED' ||
-        err.errorCode == 'PROVIDER_AUTH_FAILED') {
+    if (err.errorCode == 'PROVIDER_NOT_CONFIGURED') {
       AppLog.warn('workbench.provider_error', {
         'error_code': err.errorCode,
         'message': err.message,
@@ -1145,28 +1149,30 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
           _scrollToBottom();
         }
         final workbench = state.workbench;
-        final providerMap = {
-          for (final provider in state.providers) provider.id: provider,
-        };
-        final availableModelMap = <String, ModelInfo>{};
-        for (final model in state.models) {
-          final provider = providerMap[model.providerId];
-          if (provider == null) {
-            continue;
-          }
-          if (provider.enabled && provider.configured) {
-            availableModelMap.putIfAbsent(model.id, () => model);
+        final availableProviders = state.selectableProviders;
+        final availableModels = <ModelInfo>[
+          for (final provider in availableProviders)
+            ...state.modelsForProvider(provider.id),
+        ];
+        final selectedProviderId = state.activeProviderId();
+        ProviderStatus? selectedProvider;
+        for (final provider in availableProviders) {
+          if (provider.id == selectedProviderId) {
+            selectedProvider = provider;
+            break;
           }
         }
-        final availableModels = availableModelMap.values.toList();
-        final selectedModelId =
-            state.activeModelId != null &&
-                availableModels.any((model) => model.id == state.activeModelId)
-            ? state.activeModelId
-            : availableModels.isNotEmpty
-            ? availableModels.first.id
-            : null;
+        final providerModels = selectedProvider == null
+            ? const <ModelInfo>[]
+            : state.modelsForProvider(selectedProvider.id);
+        final selectedModelId = selectedProvider == null
+            ? null
+            : state.preferredModelForProvider(selectedProvider.id);
         final scope = state.scope;
+        final screenWidth = MediaQuery.of(context).size.width;
+        final providerSelectorWidth = screenWidth < 1000 ? 120.0 : 180.0;
+        final modelSelectorWidth = screenWidth < 1000 ? 180.0 : 320.0;
+        final appBarActionGap = screenWidth < 1000 ? 8.0 : 16.0;
         final scopeLimitsText = _buildScopeLimitsText(
           scope,
           state.files.length,
@@ -1244,71 +1250,157 @@ class _WorkbenchViewState extends State<_WorkbenchView> {
                   showBack: true,
                   useCenteredContent: false,
                   actions: [
-                    if (availableModels.isNotEmpty)
+                    if (availableProviders.isNotEmpty) ...[
+                      Focus(
+                        focusNode: _providerSelectorFocusNode,
+                        child: Container(
+                          key: AppKeys.workbenchProviderSelector,
+                          constraints: BoxConstraints(
+                            maxWidth: providerSelectorWidth,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: KeenBenchTheme.colorSurfaceSubtle,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: KeenBenchTheme.colorBorderSubtle,
+                            ),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: selectedProvider?.id,
+                              isExpanded: true,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: KeenBenchTheme.colorTextPrimary,
+                                  ),
+                              items: availableProviders
+                                  .map(
+                                    (provider) => DropdownMenuItem<String>(
+                                      value: provider.id,
+                                      child: Text(
+                                        provider.displayName,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: state.isConversationBusy
+                                  ? null
+                                  : (value) async {
+                                      if (value == null || value.isEmpty) {
+                                        return;
+                                      }
+                                      _clearErrorSummary();
+                                      try {
+                                        await state.setActiveProvider(value);
+                                      } on EngineError catch (err) {
+                                        if (!mounted) {
+                                          return;
+                                        }
+                                        await _handleEngineError(err);
+                                      }
+                                    },
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: appBarActionGap / 2),
                       Semantics(
                         key: AppKeys.workbenchModelSelectorSemantics,
                         label:
                             'Current model: ${_modelDisplayNameFor(selectedModelId ?? '', availableModels)}',
-                        hint: 'Dropdown',
+                        hint: 'Opens model picker',
                         child: Focus(
                           focusNode: _modelSelectorFocusNode,
-                          child: Container(
-                            constraints: const BoxConstraints(maxWidth: 280),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(
-                              color: KeenBenchTheme.colorSurfaceSubtle,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: KeenBenchTheme.colorBorderSubtle,
+                          child: InkWell(
+                            key: AppKeys.workbenchModelSelector,
+                            onTap:
+                                state.isConversationBusy ||
+                                    providerModels.isEmpty
+                                ? null
+                                : () async {
+                                    _clearErrorSummary();
+                                    final value = await showModelPickerDialog(
+                                      context,
+                                      title: 'Select model',
+                                      models: providerModels,
+                                      selectedModelId: selectedModelId,
+                                    );
+                                    if (!mounted || value == null) {
+                                      return;
+                                    }
+                                    try {
+                                      await state.setActiveModel(value);
+                                    } on EngineError catch (err) {
+                                      if (!mounted) {
+                                        return;
+                                      }
+                                      await _handleEngineError(err);
+                                    }
+                                  },
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              constraints: BoxConstraints(
+                                maxWidth: modelSelectorWidth,
                               ),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: selectedModelId,
-                                isExpanded: true,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: KeenBenchTheme.colorTextPrimary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 9,
+                              ),
+                              decoration: BoxDecoration(
+                                color: KeenBenchTheme.colorSurfaceSubtle,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: KeenBenchTheme.colorBorderSubtle,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      selectedModelId == null
+                                          ? 'Select model'
+                                          : providerModels
+                                                .firstWhere(
+                                                  (model) =>
+                                                      model.id ==
+                                                      selectedModelId,
+                                                )
+                                                .displayName,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color:
+                                                KeenBenchTheme.colorTextPrimary,
+                                          ),
                                     ),
-                                items: availableModels
-                                    .map(
-                                      (model) => DropdownMenuItem<String>(
-                                        value: model.id,
-                                        child: Text(
-                                          model.displayName,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: state.isConversationBusy
-                                    ? null
-                                    : (value) {
-                                        if (value != null) {
-                                          _clearErrorSummary();
-                                          state.setActiveModel(value);
-                                        }
-                                      },
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.arrow_drop_down, size: 18),
+                                ],
                               ),
                             ),
                           ),
                         ),
-                      )
-                    else
+                      ),
+                    ] else
                       Text(
-                        'No models configured',
+                        'No providers configured',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: KeenBenchTheme.colorTextSecondary,
                         ),
                       ),
-                    const SizedBox(width: 16),
+                    SizedBox(width: appBarActionGap),
                     if (state.clutter != null)
                       ClutterBar(
                         key: AppKeys.workbenchClutterBar,
                         score: state.clutter!.score,
                         level: state.clutter!.level,
                       ),
-                    const SizedBox(width: 16),
+                    SizedBox(width: appBarActionGap),
                     Tooltip(
                       message: 'Rename Workbench',
                       child: IconButton(

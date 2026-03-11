@@ -63,6 +63,8 @@ class AppKeys {
   static const workbenchModelSelectorSemantics = Key(
     'workbench_model_selector_semantics',
   );
+  static const workbenchProviderSelector = Key('workbench_provider_selector');
+  static const workbenchModelSelector = Key('workbench_model_selector');
   static const workbenchErrorSummary = Key('workbench_error_summary');
   static const workbenchScopeBadge = Key('workbench_scope_badge');
   static const workbenchScopeLimits = Key('workbench_scope_limits');
@@ -92,6 +94,12 @@ class AppKeys {
   static const settingsApiKeyField = Key('settings_api_key');
   static const settingsSaveButton = Key('settings_save_button');
   static const settingsConsentModeToggle = Key('settings_consent_mode_toggle');
+  static const settingsDefaultProviderSelector = Key(
+    'settings_default_provider_selector',
+  );
+  static const settingsDefaultModelSelector = Key(
+    'settings_default_model_selector',
+  );
   static const settingsConsentAllowAllDialog = Key(
     'settings_consent_allow_all_dialog',
   );

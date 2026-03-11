@@ -10,7 +10,22 @@ import (
 )
 
 func (e *Engine) ModelsListSupported(ctx context.Context, _ json.RawMessage) (any, *errinfo.ErrorInfo) {
-	models := listSupportedModels()
+	models := make([]ModelInfo, 0, len(listSupportedModels())+len(e.openrouterModels))
+	seen := map[string]struct{}{}
+	for _, model := range listSupportedModels() {
+		models = append(models, model)
+		seen[model.ModelID] = struct{}{}
+	}
+	for _, modelID := range e.openrouterModelIDs() {
+		model, ok := e.findModel(modelID)
+		if !ok {
+			continue
+		}
+		if _, ok := seen[model.ModelID]; ok {
+			continue
+		}
+		models = append(models, model)
+	}
 	return map[string]any{"models": models}, nil
 }
 
@@ -22,7 +37,7 @@ func (e *Engine) ModelsGetCapabilities(ctx context.Context, params json.RawMessa
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
 	}
 	req.ModelID = canonicalModelID(req.ModelID)
-	model, ok := getModel(req.ModelID)
+	model, ok := e.findModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported model")
 	}
@@ -37,11 +52,12 @@ func (e *Engine) ModelsGetCapabilities(ctx context.Context, params json.RawMessa
 }
 
 func (e *Engine) UserGetDefaultModel(ctx context.Context, _ json.RawMessage) (any, *errinfo.ErrorInfo) {
-	settingsData, err := e.settings.Load()
-	if err != nil {
-		return nil, errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
+	result, errInfo := e.UserGetDefaultSelection(ctx, nil)
+	if errInfo != nil {
+		return nil, errInfo
 	}
-	return map[string]any{"model_id": settingsData.UserDefaultModelID}, nil
+	selection := result.(map[string]any)
+	return map[string]any{"model_id": selection["model_id"]}, nil
 }
 
 func (e *Engine) UserSetDefaultModel(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
@@ -52,10 +68,62 @@ func (e *Engine) UserSetDefaultModel(ctx context.Context, params json.RawMessage
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
 	}
 	req.ModelID = canonicalModelID(req.ModelID)
-	if _, ok := getModel(req.ModelID); !ok {
+	model, ok := e.findModel(req.ModelID)
+	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported model")
 	}
+	selectionParams, err := json.Marshal(map[string]any{
+		"provider_id": model.ProviderID,
+		"model_id":    req.ModelID,
+	})
+	if err != nil {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
+	}
+	return e.UserSetDefaultSelection(ctx, selectionParams)
+}
+
+func (e *Engine) UserGetDefaultSelection(ctx context.Context, _ json.RawMessage) (any, *errinfo.ErrorInfo) {
+	settingsData, err := e.settings.Load()
+	if err != nil {
+		return nil, errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
+	}
+	selection, changed := e.resolveDefaultSelection(settingsData)
+	if changed {
+		if err := e.settings.Save(settingsData); err != nil {
+			return nil, errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())
+		}
+	}
+	return map[string]any{
+		"provider_id": selection.ProviderID,
+		"model_id":    selection.ModelID,
+	}, nil
+}
+
+func (e *Engine) UserSetDefaultSelection(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	var req struct {
+		ProviderID string `json:"provider_id"`
+		ModelID    string `json:"model_id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
+	}
+	req.ProviderID = strings.TrimSpace(req.ProviderID)
+	req.ModelID = canonicalModelID(req.ModelID)
+	model, ok := e.findModel(req.ModelID)
+	if !ok {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "unsupported model")
+	}
+	if req.ProviderID == "" {
+		req.ProviderID = model.ProviderID
+	}
+	if model.ProviderID != req.ProviderID {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "provider/model mismatch")
+	}
+	if _, errInfo := e.clientForProvider(req.ProviderID); errInfo != nil {
+		return nil, errInfo
+	}
 	_, err := e.settings.Update(func(s *settings.Settings) {
+		s.UserDefaultProviderID = req.ProviderID
 		s.UserDefaultModelID = req.ModelID
 	})
 	if err != nil {
@@ -145,7 +213,7 @@ func (e *Engine) WorkshopSetActiveModel(ctx context.Context, params json.RawMess
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "invalid params")
 	}
 	req.ModelID = canonicalModelID(req.ModelID)
-	model, ok := getModel(req.ModelID)
+	model, ok := e.findModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}

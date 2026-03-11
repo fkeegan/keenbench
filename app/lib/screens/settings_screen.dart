@@ -13,6 +13,7 @@ import '../theme.dart';
 import '../widgets/centered_content.dart';
 import '../widgets/dialog_keyboard_shortcuts.dart';
 import '../widgets/keenbench_app_bar.dart';
+import '../widgets/model_picker_dialog.dart';
 
 typedef ExternalUrlLauncher = Future<void> Function(String url);
 
@@ -103,6 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _updatingConsentMode = false;
   List<ProviderStatus> _providers = [];
   List<ModelInfo> _models = [];
+  String? _userDefaultProviderId;
   String? _userDefaultModelId;
   String _userConsentMode = consentModeAsk;
   final Map<String, TextEditingController> _controllers = {};
@@ -133,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final modelsResponse = await engine.call('ModelsListSupported');
     final modelList = (modelsResponse['models'] as List<dynamic>? ?? [])
         .cast<Map<String, dynamic>>();
-    final userDefault = await engine.call('UserGetDefaultModel');
+    final userDefault = await engine.call('UserGetDefaultSelection');
     final consentModeResponse = await engine.call('UserGetConsentMode');
     final consentMode =
         (consentModeResponse['mode'] as String? ?? consentModeAsk).trim();
@@ -143,6 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _providers = providerList.map(ProviderStatus.fromJson).toList();
       _models = modelList.map(ModelInfo.fromJson).toList();
+      _userDefaultProviderId = userDefault['provider_id'] as String?;
       _userDefaultModelId = userDefault['model_id'] as String?;
       _userConsentMode = consentMode == consentModeAllowAll
           ? consentModeAllowAll
@@ -322,13 +325,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _setDefaultModel(String? value) async {
-    if (value == null || value.isEmpty) {
+  Future<void> _setDefaultProvider(String? providerId) async {
+    final selectedProvider = _providerById(providerId);
+    if (selectedProvider == null) {
+      return;
+    }
+    final nextModelId =
+        _preferredModelForProvider(selectedProvider) ??
+        selectedProvider.defaultModelId;
+    if (nextModelId.isEmpty) {
       return;
     }
     final engine = context.read<EngineApi>();
-    await engine.call('UserSetDefaultModel', {'model_id': value});
+    await engine.call('UserSetDefaultSelection', {
+      'provider_id': selectedProvider.id,
+      'model_id': nextModelId,
+    });
     setState(() {
+      _userDefaultProviderId = selectedProvider.id;
+      _userDefaultModelId = nextModelId;
+    });
+  }
+
+  Future<void> _setDefaultModel(String? value) async {
+    final providerId = _selectedDefaultProvider()?.id ?? _userDefaultProviderId;
+    if (value == null ||
+        value.isEmpty ||
+        providerId == null ||
+        providerId.isEmpty) {
+      return;
+    }
+    final engine = context.read<EngineApi>();
+    await engine.call('UserSetDefaultSelection', {
+      'provider_id': providerId,
+      'model_id': value,
+    });
+    setState(() {
+      _userDefaultProviderId = providerId;
       _userDefaultModelId = value;
     });
   }
@@ -424,17 +457,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  List<ModelInfo> _availableModels() {
-    final enabledProviders = <String, ProviderStatus>{
-      for (final provider in _providers) provider.id: provider,
-    };
-    return _models.where((model) {
-      final provider = enabledProviders[model.providerId];
-      if (provider == null) {
-        return false;
-      }
-      return provider.enabled && provider.configured;
+  List<ProviderStatus> _availableProviders() {
+    return _providers.where((provider) {
+      return provider.enabled &&
+          provider.configured &&
+          _modelsForProvider(provider.id).isNotEmpty;
     }).toList();
+  }
+
+  ProviderStatus? _providerById(String? providerId) {
+    if (providerId == null || providerId.isEmpty) {
+      return null;
+    }
+    for (final provider in _providers) {
+      if (provider.id == providerId) {
+        return provider;
+      }
+    }
+    return null;
+  }
+
+  ProviderStatus? _selectedDefaultProvider() {
+    final availableProviders = _availableProviders();
+    for (final provider in availableProviders) {
+      if (provider.id == _userDefaultProviderId) {
+        return provider;
+      }
+    }
+    return availableProviders.isEmpty ? null : availableProviders.first;
+  }
+
+  List<ModelInfo> _modelsForProvider(String providerId) {
+    final provider = _providerById(providerId);
+    if (provider == null) {
+      return const [];
+    }
+    final modelMap = <String, ModelInfo>{
+      for (final model in _models) model.id: model,
+    };
+    final orderedModels = <ModelInfo>[];
+    for (final modelId in provider.models) {
+      final model = modelMap[modelId];
+      if (model != null) {
+        orderedModels.add(model);
+      }
+    }
+    return orderedModels;
+  }
+
+  String? _preferredModelForProvider(ProviderStatus provider) {
+    final models = _modelsForProvider(provider.id);
+    if (models.isEmpty) {
+      return null;
+    }
+    if (_userDefaultModelId != null &&
+        models.any((model) => model.id == _userDefaultModelId)) {
+      return _userDefaultModelId;
+    }
+    if (provider.defaultModelId.isNotEmpty &&
+        models.any((model) => model.id == provider.defaultModelId)) {
+      return provider.defaultModelId;
+    }
+    return models.first.id;
   }
 
   String? _oauthStatusHint(ProviderStatus provider) {
@@ -1218,7 +1302,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final availableModels = _availableModels();
+    final availableProviders = _availableProviders();
+    final selectedProvider = _selectedDefaultProvider();
+    final availableModels = selectedProvider == null
+        ? const <ModelInfo>[]
+        : _modelsForProvider(selectedProvider.id);
+    final selectedModel =
+        availableModels.any((model) => model.id == _userDefaultModelId)
+        ? _userDefaultModelId
+        : availableModels.isNotEmpty
+        ? availableModels.first.id
+        : null;
     return Scaffold(
       key: AppKeys.settingsScreen,
       appBar: const KeenBenchAppBar(title: 'Settings', showBack: true),
@@ -1230,35 +1324,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Default Model',
+                      'Default Provider',
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 8),
-                    if (availableModels.isEmpty)
+                    if (availableProviders.isEmpty)
                       Text(
-                        'Configure a provider to select a default model.',
+                        'Configure a provider to select a default provider and model.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: KeenBenchTheme.colorTextSecondary,
                         ),
                       )
-                    else
-                      DropdownButton<String>(
-                        value:
-                            availableModels.any(
-                              (m) => m.id == _userDefaultModelId,
-                            )
-                            ? _userDefaultModelId
-                            : availableModels.first.id,
-                        items: availableModels
+                    else ...[
+                      DropdownButtonFormField<String>(
+                        key: AppKeys.settingsDefaultProviderSelector,
+                        value: selectedProvider?.id,
+                        items: availableProviders
                             .map(
-                              (model) => DropdownMenuItem<String>(
-                                value: model.id,
-                                child: Text(model.displayName),
+                              (provider) => DropdownMenuItem<String>(
+                                value: provider.id,
+                                child: Text(provider.displayName),
                               ),
                             )
                             .toList(),
-                        onChanged: _setDefaultModel,
+                        onChanged: _setDefaultProvider,
+                        decoration: const InputDecoration(
+                          labelText: 'Default provider',
+                        ),
                       ),
+                      const SizedBox(height: 16),
+                      InkWell(
+                        key: AppKeys.settingsDefaultModelSelector,
+                        onTap: availableModels.isEmpty
+                            ? null
+                            : () async {
+                                final selected = await showModelPickerDialog(
+                                  context,
+                                  title: 'Select default model',
+                                  models: availableModels,
+                                  selectedModelId: selectedModel,
+                                );
+                                if (!mounted) {
+                                  return;
+                                }
+                                await _setDefaultModel(selected);
+                              },
+                        borderRadius: BorderRadius.circular(12),
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Default model',
+                          ),
+                          isEmpty: selectedModel == null,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  selectedModel == null
+                                      ? 'No models available'
+                                      : modelPickerLabel(
+                                          availableModels.firstWhere(
+                                            (model) =>
+                                                model.id == selectedModel,
+                                          ),
+                                        ),
+                                  style: selectedModel == null
+                                      ? Theme.of(
+                                          context,
+                                        ).textTheme.bodyMedium?.copyWith(
+                                          color:
+                                              KeenBenchTheme.colorTextSecondary,
+                                        )
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.arrow_drop_down),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     Text(
                       'Egress Consent',

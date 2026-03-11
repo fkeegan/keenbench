@@ -4,16 +4,16 @@
 Draft
 
 ## Version
-v0.7
+v0.8
 
 ## Last Updated
-2026-02-13
+2026-03-11
 
 ## Purpose
 Enable AI to read and write office documents (docx, odt, xlsx, pptx, pdf) and tabular text files (csv first, with other delimited table formats to follow) within the Workbench, with full structural awareness and reliable handling of files of any size. The AI must be able to understand a file's structure before reading it, browse large files in manageable chunks without data loss, query tabular datasets deterministically, and preserve style, formatting, and embedded assets when creating derivative files.
 
 ## Scope
-- In scope (v1): File reading and file writing for all configured providers via the local tool worker (see ADR-0008), with intent-aware behavior (analysis requests may produce no writes; edit requests produce Draft changes).
+- In scope (v1): File reading and file writing for all configured built-in providers, and for OpenRouter models that advertise tool support, via the local tool worker (see ADR-0008), with intent-aware behavior (analysis requests may produce no writes; edit requests produce Draft changes).
 - In scope (v1 — File Intelligence): Structural mapping for all supported formats (including basic island detection for spreadsheets and tabular text schema detection), chunked reading for large files, map-first initial context (replacing raw content dump), and a queryable toolset for tabular text backed by a local embedded SQL engine.
 - In scope (future): Style and asset preservation (logos, charts, conditional formatting), advanced island detection heuristics (multi-region merging, blank-column scanning), graph/chart copying between files.
 - Out of scope: Custom file parsing libraries, arbitrary format-conversion workflows outside deterministic table-export tools, real-time collaborative editing, direct filesystem access outside Workbench.
@@ -23,10 +23,11 @@ Enable AI to read and write office documents (docx, odt, xlsx, pptx, pdf) and ta
 ### Capability Matrix (v1)
 | Provider | File Read | File Write | Mechanism |
 |----------|-----------|------------|-----------|
-| OpenAI | Yes | Yes | Model reasoning + local tool worker operations |
-| Anthropic | Yes | Yes | Model reasoning + local tool worker operations |
+| OpenAI API / OpenAI Codex | Yes | Yes | Model reasoning + local tool worker operations |
+| Anthropic API / Anthropic Claude | Yes | Yes | Model reasoning + local tool worker operations |
 | Google | Yes | Yes | Model reasoning + local tool worker operations |
 | Mistral | Yes | Yes | Model reasoning + local tool worker operations |
+| OpenRouter | Model-dependent | Model-dependent | Model reasoning + local tool worker operations when the fetched model metadata reports `tools` support |
 
 ### Supported File Formats
 | Format | Read | Write | Notes |
@@ -43,16 +44,17 @@ Enable AI to read and write office documents (docx, odt, xlsx, pptx, pdf) and ta
 ## User Experience
 
 ### Transparent Operation
-Users interact with file operations through Workshop without provider-specific write restrictions:
-- Workshop: "Edit the summary in report.docx" works regardless of selected provider.
+Users interact with file operations through Workshop without provider-specific write restrictions for the built-in providers:
+- Workshop: "Edit the summary in report.docx" works regardless of selected built-in provider.
+- OpenRouter models follow the same local path when they advertise tool support; OpenRouter models without tool support should be treated as analysis-only.
 
 ### Model Capability Visibility
 Users see provider/model differences (quality, speed, cost) in two places:
 
 1. **Settings > Model Providers**: Informational note in the providers panel:
-   > "All configured models can analyze and edit Workbench files. File edits execute locally in Draft and are reviewed before publish."
+   > "Built-in providers and compatible OpenRouter models can analyze and edit Workbench files. File edits execute locally in Draft and are reviewed before publish."
 
-2. **Model Selector** (Workshop): Users can switch models freely; model choice does not disable file editing workflows.
+2. **Model Selector** (Workshop): Users can switch models freely; built-in models always support file editing workflows, while OpenRouter compatibility depends on the fetched model metadata.
 
 ### Intent-Aware Behavior
 The AI can either analyze or write, based on task intent:
@@ -64,8 +66,8 @@ The AI can either analyze or write, based on task intent:
 
 ### v1
 
-1. **File Reading**: All configured providers can read supported file formats.
-2. **File Writing (All Providers)**: File writes are available regardless of selected provider and are executed by the local tool worker.
+1. **File Reading**: All configured built-in providers can read supported file formats. OpenRouter models can do so when their fetched metadata reports `tools` support.
+2. **File Writing**: File writes are available for all built-in providers and for tool-capable OpenRouter models, and are executed by the local tool worker.
 3. **Intent-Aware Execution**: The AI may perform read-only analysis or write operations, depending on the user request and task needs.
 4. **Draft Integration**: All file writes occur in the Draft sandbox; the Published state is never modified directly.
 5. **Audit Trail**: File operations log which model performed reasoning and which files were read/written.
@@ -233,7 +235,7 @@ The AI shall have tools to query what styles and assets exist in a source file a
 
 ### File Operations
 - Users can read docx, odt, xlsx, pptx, pdf, and text files in Workshop.
-- Users can modify supported file formats with any configured provider.
+- Users can modify supported file formats with any configured built-in provider and with tool-capable OpenRouter models.
 - File modifications appear in Draft and are reviewed before publishing.
 - For analysis-only requests, the AI can complete tasks without creating Draft changes.
 - Audit trail records which model performed each file operation.

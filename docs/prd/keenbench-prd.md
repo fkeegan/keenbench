@@ -142,16 +142,20 @@ A chat-based, iterative collaboration:
 - Workshop uses a single active model at a time; switching replaces the active model
 
 ### Supported Models (v1)
-v1 supports exactly these five models:
-- OpenAI: GPT-5.2 (`openai:gpt-5.2`)
-- Anthropic: Claude Sonnet 4.6 (`anthropic:claude-sonnet-4-6`)
-- Anthropic: Claude Opus 4.6 (`anthropic:claude-opus-4-6`)
+v1 ships with a curated built-in set plus OpenRouter-discovered models:
+- OpenAI API: GPT-5.4 (`openai:gpt-5.4`)
+- OpenAI Codex: Codex GPT-5.4 (`openai-codex:gpt-5.4`)
+- Anthropic API: Claude Sonnet 4.6 (`anthropic:claude-sonnet-4-6`)
+- Anthropic API: Claude Opus 4.6 (`anthropic:claude-opus-4-6`)
+- Anthropic Claude setup token: Claude Sonnet 4.6 (`anthropic-claude:claude-sonnet-4-6`)
+- Anthropic Claude setup token: Claude Opus 4.6 (`anthropic-claude:claude-opus-4-6`)
 - Google: Gemini 3 Pro (`google:gemini-3-pro`)
 - Mistral: Mistral Large (`mistral:mistral-large`)
+- OpenRouter: fetched catalog surfaced as `openrouter:<upstream-model-id>`
 
-Users bring their own provider keys (BYOK). A model is available only if its provider is configured and enabled.
+Users bring their own provider credentials (BYOC). A model is available only if its provider is configured and enabled. OpenRouter models are discovered dynamically after provider validation/startup refresh and are cached locally between refreshes.
 
-**Model Capabilities**: All supported models can analyze Workbench files and drive Draft-producing edits through the same local file-operation path. The AI may choose analysis-only responses or write operations based on user intent. See `docs/prd/capabilities/file-operations.md` for details. For inline style parameters on write operations and built-in format style skills, see `docs/prd/capabilities/document-styling.md`.
+**Model Capabilities**: The built-in models can analyze Workbench files and drive Draft-producing edits through the same local file-operation path. OpenRouter capabilities are inferred from the fetched model metadata; models that do not advertise `tools` support should be treated as analysis-only. The AI may choose analysis-only responses or write operations based on user intent and selected model capabilities. See `docs/prd/capabilities/file-operations.md` for details. For inline style parameters on write operations and built-in format style skills, see `docs/prd/capabilities/document-styling.md`.
 
 ---
 
@@ -455,7 +459,7 @@ The Clutter Bar is a visual indicator showing how "full" the Workbench is relati
   - file list + diffs for text files
   - summaries + in-app before/after preview for non-text files
 - Checkpoints + restore
-- Multi-model support (at least 2 providers or BYOK abstraction)
+- Multi-model support (at least 2 providers or BYOC abstraction)
 - Model switching in Workshop (seamless, no confirmation)
 - Clutter Bar
 - First-run walkthrough with a sample Workbench
@@ -518,7 +522,7 @@ The Clutter Bar is a visual indicator showing how "full" the Workbench is relati
 1. ~~How much of Office-file semantic diff is needed for v1 trust?~~ → **Resolved**: For office text documents (e.g., .docx, .odt) in v1, the app provides a best-effort inline diff suitable for code-style review. Formatting/layout changes may still require summary callouts. Deeper semantic diffs for Office files are deferred to v1.5.
 2. ~~Will users prefer one Project per outcome or a long-lived "Main Project"?~~ → **Resolved**: Neither. Workbench is a persistent place for files; jobs/tasks operate on them.
 3. ~~How should we handle large files and token limits?~~ → **Resolved**: Clutter Bar + Token & Context Management section.
-4. ~~How do we present model capability constraints (context limits, file support) without adding config burden?~~ → **Resolved**: Only models with image support are included. Context window limits are handled by the Clutter Bar (model-aware calculation). When context limits are hit, use context compression (summarization of older context). No additional user-facing configuration needed.
+4. ~~How do we present model capability constraints (context limits, file support) without adding config burden?~~ → **Resolved**: The built-in catalog stays image-capable. OpenRouter models are discovered dynamically and may vary by capability. Context window limits are handled by the Clutter Bar (model-aware calculation), and file-operation support comes from per-model metadata. No additional user-facing configuration is required.
 
 ---
 
@@ -527,7 +531,7 @@ The Clutter Bar is a visual indicator showing how "full" the Workbench is relati
 - Workbench + Workshop
 - Draft/Publish + checkpoints + review
 - Clutter Bar
-- BYOK or integrated providers (TBD)
+- BYOC or integrated providers (TBD)
 
 ### v1.5 (Quality + Trust Upgrade)
 - Enhanced audit reporting with detailed execution metrics

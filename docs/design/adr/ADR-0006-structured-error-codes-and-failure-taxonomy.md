@@ -55,7 +55,7 @@ Egress / consent:
 Provider / network:
 - `PROVIDER_NOT_CONFIGURED`
 - `PROVIDER_AUTH_FAILED`
-- `PROVIDER_RATE_LIMITED`
+- `PROVIDER_PAYMENT_REQUIRED`
 - `PROVIDER_UNAVAILABLE`
 - `NETWORK_UNAVAILABLE`
 
@@ -81,7 +81,7 @@ The UI maps `actions[]` to affordances:
 - `retry` (re-run the failed operation from the same safe boundary)
 - `resume` (continue a paused job)
 - `switch_model` (choose a different provider/model, then retry/resume)
-- `open_settings` (configure provider keys, enable providers)
+- `open_settings` (configure provider credentials, enable providers)
 - `restore_checkpoint`
 - `free_disk_space`
 - `view_report`

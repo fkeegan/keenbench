@@ -17,6 +17,7 @@ const (
 	providerAnthropicClaude = "anthropic-claude"
 	providerGoogle          = "google"
 	providerMistral         = "mistral"
+	providerOpenRouter      = "openrouter"
 
 	reasoningEffortNone   = "none"
 	reasoningEffortLow    = "low"
@@ -28,6 +29,7 @@ const (
 
 const (
 	defaultUserModelID            = "openai:gpt-5.4"
+	defaultUserProviderID         = providerOpenAI
 	anthropicLegacyOpus45ModelID  = "anthropic:claude-opus-4.5"
 	anthropicDefaultSonnet46Model = "anthropic:claude-sonnet-4-6"
 )
@@ -45,10 +47,11 @@ type ProviderSettings struct {
 }
 
 type Settings struct {
-	SchemaVersion      int                         `json:"schema_version"`
-	Providers          map[string]ProviderSettings `json:"providers"`
-	UserDefaultModelID string                      `json:"user_default_model_id,omitempty"`
-	UserConsentMode    string                      `json:"user_consent_mode,omitempty"`
+	SchemaVersion         int                         `json:"schema_version"`
+	Providers             map[string]ProviderSettings `json:"providers"`
+	UserDefaultProviderID string                      `json:"user_default_provider_id,omitempty"`
+	UserDefaultModelID    string                      `json:"user_default_model_id,omitempty"`
+	UserConsentMode       string                      `json:"user_consent_mode,omitempty"`
 }
 
 type Store struct {
@@ -102,9 +105,11 @@ func defaultSettings() *Settings {
 			providerAnthropicClaude: defaultProviderSettings(providerAnthropicClaude),
 			providerGoogle:          defaultProviderSettings(providerGoogle),
 			providerMistral:         defaultProviderSettings(providerMistral),
+			providerOpenRouter:      defaultProviderSettings(providerOpenRouter),
 		},
-		UserDefaultModelID: defaultUserModelID,
-		UserConsentMode:    UserConsentModeAsk,
+		UserDefaultProviderID: defaultUserProviderID,
+		UserDefaultModelID:    defaultUserModelID,
+		UserConsentMode:       UserConsentModeAsk,
 	}
 }
 
@@ -130,6 +135,7 @@ func backfillSettings(settings *Settings) {
 	backfillProvider(settings.Providers, providerAnthropicClaude)
 	backfillProvider(settings.Providers, providerGoogle)
 	backfillProvider(settings.Providers, providerMistral)
+	backfillProvider(settings.Providers, providerOpenRouter)
 	if settings.UserDefaultModelID == "" {
 		settings.UserDefaultModelID = defaultUserModelID
 		return
@@ -140,6 +146,10 @@ func backfillSettings(settings *Settings) {
 	default:
 		settings.UserDefaultModelID = strings.TrimSpace(settings.UserDefaultModelID)
 	}
+	settings.UserDefaultProviderID = normalizeDefaultProviderID(
+		settings.UserDefaultProviderID,
+		settings.UserDefaultModelID,
+	)
 	settings.UserConsentMode = NormalizeUserConsentMode(settings.UserConsentMode)
 }
 
@@ -210,4 +220,29 @@ func normalizeProviderReasoningEffort(providerID, value string) string {
 		}
 	}
 	return reasoningEffortMedium
+}
+
+func normalizeDefaultProviderID(providerID, modelID string) string {
+	providerID = strings.TrimSpace(providerID)
+	if providerID != "" {
+		return providerID
+	}
+	switch {
+	case strings.HasPrefix(modelID, providerOpenAI+":"):
+		return providerOpenAI
+	case strings.HasPrefix(modelID, providerOpenAICodex+":"):
+		return providerOpenAICodex
+	case strings.HasPrefix(modelID, providerAnthropic+":"):
+		return providerAnthropic
+	case strings.HasPrefix(modelID, providerAnthropicClaude+":"):
+		return providerAnthropicClaude
+	case strings.HasPrefix(modelID, providerGoogle+":"):
+		return providerGoogle
+	case strings.HasPrefix(modelID, providerMistral+":"):
+		return providerMistral
+	case strings.HasPrefix(modelID, providerOpenRouter+":"):
+		return providerOpenRouter
+	default:
+		return defaultUserProviderID
+	}
 }

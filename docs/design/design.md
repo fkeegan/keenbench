@@ -102,7 +102,7 @@ Interaction: When a user Publishes a Draft, the system creates a Checkpoint of t
    - Workbench UI (file list, add/remove, scope banner)
    - Workshop UI (chat, model selector, message undo)
    - Review UI (diff/preview, delete confirmations)
-   - Settings UI (provider keys, model defaults)
+   - Settings UI (provider credentials, model defaults)
    - OS integration (file picker, "open file", accessibility)
 
 2. **Go Engine (Local Service)**
@@ -110,13 +110,13 @@ Interaction: When a user Publishes a Draft, the system creates a Checkpoint of t
    - Draft/Publish/Discard/Restore state machine
    - Checkpoints store
    - Diffing + file-type review adapters (text diff, docx text extraction, previews)
-   - Model provider clients (BYOK keys, supported model registry, streaming)
+   - Model provider clients (BYOC credentials, built-in + cached dynamic model registry, streaming)
    - File Operations Handler (local tool worker; JSON-RPC tool calls; Draft-only sandbox)
    - Context management (Clutter Bar scoring, summarization/compression)
    - Audit trail + local logs (and optional opt-in telemetry exporter later)
 
 3. **External Model Providers**
-   - OpenAI / Anthropic / Google Gemini / Mistral (BYOK in v1)
+   - OpenAI / OpenAI Codex / Anthropic / Anthropic Claude / Google Gemini / Mistral / OpenRouter (BYOC in v1)
 
 ### Process Boundary + IPC
 UI and engine are separate processes for isolation and responsiveness.
@@ -224,10 +224,10 @@ When approaching limits:
 
 See: `docs/design/capabilities/clutter-bar.md`
 
-## Provider Integration (BYOK, v1)
-- Users configure providers in Settings (API keys stored securely/encrypted at rest).
-- Keys are validated on save with a lightweight request.
-- Supported models are a fixed allowlist in v1 (no dynamic model discovery).
+## Provider Integration (BYOC, v1)
+- Users configure providers in Settings (provider credentials stored securely/encrypted at rest).
+- Credentials are validated on save/connect with a lightweight request.
+- Supported models are a curated built-in allowlist plus a cached OpenRouter catalog refreshed after OpenRouter validation/startup.
 - At least one provider must be configured to run Workshop.
 
 Model selection rules:

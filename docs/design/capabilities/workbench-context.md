@@ -182,7 +182,7 @@ Category directory names are fixed: `company-context`, `department-context`, `si
   "created_at": "2026-02-12T...",
   "last_processed_at": "2026-02-12T...",
   "last_direct_edit_at": null,       // set when user directly edits the artifact
-  "model_id": "openai:gpt-5.2",     // model used for processing
+  "model_id": "openai:gpt-5.4",     // model used for processing
   "has_direct_edits": false          // true if artifact was hand-edited after processing
 }
 ```

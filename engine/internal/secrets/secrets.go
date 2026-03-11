@@ -37,6 +37,7 @@ type Secrets struct {
 	AnthropicClaudeSetupToken string                       `json:"anthropic_claude_setup_token,omitempty"`
 	GoogleKey                 string                       `json:"google_api_key,omitempty"`
 	MistralKey                string                       `json:"mistral_api_key,omitempty"`
+	OpenRouterKey             string                       `json:"openrouter_api_key,omitempty"`
 	OpenAICodexOAuth          *OpenAICodexOAuthCredentials `json:"openai_codex_oauth,omitempty"`
 }
 
@@ -135,6 +136,23 @@ func (s *Store) SetMistralKey(key string) error {
 	return s.save(secrets)
 }
 
+func (s *Store) GetOpenRouterKey() (string, error) {
+	secrets, err := s.load()
+	if err != nil {
+		return "", err
+	}
+	return secrets.OpenRouterKey, nil
+}
+
+func (s *Store) SetOpenRouterKey(key string) error {
+	secrets, err := s.load()
+	if err != nil {
+		return err
+	}
+	secrets.OpenRouterKey = key
+	return s.save(secrets)
+}
+
 func (s *Store) GetOpenAICodexOAuthCredentials() (*OpenAICodexOAuthCredentials, error) {
 	secrets, err := s.load()
 	if err != nil {
@@ -177,6 +195,8 @@ func (s *Store) ClearProviderKey(providerID string) error {
 		secrets.GoogleKey = ""
 	case "mistral":
 		secrets.MistralKey = ""
+	case "openrouter":
+		secrets.OpenRouterKey = ""
 	case "openai-codex":
 		secrets.OpenAICodexOAuth = nil
 	default:

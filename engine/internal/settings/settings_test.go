@@ -85,6 +85,9 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if settings.UserConsentMode != UserConsentModeAsk {
 		t.Fatalf("expected user consent mode to default to %q, got %q", UserConsentModeAsk, settings.UserConsentMode)
 	}
+	if settings.UserDefaultProviderID != providerOpenAI {
+		t.Fatalf("expected user default provider to default to %q, got %q", providerOpenAI, settings.UserDefaultProviderID)
+	}
 
 	settings.Providers[providerOpenAI] = ProviderSettings{
 		Enabled:                     false,
@@ -131,6 +134,9 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 	if loaded.UserConsentMode != UserConsentModeAsk {
 		t.Fatalf("expected user consent mode to normalize to %q, got %q", UserConsentModeAsk, loaded.UserConsentMode)
+	}
+	if loaded.UserDefaultProviderID != providerOpenAI {
+		t.Fatalf("expected user default provider to remain %q, got %q", providerOpenAI, loaded.UserDefaultProviderID)
 	}
 }
 
@@ -236,6 +242,9 @@ func TestLoadBackfillsOpenAICodexProviderAndRPIReasoningEffort(t *testing.T) {
 	}
 	if openAI.RPIImplementReasoningEffort != reasoningEffortMedium {
 		t.Fatalf("expected openai implement reasoning effort to default to %q for invalid legacy value, got %q", reasoningEffortMedium, openAI.RPIImplementReasoningEffort)
+	}
+	if settings.UserDefaultProviderID != providerOpenAI {
+		t.Fatalf("expected legacy default provider to backfill to %q, got %q", providerOpenAI, settings.UserDefaultProviderID)
 	}
 }
 

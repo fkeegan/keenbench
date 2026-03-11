@@ -34,6 +34,7 @@ import (
 	"keenbench/engine/internal/logging"
 	"keenbench/engine/internal/mistral"
 	"keenbench/engine/internal/openai"
+	"keenbench/engine/internal/openrouter"
 	"keenbench/engine/internal/secrets"
 	"keenbench/engine/internal/settings"
 	"keenbench/engine/internal/toolworker"
@@ -139,6 +140,10 @@ type Engine struct {
 	runMu               sync.Mutex
 	workshopRuns        map[string]workshopRunHandle
 	sleep               func(context.Context, time.Duration) error
+	openrouterModels    map[string]ModelInfo
+	openrouterMu        sync.RWMutex
+	openrouterCachePath string
+	openrouterClient    *openrouter.Client
 }
 
 type Option func(*Engine)
@@ -179,6 +184,7 @@ func New(opts ...Option) (*Engine, error) {
 	if err := mgr.Init(); err != nil {
 		return nil, err
 	}
+	orClient := openrouter.NewClient()
 	providers := map[string]LLMClient{
 		ProviderOpenAI:          openai.NewClient(),
 		ProviderOpenAICodex:     openai.NewCodexClient(),
@@ -186,6 +192,7 @@ func New(opts ...Option) (*Engine, error) {
 		ProviderAnthropicClaude: anthropic.NewSetupTokenClient(),
 		ProviderGoogle:          gemini.NewClient(),
 		ProviderMistral:         mistral.NewClient(),
+		ProviderOpenRouter:      orClient,
 	}
 	if envutil.Bool("KEENBENCH_FAKE_OPENAI") {
 		fake := newFakeOpenAI()
@@ -228,12 +235,28 @@ func New(opts ...Option) (*Engine, error) {
 	engine.oauthFlowByState = make(map[string]string)
 	engine.workshopRuns = make(map[string]workshopRunHandle)
 	engine.sleep = sleepWithContext
+	engine.openrouterClient = orClient
+	engine.openrouterCachePath = filepath.Join(dataDir, "openrouter_models.json")
+	engine.openrouterModels = map[string]ModelInfo{}
+	engine.loadOpenRouterModelCache()
 	engine.logger.Debug("engine.init", "data_dir", dataDir, "workbenches_dir", workbenchesDir, "fake_openai", envutil.Bool("KEENBENCH_FAKE_OPENAI"))
 	return engine, nil
 }
 
 func (e *Engine) SetNotifier(notify Notifier) {
 	e.notify = notify
+}
+
+// findModel looks up a model by ID, checking the static registry first and then
+// the dynamic OpenRouter cache.
+func (e *Engine) findModel(modelID string) (ModelInfo, bool) {
+	if m, ok := getModel(modelID); ok {
+		return m, true
+	}
+	e.openrouterMu.RLock()
+	m, ok := e.openrouterModels[modelID]
+	e.openrouterMu.RUnlock()
+	return m, ok
 }
 
 func (e *Engine) EngineGetInfo(ctx context.Context, _ json.RawMessage) (any, *errinfo.ErrorInfo) {
@@ -281,15 +304,17 @@ func (e *Engine) ProvidersGetStatus(ctx context.Context, _ json.RawMessage) (any
 		{ProviderAnthropicClaude, "Anthropic Claude", "setup_token"},
 		{ProviderGoogle, "Google", "api_key"},
 		{ProviderMistral, "Mistral", "api_key"},
+		{ProviderOpenRouter, "OpenRouter", "api_key"},
 	}
 	for _, provider := range providers {
 		entry := settingsData.Providers[provider.id]
 		item := map[string]any{
-			"provider_id":  provider.id,
-			"display_name": provider.name,
-			"enabled":      entry.Enabled,
-			"models":       modelsForProvider(provider.id),
-			"auth_mode":    provider.authMode,
+			"provider_id":      provider.id,
+			"display_name":     provider.name,
+			"enabled":          entry.Enabled,
+			"models":           e.modelsForProvider(provider.id),
+			"default_model_id": e.defaultModelForProvider(provider.id),
+			"auth_mode":        provider.authMode,
 		}
 		if supportsRPIReasoningEffortProvider(provider.id) {
 			item["rpi_reasoning"] = map[string]any{
@@ -381,7 +406,29 @@ func (e *Engine) ProvidersValidate(ctx context.Context, params json.RawMessage) 
 	if errInfo := e.validateProviderKey(ctx, req.ProviderID); errInfo != nil {
 		return nil, errInfo
 	}
+	if req.ProviderID == ProviderOpenRouter {
+		go e.MaybeRefreshOpenRouterModels(context.Background())
+	}
 	return map[string]any{"ok": true}, nil
+}
+
+func (e *Engine) ProvidersRefreshModels(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
+	var req struct {
+		ProviderID string `json:"provider_id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, errinfo.ValidationFailed(errinfo.PhaseSettings, "invalid params")
+	}
+	if req.ProviderID != ProviderOpenRouter {
+		return nil, withProviderID(errinfo.ValidationFailed(errinfo.PhaseSettings, "provider does not support model refresh"), req.ProviderID)
+	}
+	if err := e.fetchAndCacheOpenRouterModels(ctx); err != nil {
+		return nil, mapLLMError(errinfo.PhaseSettings, req.ProviderID, err)
+	}
+	e.openrouterMu.RLock()
+	count := len(e.openrouterModels)
+	e.openrouterMu.RUnlock()
+	return map[string]any{"ok": true, "model_count": count}, nil
 }
 
 func (e *Engine) ProvidersSetEnabled(ctx context.Context, params json.RawMessage) (any, *errinfo.ErrorInfo) {
@@ -886,13 +933,13 @@ func (e *Engine) WorkbenchCreate(ctx context.Context, params json.RawMessage) (a
 	if err != nil {
 		return nil, errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
 	}
-	defaultModel := canonicalModelID(settingsData.UserDefaultModelID)
-	if model, ok := getModel(defaultModel); ok {
-		defaultModel = model.ModelID
-	} else {
-		defaultModel = ModelOpenAIID
+	selection, changed := e.resolveDefaultSelection(settingsData)
+	if changed {
+		if err := e.settings.Save(settingsData); err != nil {
+			return nil, errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())
+		}
 	}
-	wb, err := e.workbenches.Create(req.Name, defaultModel)
+	wb, err := e.workbenches.Create(req.Name, selection.ModelID)
 	if err != nil {
 		return nil, errinfo.FileWriteFailed(errinfo.PhaseWorkbench, err.Error())
 	}
@@ -1198,7 +1245,7 @@ func (e *Engine) EgressGetConsentStatus(ctx context.Context, params json.RawMess
 	if errInfo != nil {
 		return nil, errInfo
 	}
-	model, ok := getModel(modelID)
+	model, ok := e.findModel(modelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
@@ -1250,7 +1297,7 @@ func (e *Engine) EgressGrantWorkshopConsent(ctx context.Context, params json.Raw
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "invalid params")
 	}
 	req.ModelID = canonicalModelID(req.ModelID)
-	model, ok := getModel(req.ModelID)
+	model, ok := e.findModel(req.ModelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
@@ -1479,7 +1526,7 @@ func (e *Engine) WorkshopStreamAssistantReply(ctx context.Context, params json.R
 	if errInfo != nil {
 		return nil, errInfo
 	}
-	model, ok := getModel(modelID)
+	model, ok := e.findModel(modelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
@@ -1565,7 +1612,7 @@ func (e *Engine) WorkshopProposeChanges(ctx context.Context, params json.RawMess
 	if errInfo != nil {
 		return nil, errInfo
 	}
-	model, ok := getModel(modelID)
+	model, ok := e.findModel(modelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
@@ -2314,7 +2361,7 @@ func (e *Engine) runAgentLoop(ctx context.Context, cfg agentLoopConfig) agentLoo
 	messages := append([]llm.ChatMessage{}, cfg.messages...)
 	assistantID := fmt.Sprintf("a-%d", time.Now().UnixNano())
 	providerID := ""
-	if model, ok := getModel(cfg.modelID); ok {
+	if model, ok := e.findModel(cfg.modelID); ok {
 		providerID = model.ProviderID
 	}
 
@@ -2708,7 +2755,7 @@ func (e *Engine) WorkshopRunAgent(ctx context.Context, params json.RawMessage) (
 	if errInfo != nil {
 		return nil, errInfo
 	}
-	model, ok := getModel(modelID)
+	model, ok := e.findModel(modelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}
@@ -3032,7 +3079,7 @@ func (e *Engine) runSummaryPhase(ctx context.Context, workbenchID string, client
 	}
 
 	providerID := ""
-	if model, ok := getModel(modelID); ok {
+	if model, ok := e.findModel(modelID); ok {
 		providerID = model.ProviderID
 	}
 
@@ -4460,7 +4507,7 @@ func (e *Engine) ensureConsent(workbenchID string) *errinfo.ErrorInfo {
 	if errInfo != nil {
 		return errInfo
 	}
-	model, ok := getModel(modelID)
+	model, ok := e.findModel(modelID)
 	if !ok {
 		return errinfo.ValidationFailed(errinfo.PhaseWorkshop, "unsupported model")
 	}

@@ -49,6 +49,7 @@ func main() {
 		logger.Error("engine.init_failed", "error", err.Error())
 		log.Fatalf("engine init failed: %v", err)
 	}
+	go eng.MaybeRefreshOpenRouterModels(context.Background())
 	server := rpc.NewServer(engine.APIVersion, os.Stdin, os.Stdout, logger)
 	eng.SetNotifier(server.Notify)
 
@@ -78,8 +79,11 @@ func main() {
 	register("ProvidersOAuthStatus", eng.ProvidersOAuthStatus)
 	register("ProvidersOAuthComplete", eng.ProvidersOAuthComplete)
 	register("ProvidersOAuthDisconnect", eng.ProvidersOAuthDisconnect)
+	register("ProvidersRefreshModels", eng.ProvidersRefreshModels)
 	register("ModelsListSupported", eng.ModelsListSupported)
 	register("ModelsGetCapabilities", eng.ModelsGetCapabilities)
+	register("UserGetDefaultSelection", eng.UserGetDefaultSelection)
+	register("UserSetDefaultSelection", eng.UserSetDefaultSelection)
 	register("UserGetDefaultModel", eng.UserGetDefaultModel)
 	register("UserSetDefaultModel", eng.UserSetDefaultModel)
 	register("UserGetConsentMode", eng.UserGetConsentMode)

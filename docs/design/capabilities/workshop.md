@@ -134,11 +134,11 @@ For OpenAI Workshop calls, the engine applies a deterministic profile to reduce 
 - reasoning effort policy:
   - default: `reasoning.effort=medium`
   - RPI phase override (OpenAI providers only): Research/Plan/Implement use provider-configured values from Settings → Model Providers:
-    - OpenAI API (`openai:gpt-5.2`): `none|low|medium|high`
-    - OpenAI Codex (`openai-codex:gpt-5.3-codex`): `low|medium|high|xhigh`
+    - OpenAI API (`openai:gpt-5.4`): `none|low|medium|high`
+    - OpenAI Codex (`openai-codex:gpt-5.4`): `low|medium|high|xhigh`
   - Summary and non-RPI Workshop calls continue using default `medium`
 - sampling compatibility policy:
-  - for GPT-5 family models, omit `temperature` / `top_p` by default (official GPT-5.2 compatibility guidance rejects these fields unless specific model/effort conditions are met)
+  - for GPT-5 family models, omit `temperature` / `top_p` by default (official GPT-5 compatibility guidance rejects these fields unless specific model/effort conditions are met)
   - for non-GPT-5 models, keep deterministic sampling defaults: `temperature=0`, `top_p=1`
 - function tools are sent with `strict=true`; parameters are normalized to strict-mode requirements (object schemas set `additionalProperties=false`, and properties are marked required with optional fields represented as nullable)
 - `parallel_tool_calls=false` for tool-capable calls

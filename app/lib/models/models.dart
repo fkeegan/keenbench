@@ -160,6 +160,7 @@ class ProviderStatus {
     required this.enabled,
     required this.configured,
     required this.models,
+    required this.defaultModelId,
     this.rpiReasoning,
     this.authMode = 'api_key',
     this.oauthConnected,
@@ -175,6 +176,7 @@ class ProviderStatus {
   final bool enabled;
   final bool configured;
   final List<String> models;
+  final String defaultModelId;
   final ProviderRpiReasoning? rpiReasoning;
   final String authMode;
   final bool? oauthConnected;
@@ -197,6 +199,7 @@ class ProviderStatus {
       models: (json['models'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
+      defaultModelId: _normalizedString(json['default_model_id']) ?? '',
       rpiReasoning: reasoningJson.isEmpty
           ? null
           : ProviderRpiReasoning.fromJson(reasoningJson),
@@ -245,6 +248,7 @@ class ModelInfo {
     required this.contextTokensEstimate,
     required this.supportsFileRead,
     required this.supportsFileWrite,
+    required this.isFree,
   });
 
   final String id;
@@ -253,6 +257,9 @@ class ModelInfo {
   final int contextTokensEstimate;
   final bool supportsFileRead;
   final bool supportsFileWrite;
+  final bool isFree;
+
+  bool get isAnalysisOnly => !supportsFileRead || !supportsFileWrite;
 
   factory ModelInfo.fromJson(Map<String, dynamic> json) {
     return ModelInfo(
@@ -263,6 +270,7 @@ class ModelInfo {
           (json['context_tokens_estimate'] as num?)?.toInt() ?? 0,
       supportsFileRead: json['supports_file_read'] == true,
       supportsFileWrite: json['supports_file_write'] == true,
+      isFree: json['is_free'] == true,
     );
   }
 }

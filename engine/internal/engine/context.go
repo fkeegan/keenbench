@@ -281,7 +281,7 @@ func (e *Engine) ContextProcess(ctx context.Context, params json.RawMessage) (an
 	if errInfo != nil {
 		return nil, errInfo
 	}
-	model, ok := getModel(modelID)
+	model, ok := e.findModel(modelID)
 	if !ok {
 		return nil, errinfo.ValidationFailed(errinfo.PhaseWorkbench, "unsupported model")
 	}

@@ -7,16 +7,18 @@ Draft
 Ensure external data access and file uploads are explicit, reviewable, and within user-approved scope.
 
 ## Scope
-- In scope (v1): model calls only to configured providers (official endpoints), explicit user confirmation before sending Workbench content to provider(s) (one-time per Workbench/job, not per-call), and audit logging of egress activity.
+- In scope (v1): model calls only to configured providers (OpenAI, OpenAI Codex, Anthropic, Google, Mistral, and OpenRouter via their fixed public endpoints), explicit user confirmation before sending Workbench content to provider(s) (one-time per Workbench/job, not per-call), and audit logging of egress activity.
 - Out of scope (v1): background web browsing, URL fetching/external retrieval, connectors (Drive/Notion/email/calendar), automatic provider fallback to unconfigured services.
 - Future: URL fetching with per-fetch confirmation, and “send excerpt/summary only” options for uploads.
 
 ## User Experience
-- Default behavior: only configured model endpoints are reachable.
+- Default behavior: only configured model endpoints are reachable, including `openrouter.ai` when an OpenRouter model is selected.
+- Settings-driven provider validation, OAuth connection, and OpenRouter model-catalog refresh use the same provider allowlist but do not require Workbench consent because no Workbench file content is sent.
 - v1 does not support URL fetching/external retrieval; if requested, the app explains the limitation and asks the user to paste relevant content instead.
 - Before the first model call in a Workbench (Workshop), show a confirmation dialog listing:
   - provider(s) and model(s), and
   - in-scope Workbench files and sizes.
+- If the active model is `openrouter:*`, consent and audit entries identify OpenRouter as the direct egress destination together with the selected model ID.
 - Subsequent model calls do not re-prompt unless provider(s) or file scope changes.
 - Users can explicitly enable a global **Allow all model actions** setting in Settings. This skips consent prompts across Workbench and Context processing until disabled.
 - Users can cancel without losing Draft state.
@@ -31,7 +33,8 @@ Ensure external data access and file uploads are explicit, reviewable, and withi
 3. Model calls require explicit user confirmation before sending Workbench content (one-time per Workbench/job, not per-call).
 4. Default mode is consent prompts (`ask`). Global prompt suppression (`allow_all`) must require explicit user approval in Settings.
 5. Confirmation lists provider(s)/model(s) and in-scope files and sizes.
-6. Egress actions are recorded in the job audit trail (provider(s), time, and in-scope files and/or scope hash).
+6. Settings-only provider validation and model-catalog refresh never upload Workbench file content.
+7. Egress actions are recorded in the job audit trail (provider(s), time, and in-scope files and/or scope hash).
 
 ## Failure Modes & Recovery
 - External retrieval requested: show “not supported in v1” and allow the user to proceed without it.

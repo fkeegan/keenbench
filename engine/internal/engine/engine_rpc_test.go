@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"keenbench/engine/internal/appdirs"
+	"keenbench/engine/internal/errinfo"
 	"keenbench/engine/internal/workbench"
 )
 
@@ -41,6 +42,9 @@ func TestEngineMetadataMethods(t *testing.T) {
 		if provider["provider_id"] == ProviderOpenAI {
 			foundOpenAI = true
 			assertProviderRPIReasoning(t, provider, "medium", "medium", "medium")
+			if provider["default_model_id"] != ModelOpenAIID {
+				t.Fatalf("expected openai default_model_id=%q, got %#v", ModelOpenAIID, provider["default_model_id"])
+			}
 		}
 		if provider["provider_id"] == ProviderOpenAICodex {
 			foundOpenAICodex = true
@@ -48,6 +52,9 @@ func TestEngineMetadataMethods(t *testing.T) {
 				t.Fatalf("expected openai-codex auth_mode oauth, got %#v", provider["auth_mode"])
 			}
 			assertProviderRPIReasoning(t, provider, "medium", "medium", "medium")
+			if provider["default_model_id"] != ModelOpenAICodexID {
+				t.Fatalf("expected openai-codex default_model_id=%q, got %#v", ModelOpenAICodexID, provider["default_model_id"])
+			}
 		}
 		if provider["provider_id"] == ProviderAnthropic {
 			foundAnthropic = true
@@ -67,6 +74,9 @@ func TestEngineMetadataMethods(t *testing.T) {
 			}
 			if _, ok := provider["rpi_reasoning"]; ok {
 				t.Fatalf("expected mistral to omit rpi_reasoning, got %#v", provider["rpi_reasoning"])
+			}
+			if provider["default_model_id"] != ModelMistralID {
+				t.Fatalf("expected mistral default_model_id=%q, got %#v", ModelMistralID, provider["default_model_id"])
 			}
 		}
 	}
@@ -95,14 +105,23 @@ func TestEngineMetadataMethods(t *testing.T) {
 		t.Fatalf("expected models list payload")
 	}
 	foundMistralModel := false
+	foundOpenRouterFree := false
 	for _, model := range modelsRaw {
 		if model.ModelID == ModelMistralID {
 			foundMistralModel = true
-			break
+		}
+		if model.ModelID == ModelOpenRouterFreeID {
+			foundOpenRouterFree = true
+			if !model.IsFree {
+				t.Fatalf("expected %q to be marked free", ModelOpenRouterFreeID)
+			}
 		}
 	}
 	if !foundMistralModel {
 		t.Fatalf("expected mistral model in supported list")
+	}
+	if !foundOpenRouterFree {
+		t.Fatalf("expected openrouter free model in supported list")
 	}
 
 	createResp, errInfo := eng.WorkbenchCreate(ctx, mustJSON(t, map[string]any{"name": "Meta"}))
@@ -417,6 +436,63 @@ func TestUserSetDefaultModelCanonicalizesLegacyAnthropicModel(t *testing.T) {
 	}
 	if got := resp.(map[string]any)["model_id"]; got != ModelAnthropicSonnet46ID {
 		t.Fatalf("expected canonical model id %q, got %#v", ModelAnthropicSonnet46ID, got)
+	}
+}
+
+func TestUserGetDefaultSelectionBackfillsProviderID(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	settingsData, err := eng.settings.Load()
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	settingsData.UserDefaultProviderID = ""
+	settingsData.UserDefaultModelID = ModelOpenAICodexID
+	if err := eng.settings.Save(settingsData); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	resp, errInfo := eng.UserGetDefaultSelection(ctx, nil)
+	if errInfo != nil {
+		t.Fatalf("get default selection: %v", errInfo)
+	}
+	payload := resp.(map[string]any)
+	if got := payload["provider_id"]; got != ProviderOpenAICodex {
+		t.Fatalf("expected provider_id=%q, got %#v", ProviderOpenAICodex, got)
+	}
+	if got := payload["model_id"]; got != ModelOpenAICodexID {
+		t.Fatalf("expected model_id=%q, got %#v", ModelOpenAICodexID, got)
+	}
+}
+
+func TestUserSetDefaultSelectionRejectsProviderModelMismatch(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	os.Setenv("KEENBENCH_DATA_DIR", dataDir)
+	os.Setenv("KEENBENCH_FAKE_TOOL_WORKER", "1")
+	defer os.Unsetenv("KEENBENCH_DATA_DIR")
+	defer os.Unsetenv("KEENBENCH_FAKE_TOOL_WORKER")
+
+	eng, err := New()
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	if _, errInfo := eng.UserSetDefaultSelection(ctx, mustJSON(t, map[string]any{
+		"provider_id": ProviderOpenAI,
+		"model_id":    ModelMistralID,
+	})); errInfo == nil || errInfo.ErrorCode != errinfo.CodeValidationFailed {
+		t.Fatalf("expected validation failure, got %#v", errInfo)
 	}
 }
 

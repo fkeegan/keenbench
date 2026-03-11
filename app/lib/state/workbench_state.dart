@@ -189,23 +189,14 @@ class WorkbenchState extends ChangeNotifier {
   }
 
   Future<void> _reconcileActiveModel() async {
-    final providerMap = <String, ProviderStatus>{
-      for (final provider in providers) provider.id: provider,
-    };
-    final availableModelMap = <String, ModelInfo>{};
-    for (final model in models) {
-      final provider = providerMap[model.providerId];
-      if (provider == null) {
-        continue;
-      }
-      if (provider.enabled && provider.configured) {
-        availableModelMap.putIfAbsent(model.id, () => model);
-      }
-    }
-    final availableModels = availableModelMap.values.toList();
-    if (availableModels.isEmpty) {
+    final availableProviders = selectableProviders;
+    if (availableProviders.isEmpty) {
       return;
     }
+    final availableModels = <ModelInfo>[
+      for (final provider in availableProviders)
+        ...modelsForProvider(provider.id),
+    ];
     final currentActive = activeModelId?.trim() ?? '';
     final activeStillAvailable = availableModels.any(
       (model) => model.id == currentActive,
@@ -213,7 +204,10 @@ class WorkbenchState extends ChangeNotifier {
     if (activeStillAvailable) {
       return;
     }
-    final fallbackModelId = availableModels.first.id;
+    final fallbackProvider = availableProviders.first;
+    final fallbackModelId =
+        preferredModelForProvider(fallbackProvider.id) ??
+        availableModels.first.id;
     try {
       await engine.call('WorkshopSetActiveModel', {
         'workbench_id': workbenchId,
@@ -232,6 +226,81 @@ class WorkbenchState extends ChangeNotifier {
         'message': err.message,
       });
     }
+  }
+
+  List<ProviderStatus> get selectableProviders {
+    return providers.where((provider) {
+      return provider.enabled &&
+          provider.configured &&
+          modelsForProvider(provider.id).isNotEmpty;
+    }).toList();
+  }
+
+  ProviderStatus? providerById(String? providerId) {
+    if (providerId == null || providerId.isEmpty) {
+      return null;
+    }
+    for (final provider in providers) {
+      if (provider.id == providerId) {
+        return provider;
+      }
+    }
+    return null;
+  }
+
+  List<ModelInfo> modelsForProvider(String providerId) {
+    final provider = providerById(providerId);
+    if (provider == null) {
+      return const [];
+    }
+    final modelMap = <String, ModelInfo>{
+      for (final model in models) model.id: model,
+    };
+    final orderedModels = <ModelInfo>[];
+    for (final modelId in provider.models) {
+      final model = modelMap[modelId];
+      if (model != null) {
+        orderedModels.add(model);
+      }
+    }
+    return orderedModels;
+  }
+
+  String? activeProviderId() {
+    final activeModel = activeModelId?.trim();
+    if (activeModel != null && activeModel.isNotEmpty) {
+      final active = models.where((model) => model.id == activeModel);
+      if (active.isNotEmpty) {
+        return active.first.providerId;
+      }
+    }
+    final defaultModel = defaultModelId?.trim();
+    if (defaultModel != null && defaultModel.isNotEmpty) {
+      final fallback = models.where((model) => model.id == defaultModel);
+      if (fallback.isNotEmpty) {
+        return fallback.first.providerId;
+      }
+    }
+    final providers = selectableProviders;
+    return providers.isEmpty ? null : providers.first.id;
+  }
+
+  String? preferredModelForProvider(String providerId) {
+    final provider = providerById(providerId);
+    final providerModels = modelsForProvider(providerId);
+    if (provider == null || providerModels.isEmpty) {
+      return null;
+    }
+    final currentActive = activeModelId?.trim();
+    if (currentActive != null &&
+        providerModels.any((model) => model.id == currentActive)) {
+      return currentActive;
+    }
+    if (provider.defaultModelId.isNotEmpty &&
+        providerModels.any((model) => model.id == provider.defaultModelId)) {
+      return provider.defaultModelId;
+    }
+    return providerModels.first.id;
   }
 
   Future<void> loadContextItems({bool notify = true}) async {
@@ -447,6 +516,14 @@ class WorkbenchState extends ChangeNotifier {
     defaultModelId = modelId;
     await refreshClutter();
     notifyListeners();
+  }
+
+  Future<void> setActiveProvider(String providerId) async {
+    final modelId = preferredModelForProvider(providerId);
+    if (modelId == null || modelId.isEmpty) {
+      return;
+    }
+    await setActiveModel(modelId);
   }
 
   Future<void> renameWorkbench(String name) async {

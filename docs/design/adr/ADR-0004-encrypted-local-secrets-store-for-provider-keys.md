@@ -4,10 +4,10 @@
 Accepted
 
 ## Context
-KeenBench v1 uses a BYOK model: users provide API keys for OpenAI/Anthropic/Google/Mistral (see `docs/prd/capabilities/multi-model.md`). We need to store these keys locally so:
+KeenBench v1 uses a BYOC model: users provide provider credentials for OpenAI, OpenAI Codex, Anthropic, Anthropic Claude, Google, Mistral, and OpenRouter (see `docs/prd/capabilities/multi-model.md`). These credentials include API keys, setup tokens, and OAuth tokens. We need to store them locally so:
 - the user doesn’t re-enter them on every launch,
 - the engine can make model calls on demand,
-- keys are not stored as plaintext on disk.
+- credentials are not stored as plaintext on disk.
 
 Constraints:
 - Cross-platform desktop (macOS/Windows/Linux).
@@ -18,7 +18,7 @@ Constraints:
 This ADR decides the v1 mechanism for at-rest key storage.
 
 ## Decision
-Store provider API keys in a single **encrypted local file** owned by the engine:
+Store provider credentials in a single **encrypted local file** owned by the engine:
 - Secrets file: `secrets.enc` stored in the app’s global data directory (outside Workbenches).
 - Encryption: AEAD (e.g., AES-256-GCM or ChaCha20-Poly1305) with per-install master key.
 - Master key: randomly generated on first run and stored locally in a separate file with restrictive permissions (e.g., `0600`), alongside the secrets file.
@@ -29,9 +29,9 @@ Store provider API keys in a single **encrypted local file** owned by the engine
   - optional integrity metadata (e.g., associated data including app id and schema version)
 
 Operational rules:
-- Only the engine reads/writes `secrets.enc`; UI passes keys over IPC for “set key” operations.
-- Keys are never logged; logs must redact values by default.
-- Clearing a key removes it from the encrypted store.
+- Only the engine reads/writes `secrets.enc`; UI passes credentials over IPC for set/connect operations.
+- Credentials are never logged; logs must redact values by default.
+- Clearing a credential removes it from the encrypted store.
 
 ## Consequences
 
@@ -66,4 +66,3 @@ Operational rules:
 - Design links:
   - `docs/design/capabilities/multi-model.md`
   - `docs/design/design.md` (open decision: secure key storage)
-

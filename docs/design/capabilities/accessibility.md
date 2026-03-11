@@ -50,7 +50,7 @@ All primary workflows must be keyboard operable:
 - Workbench create/open, add/remove files
 - Workshop chat (compose, send, review/discard, undo, open review)
 - Review/Diff (file list navigation, diff hunks, preview controls, deletion confirmations, publish/discard)
-- Settings (provider keys, model defaults)
+- Settings (provider credentials, model defaults)
 
 Rules:
 - No keyboard traps (ESC closes modals; focus never disappears).

@@ -65,6 +65,7 @@ class _FakeSettingsEngine implements EngineApi {
   String anthropicClaudeResearchEffort;
   String anthropicClaudePlanEffort;
   String anthropicClaudeImplementEffort;
+  String defaultProviderId = 'openai';
   String defaultModelId = 'openai/gpt-4o-mini';
   String userConsentMode = consentModeAsk;
 
@@ -102,6 +103,7 @@ class _FakeSettingsEngine implements EngineApi {
               'enabled': true,
               'configured': openAIConfigured,
               'models': ['openai/gpt-4o-mini'],
+              'default_model_id': 'openai/gpt-4o-mini',
               'auth_mode': 'api_key',
               'rpi_reasoning': {
                 'research_effort': openAIResearchEffort,
@@ -115,6 +117,7 @@ class _FakeSettingsEngine implements EngineApi {
               'enabled': true,
               'configured': openAICodexConnected,
               'models': ['openai-codex/gpt-5-codex'],
+              'default_model_id': 'openai-codex/gpt-5-codex',
               'auth_mode': 'oauth',
               'rpi_reasoning': {
                 'research_effort': openAICodexResearchEffort,
@@ -137,6 +140,7 @@ class _FakeSettingsEngine implements EngineApi {
                 'anthropic:claude-sonnet-4-6',
                 'anthropic:claude-opus-4-6',
               ],
+              'default_model_id': 'anthropic:claude-sonnet-4-6',
               'auth_mode': 'api_key',
               'rpi_reasoning': {
                 'research_effort': anthropicResearchEffort,
@@ -153,6 +157,7 @@ class _FakeSettingsEngine implements EngineApi {
                 'anthropic-claude:claude-sonnet-4-6',
                 'anthropic-claude:claude-opus-4-6',
               ],
+              'default_model_id': 'anthropic-claude:claude-sonnet-4-6',
               'auth_mode': 'setup_token',
               'token_connected': anthropicClaudeConfigured,
               'rpi_reasoning': {
@@ -167,6 +172,16 @@ class _FakeSettingsEngine implements EngineApi {
               'enabled': true,
               'configured': mistralConfigured,
               'models': ['mistral:mistral-large'],
+              'default_model_id': 'mistral:mistral-large',
+              'auth_mode': 'api_key',
+            },
+            {
+              'provider_id': 'openrouter',
+              'display_name': 'OpenRouter',
+              'enabled': true,
+              'configured': false,
+              'models': [],
+              'default_model_id': 'openrouter:openrouter/free',
               'auth_mode': 'api_key',
             },
           ],
@@ -181,6 +196,7 @@ class _FakeSettingsEngine implements EngineApi {
               'context_tokens_estimate': 128000,
               'supports_file_read': true,
               'supports_file_write': true,
+              'is_free': false,
             },
             {
               'model_id': 'openai-codex/gpt-5-codex',
@@ -189,6 +205,7 @@ class _FakeSettingsEngine implements EngineApi {
               'context_tokens_estimate': 200000,
               'supports_file_read': true,
               'supports_file_write': true,
+              'is_free': false,
             },
             {
               'model_id': 'mistral:mistral-large',
@@ -197,6 +214,7 @@ class _FakeSettingsEngine implements EngineApi {
               'context_tokens_estimate': 128000,
               'supports_file_read': true,
               'supports_file_write': true,
+              'is_free': false,
             },
             {
               'model_id': 'anthropic:claude-sonnet-4-6',
@@ -205,6 +223,7 @@ class _FakeSettingsEngine implements EngineApi {
               'context_tokens_estimate': 200000,
               'supports_file_read': true,
               'supports_file_write': true,
+              'is_free': false,
             },
             {
               'model_id': 'anthropic:claude-opus-4-6',
@@ -213,6 +232,7 @@ class _FakeSettingsEngine implements EngineApi {
               'context_tokens_estimate': 200000,
               'supports_file_read': true,
               'supports_file_write': true,
+              'is_free': false,
             },
             {
               'model_id': 'anthropic-claude:claude-sonnet-4-6',
@@ -221,6 +241,7 @@ class _FakeSettingsEngine implements EngineApi {
               'context_tokens_estimate': 200000,
               'supports_file_read': true,
               'supports_file_write': true,
+              'is_free': false,
             },
             {
               'model_id': 'anthropic-claude:claude-opus-4-6',
@@ -229,9 +250,17 @@ class _FakeSettingsEngine implements EngineApi {
               'context_tokens_estimate': 200000,
               'supports_file_read': true,
               'supports_file_write': true,
+              'is_free': false,
             },
           ],
         };
+      case 'UserGetDefaultSelection':
+        return {'provider_id': defaultProviderId, 'model_id': defaultModelId};
+      case 'UserSetDefaultSelection':
+        defaultProviderId =
+            params?['provider_id'] as String? ?? defaultProviderId;
+        defaultModelId = params?['model_id'] as String? ?? defaultModelId;
+        return {};
       case 'UserGetDefaultModel':
         return {'model_id': defaultModelId};
       case 'UserSetDefaultModel':
@@ -931,6 +960,7 @@ void main() {
       'anthropic',
       'anthropic-claude',
       'mistral',
+      'openrouter',
     ];
     for (final providerId in providerIds) {
       expect(
@@ -1064,7 +1094,11 @@ void main() {
     expect(mistralField, findsOneWidget);
 
     await tester.enterText(mistralField, 'mistral-test-key');
-    final mistralSaveButton = find.text('Save & Validate').last;
+    // OpenRouter is added after Mistral; Mistral's "Save & Validate" is at index 3
+    // (0=OpenAI, 1=Anthropic, 2=Anthropic Claude, 3=Mistral, 4=OpenRouter)
+    final mistralSaveButton = find
+        .widgetWithText(ElevatedButton, 'Save & Validate')
+        .at(3);
     await tester.ensureVisible(mistralSaveButton);
     await tester.tap(mistralSaveButton);
     await tester.pumpAndSettle();

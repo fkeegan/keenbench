@@ -11,7 +11,7 @@ Draft (v1)
   - `docs/design/capabilities/workbench.md` (scope + “copies; originals untouched”)
   - `docs/design/capabilities/draft-publish.md` (Draft vs Published)
   - `docs/design/capabilities/review-diff.md` (review mental model)
-  - `docs/design/capabilities/multi-model.md` (provider keys)
+  - `docs/design/capabilities/multi-model.md` (provider credentials)
   - `docs/design/capabilities/security-egress.md` (consent before first model call)
   - `docs/design/capabilities/accessibility.md` (walkthrough accessibility baseline)
 
@@ -24,7 +24,7 @@ Onboarding is a first-run walkthrough designed to build user trust by teaching:
 
 Key v1 choices (confirmed):
 - The walkthrough appears on first launch, is skippable, and can be re-opened from Help.
-- The walkthrough does **not** prompt for provider keys; keys are requested only when the user attempts their first model-powered action.
+- The walkthrough does **not** prompt for provider credentials; credentials are requested only when the user attempts their first model-powered action.
 - A sample Workbench is provided using safe, bundled example files.
 - Walkthrough is fully keyboard-navigable and screen reader labeled.
 
@@ -207,6 +207,6 @@ Future (opt-in):
 
 ## Self-Review (Design Sanity)
 - Matches PRD: first-run walkthrough, sample Workbench, scope + Draft vs Published explanation, small job prompt, skip + reopen.
-- Avoids configuration fatigue by deferring provider keys until the user chooses to run a job.
+- Avoids configuration fatigue by deferring provider credentials until the user chooses to run a job.
 - Keeps the sample workflow low risk (adds a single Markdown file) and easy to review.
 - Reuses existing add/sandboxing paths so onboarding doesn’t become a special security case.
