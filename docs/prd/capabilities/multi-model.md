@@ -7,13 +7,13 @@ Draft
 Let users choose the best model(s) for their work without losing Workbench context or safety guarantees.
 
 ## Scope
-- In scope (v1): per-provider API configuration, user default model, Workbench default model for Workshop, seamless model switching in Workshop, and model visibility in logs.
+- In scope (v1): per-provider API configuration, user default provider + model, Workbench default model for Workshop, seamless model switching in Workshop, and model visibility in logs.
 - In scope (v1.5): "Try with another model" forks for Workshop responses (requires concurrent Drafts).
 - Out of scope: automatic provider selection, hidden fallback to unconfigured providers.
 
 ## Model Hierarchy
 
-1. **User default model**: Set in user settings. Applies to new Workbenches.
+1. **User default provider + model**: Set in user settings. Applies to new Workbenches.
 2. **Workbench default model**: Inherited from user default when Workbench is created. Can be changed per Workbench and persists.
 3. **Active model (Workshop)**: User can switch models during a Workshop session; the switch is immediate and persists.
 
@@ -51,6 +51,7 @@ v1 supports a hybrid model catalog:
 - OpenRouter models are fetched from the OpenRouter `/models` API when the provider is validated and again on engine startup if an OpenRouter key is already configured.
 - OpenRouter model IDs are surfaced as `openrouter:<upstream-model-id>`.
 - The fetched OpenRouter catalog is cached locally so previously discovered models can still be listed before the next refresh.
+- OpenRouter defaults to `openrouter:openrouter/free`, and provider-scoped selectors list free models first.
 
 ### Provider Capabilities (v1)
 | Provider | File Read | File Write | Notes |
@@ -81,9 +82,16 @@ v1 supports a hybrid model catalog:
 5. If validation fails, show a provider-specific error and keep the provider unavailable.
 6. If validation succeeds, provider is enabled and its models appear in model selectors. For OpenRouter, successful validation also triggers a background refresh of the provider's model catalog and updates the local cache.
 
+**Default selection flow:**
+1. User chooses a default provider.
+2. User chooses a default model from that provider only.
+3. Changing the provider immediately selects that provider's fallback model.
+4. If a provider has many models, the model selector offers search.
+
 **Credential validation errors:**
 - Invalid credential format: "Credential format is invalid for [provider]."
-- Credential rejected by provider: "Credential was rejected by [provider]. Please verify it."
+- Credential rejected by provider: show the provider's exact validation error.
+- Payment / credits required: show the provider's exact billing or credit error.
 - Network error during validation: "Could not reach [provider] to validate key. Check your connection and try again."
 
 **Credential management:**
@@ -103,18 +111,19 @@ v1 supports a hybrid model catalog:
 ## Workshop Behavior
 
 ### Workshop Mode (v1)
-- User can switch models at any time.
+- User can switch providers and models at any time.
 - **No confirmation dialog** — switch is immediate.
 - New model picks up the conversation history and continues from there.
 - Switching does not branch or fork; conversation is linear.
+- Changing provider selects that provider's fallback model.
 - Model choice persists as the Workbench default.
 
 ### v1.5 Additions
 - "Try with another model" in Workshop: creates a parallel response branch, user can compare and choose.
 
 ## User Experience
-- Model selector visible in Workshop header.
-- Current model always displayed.
+- Provider selector and model selector visible in Workshop header.
+- Current provider and model always displayed.
 - Switching is one-click, no confirmation.
 - "Try with another model" button (v1.5) forks a Workshop response.
 
@@ -127,9 +136,9 @@ v1 supports a hybrid model catalog:
 4. Credentials are stored locally and encrypted at rest.
 5. At least one provider must be configured before using Workshop.
 6. The app exposes the curated built-in model list plus cached OpenRouter-discovered models; models with missing provider credentials are disabled/unavailable.
-7. User default model is set in user settings.
+7. User default provider and model are set in user settings.
 8. Workbench default model is inherited from user default and can be changed.
-9. In Workshop, switching models is seamless: new model picks up conversation history, no confirmation.
+9. In Workshop, switching providers/models is seamless: new model picks up conversation history, no confirmation.
 10. Model switch persists as the new Workbench default.
 11. Model/provider usage is recorded in audit logs.
 12. File operations can be executed regardless of selected primary model for the built-in providers; OpenRouter file operations require a model that advertises tool support, and writes are still applied locally in Draft.
@@ -157,7 +166,7 @@ v1 supports a hybrid model catalog:
 - Invalid or missing credentials prevent provider use with a clear message.
 - At least one configured provider is required to use Workshop.
 - Built-in providers expose the curated model list, and OpenRouter exposes its fetched cached catalog.
-- Users can configure multiple providers and switch between them.
+- Users can configure multiple providers and switch between them with a provider-first, model-second selector flow.
 - Switching models in Workshop is seamless; conversation continues with new model.
 - Model switch persists as Workbench default.
 - Current model is always visible in the UI.

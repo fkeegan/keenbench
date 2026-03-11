@@ -16,24 +16,25 @@ type ErrorInfo struct {
 }
 
 const (
-	CodeEgressConsentRequired = "EGRESS_CONSENT_REQUIRED"
-	CodeEgressBlocked         = "EGRESS_BLOCKED_BY_POLICY"
-	CodeProviderNotConfigured = "PROVIDER_NOT_CONFIGURED"
-	CodeProviderAuthFailed    = "PROVIDER_AUTH_FAILED"
-	CodeProviderUnavailable   = "PROVIDER_UNAVAILABLE"
-	CodeNetworkUnavailable    = "NETWORK_UNAVAILABLE"
-	CodeSandboxViolation      = "SANDBOX_VIOLATION"
-	CodeValidationFailed      = "VALIDATION_FAILED"
-	CodeFileReadFailed        = "FILE_READ_FAILED"
-	CodeFileWriteFailed       = "FILE_WRITE_FAILED"
-	CodeDiskFull              = "DISK_FULL"
-	CodeUserCanceled          = "USER_CANCELED"
-	CodeConflictPublished     = "CONFLICT_PUBLISHED_CHANGED"
-	CodeToolWorkerUnavailable = "TOOL_WORKER_UNAVAILABLE"
-	CodeAgentLoopDetected     = "AGENT_LOOP_DETECTED"
-	CodeAgentEmptyTerminal    = "AGENT_EMPTY_TERMINAL_RESPONSE"
-	CodeStyleSkillLoadFailed  = "STYLE_SKILL_LOAD_FAILED"
-	CodeStyleMergeFailed      = "STYLE_MERGE_FAILED"
+	CodeEgressConsentRequired   = "EGRESS_CONSENT_REQUIRED"
+	CodeEgressBlocked           = "EGRESS_BLOCKED_BY_POLICY"
+	CodeProviderNotConfigured   = "PROVIDER_NOT_CONFIGURED"
+	CodeProviderAuthFailed      = "PROVIDER_AUTH_FAILED"
+	CodeProviderPaymentRequired = "PROVIDER_PAYMENT_REQUIRED"
+	CodeProviderUnavailable     = "PROVIDER_UNAVAILABLE"
+	CodeNetworkUnavailable      = "NETWORK_UNAVAILABLE"
+	CodeSandboxViolation        = "SANDBOX_VIOLATION"
+	CodeValidationFailed        = "VALIDATION_FAILED"
+	CodeFileReadFailed          = "FILE_READ_FAILED"
+	CodeFileWriteFailed         = "FILE_WRITE_FAILED"
+	CodeDiskFull                = "DISK_FULL"
+	CodeUserCanceled            = "USER_CANCELED"
+	CodeConflictPublished       = "CONFLICT_PUBLISHED_CHANGED"
+	CodeToolWorkerUnavailable   = "TOOL_WORKER_UNAVAILABLE"
+	CodeAgentLoopDetected       = "AGENT_LOOP_DETECTED"
+	CodeAgentEmptyTerminal      = "AGENT_EMPTY_TERMINAL_RESPONSE"
+	CodeStyleSkillLoadFailed    = "STYLE_SKILL_LOAD_FAILED"
+	CodeStyleMergeFailed        = "STYLE_MERGE_FAILED"
 )
 
 const (
@@ -77,6 +78,16 @@ func ProviderAuthFailed(phase string) *ErrorInfo {
 		Phase:     phase,
 		Retryable: false,
 		Actions:   []string{ActionOpenSettings},
+	}
+}
+
+func ProviderPaymentRequired(phase, detail string) *ErrorInfo {
+	return &ErrorInfo{
+		ErrorCode: CodeProviderPaymentRequired,
+		Phase:     phase,
+		Retryable: false,
+		Actions:   []string{ActionOpenSettings},
+		Detail:    detail,
 	}
 }
 

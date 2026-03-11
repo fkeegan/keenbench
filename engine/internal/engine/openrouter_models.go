@@ -84,6 +84,7 @@ func (e *Engine) fetchAndCacheOpenRouterModels(ctx context.Context) error {
 			SupportsFileWrite: toolsSupported,
 			CanBeSecondary:    true,
 			RequiresKey:       true,
+			IsFree:            isOpenRouterFreeModelID(modelID),
 		}
 	}
 
@@ -99,12 +100,18 @@ func (e *Engine) fetchAndCacheOpenRouterModels(ctx context.Context) error {
 // openrouterModelIDs returns a sorted slice of all cached OpenRouter model IDs.
 func (e *Engine) openrouterModelIDs() []string {
 	e.openrouterMu.RLock()
-	ids := make([]string, 0, len(e.openrouterModels))
-	for id := range e.openrouterModels {
-		ids = append(ids, id)
+	models := make([]ModelInfo, 0, len(e.openrouterModels))
+	for _, model := range e.openrouterModels {
+		models = append(models, model)
 	}
 	e.openrouterMu.RUnlock()
-	sort.Strings(ids)
+	sort.SliceStable(models, func(i, j int) bool {
+		return compareOpenRouterModels(models[i], models[j]) < 0
+	})
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ModelID)
+	}
 	return ids
 }
 
@@ -115,4 +122,35 @@ func (e *Engine) MaybeRefreshOpenRouterModels(ctx context.Context) {
 	if err := e.fetchAndCacheOpenRouterModels(ctx); err != nil {
 		e.logger.Warn("openrouter.refresh_failed", "error", err.Error())
 	}
+}
+
+func compareOpenRouterModels(left, right ModelInfo) int {
+	if left.IsFree != right.IsFree {
+		if left.IsFree {
+			return -1
+		}
+		return 1
+	}
+	leftName := strings.ToLower(strings.TrimSpace(left.DisplayName))
+	rightName := strings.ToLower(strings.TrimSpace(right.DisplayName))
+	if leftName < rightName {
+		return -1
+	}
+	if leftName > rightName {
+		return 1
+	}
+	leftID := strings.ToLower(strings.TrimSpace(left.ModelID))
+	rightID := strings.ToLower(strings.TrimSpace(right.ModelID))
+	if leftID < rightID {
+		return -1
+	}
+	if leftID > rightID {
+		return 1
+	}
+	return 0
+}
+
+func isOpenRouterFreeModelID(modelID string) bool {
+	modelID = canonicalModelID(modelID)
+	return modelID == ModelOpenRouterFreeID || strings.HasSuffix(modelID, ":free")
 }

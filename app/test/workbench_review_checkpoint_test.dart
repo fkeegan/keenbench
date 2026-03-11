@@ -23,6 +23,7 @@ class _FakeWorkbenchEngine implements EngineApi {
           'enabled': true,
           'configured': true,
           'models': ['openai/gpt-4o-mini'],
+          'default_model_id': 'openai/gpt-4o-mini',
         },
         {
           'provider_id': 'mistral',
@@ -30,6 +31,7 @@ class _FakeWorkbenchEngine implements EngineApi {
           'enabled': true,
           'configured': false,
           'models': ['mistral:mistral-large'],
+          'default_model_id': 'mistral:mistral-large',
         },
         {
           'provider_id': 'openrouter',
@@ -37,6 +39,7 @@ class _FakeWorkbenchEngine implements EngineApi {
           'enabled': true,
           'configured': false,
           'models': [],
+          'default_model_id': 'openrouter:openrouter/free',
         },
       ];
   static const List<Map<String, dynamic>> _defaultModels =
@@ -48,6 +51,7 @@ class _FakeWorkbenchEngine implements EngineApi {
           'context_tokens_estimate': 128000,
           'supports_file_read': true,
           'supports_file_write': true,
+          'is_free': false,
         },
         {
           'model_id': 'mistral:mistral-large',
@@ -56,6 +60,7 @@ class _FakeWorkbenchEngine implements EngineApi {
           'context_tokens_estimate': 128000,
           'supports_file_read': true,
           'supports_file_write': true,
+          'is_free': false,
         },
       ];
 
@@ -665,10 +670,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      final dropdown = tester.widget<DropdownButton<String>>(
-        find.byType(DropdownButton<String>).first,
+      final providerDropdown = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: find.byKey(AppKeys.workbenchProviderSelector),
+          matching: find.byType(DropdownButton<String>),
+        ),
       );
-      expect(dropdown.value, 'openai-codex/gpt-5-codex');
+      expect(providerDropdown.value, 'openai-codex');
       expect(engine.callCount('WorkshopSetActiveModel'), 1);
       expect(
         engine.lastParams['WorkshopSetActiveModel']?['model_id'],

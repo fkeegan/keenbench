@@ -14,13 +14,15 @@ Draft (v1)
 ## Summary
 Multi-model support in v1 means:
 - Users can configure **provider credentials** for OpenAI, OpenAI Codex, Anthropic, Anthropic Claude, Google, Mistral, and OpenRouter.
-- Users can pick a **single active model** for Workshop, switchable at any time.
+- Users pick a **provider** first and then a **model** within that provider in both Settings and Workshop.
+- Workshop still uses **one active model at a time**, switchable at any time.
 
 Key v1 choices (confirmed):
 - Supported models (v1): curated built-in models plus cached OpenRouter-discovered models.
 - Built-in models (v1): OpenAI `openai:gpt-5.4`, OpenAI Codex `openai-codex:gpt-5.4`, Anthropic `anthropic:claude-sonnet-4-6`, Anthropic `anthropic:claude-opus-4-6`, Anthropic Claude `anthropic-claude:claude-sonnet-4-6`, Anthropic Claude `anthropic-claude:claude-opus-4-6`, Google `google:gemini-3-pro`, Mistral `mistral:mistral-large`.
+- Per-provider fallback models are engine-defined. OpenRouter falls back to `openrouter:openrouter/free`.
 - OpenRouter models are fetched from OpenRouter's `/models` API and surfaced as `openrouter:<upstream-model-id>`.
-- Workshop uses **one active model at a time** (switchable mid-conversation).
+- OpenRouter model ordering is provider-scoped and free-first: `openrouter/free`, then `:free` models, then the rest.
 - Provider endpoints are **fixed** to official public APIs for the configured providers (including OpenRouter; no custom endpoints in v1).
 - Provider credentials are stored in an **encrypted local file** (see ADR-0004).
 
@@ -62,14 +64,22 @@ Recommended copy (v1):
 
 ### Model Selection Hierarchy
 Model choice is resolved in this order:
-1. **User default model** (global setting): applies when creating new Workbenches.
+1. **User default provider + model** (global setting): applies when creating new Workbenches.
 2. **Workbench default model**: stored per Workbench; used as the Workshop starting model.
 3. **Workshop active model**: can be switched at any time; switching updates Workbench default.
 
+### Settings Default Selection
+- Settings exposes `Default provider` and `Default model`.
+- `Default model` is scoped to the currently selected provider.
+- Changing provider immediately selects that provider's engine-defined fallback model.
+- The default model picker becomes searchable when a provider has many models.
+
 ### Workshop Model Switching (Single Model)
-- The Workbench header always shows the active model.
+- The Workbench header always shows two selectors: `Provider` and `Model`.
+- Changing provider immediately selects that provider's default model.
+- The model picker is provider-scoped, searchable for large catalogs, and shows `Free` / `Analysis only` badges where relevant.
 - Switching is immediate and inserts a “switched model” system event in the transcript (see `docs/design/capabilities/workshop.md`).
-- If the selected model’s provider is not configured (no key) or is disabled, it is disabled in the selector with a short hint (“Enable provider / add API key in Settings”).
+- Only configured + enabled providers are shown in the Workshop provider selector.
 
 ## Architecture
 
@@ -77,6 +87,7 @@ Model choice is resolved in this order:
 - Provide Settings UI for entering/updating provider credentials (never logs secrets).
 - Show provider configuration status and validation feedback.
 - Show model selector in Workshop.
+- Show provider selector + provider-scoped model selector in Settings and Workshop.
 - Keep provider + model visible during Workshop and during consent prompts.
 
 ### Engine Responsibilities (Go)
@@ -117,7 +128,7 @@ API names are illustrative (JSON-RPC per ADR-0003).
 
 **Provider configuration**
 - `ProvidersGetStatus() -> {providers[]}`
-  - `providers[]`: `{provider_id, display_name, configured, enabled, models[], auth_mode, rpi_reasoning?, oauth_connected?, oauth_account_label?, oauth_expires_at?, oauth_expired?, token_connected?, token_account_label?}`
+  - `providers[]`: `{provider_id, display_name, configured, enabled, models[], default_model_id, auth_mode, rpi_reasoning?, oauth_connected?, oauth_account_label?, oauth_expires_at?, oauth_expired?, token_connected?, token_account_label?}`
 - `ProvidersSetApiKey({provider_id, api_key}) -> {configured}` for `auth_mode=api_key|setup_token`
 - `ProvidersClearApiKey({provider_id}) -> {}`
 - `ProvidersSetEnabled({provider_id, enabled}) -> {}`
@@ -131,7 +142,9 @@ API names are illustrative (JSON-RPC per ADR-0003).
 
 **Model registry + selection**
 - `ModelsListSupported() -> {models[]}`
-  - `models[]`: `{model_id, provider_id, display_name, context_tokens_estimate, supports_file_read, supports_file_write, requires_key=true}`
+  - `models[]`: `{model_id, provider_id, display_name, context_tokens_estimate, supports_file_read, supports_file_write, requires_key=true, is_free}`
+- `UserSetDefaultSelection({provider_id, model_id}) -> {}`
+- `UserGetDefaultSelection() -> {provider_id, model_id}`
 - `UserSetDefaultModel({model_id}) -> {}`
 - `UserGetDefaultModel() -> {model_id}`
 - `WorkbenchSetDefaultModel(workbench_id, {model_id}) -> {}`
@@ -163,6 +176,7 @@ The first eight are curated built-ins. OpenRouter IDs are fetched dynamically an
 Store global settings outside any Workbench (platform app data dir):
 - `settings.json`:
   - `schema_version`
+  - `user_default_provider_id`
   - `user_default_model_id`
   - `providers`: `{provider_id: {enabled}}`
   - `provider_status_cache?` (optional; avoid on if redundant)
@@ -194,7 +208,8 @@ Built-in metadata is local and release-managed. OpenRouter metadata is fetched f
 
 ## Error Handling & Recovery
 - **Provider key missing**: block selecting that model; guide user to Settings.
-- **Provider key invalid**: mark as "needs attention"; block model calls; surface retry + Settings link.
+- **Provider key invalid**: mark as "needs attention"; block model calls; surface the provider's exact error and Settings link.
+- **Provider payment / credit required**: block model calls; surface the provider's exact error and Settings link.
 - **Provider/model unavailable mid-run**: retry with backoff; offer model switch in Workshop.
 - **Model switch during streaming** (Workshop): complete/terminate current stream cleanly; next turn uses the new model.
 

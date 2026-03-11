@@ -11,6 +11,7 @@ import (
 	"keenbench/engine/internal/errinfo"
 	"keenbench/engine/internal/llm"
 	"keenbench/engine/internal/secrets"
+	"keenbench/engine/internal/settings"
 )
 
 const oauthRefreshLeadTime = 60 * time.Second
@@ -306,23 +307,35 @@ func (e *Engine) refreshOpenAICodexCredentials(ctx context.Context, creds *secre
 }
 
 func mapOAuthError(err error, providerID string) *errinfo.ErrorInfo {
+	detail := llm.Detail(err)
+	if detail == "" {
+		detail = err.Error()
+	}
 	if errors.Is(err, llm.ErrUnauthorized) {
-		return withProviderID(errinfo.ProviderAuthFailed(errinfo.PhaseSettings), providerID)
+		info := errinfo.ProviderAuthFailed(errinfo.PhaseSettings)
+		info.ProviderID = providerID
+		if llm.Detail(err) != "" {
+			info.Detail = detail
+		}
+		return info
+	}
+	if errors.Is(err, llm.ErrPaymentRequired) {
+		return withProviderID(errinfo.ProviderPaymentRequired(errinfo.PhaseSettings, detail), providerID)
 	}
 	if errors.Is(err, llm.ErrEgressBlocked) {
 		return withProviderID(errinfo.EgressBlocked(errinfo.PhaseSettings, "provider endpoint not allowed"), providerID)
 	}
 	if errors.Is(err, llm.ErrUnavailable) {
-		return withProviderID(errinfo.ProviderUnavailable(errinfo.PhaseSettings, err.Error()), providerID)
+		return withProviderID(errinfo.ProviderUnavailable(errinfo.PhaseSettings, detail), providerID)
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return withProviderID(errinfo.NetworkUnavailable(errinfo.PhaseSettings, err.Error()), providerID)
+		return withProviderID(errinfo.NetworkUnavailable(errinfo.PhaseSettings, detail), providerID)
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return withProviderID(errinfo.NetworkUnavailable(errinfo.PhaseSettings, err.Error()), providerID)
+		return withProviderID(errinfo.NetworkUnavailable(errinfo.PhaseSettings, detail), providerID)
 	}
-	return withProviderID(errinfo.ValidationFailed(errinfo.PhaseSettings, err.Error()), providerID)
+	return withProviderID(errinfo.ValidationFailed(errinfo.PhaseSettings, detail), providerID)
 }
 
 func modelsForProvider(providerID string) []string {
@@ -338,10 +351,22 @@ func modelsForProvider(providerID string) []string {
 // modelsForProvider returns model IDs for the given provider, using the dynamic
 // OpenRouter cache for ProviderOpenRouter and the static registry for all others.
 func (e *Engine) modelsForProvider(providerID string) []string {
-	if providerID == ProviderOpenRouter {
-		return e.openrouterModelIDs()
+	if providerID != ProviderOpenRouter {
+		return modelsForProvider(providerID)
 	}
-	return modelsForProvider(providerID)
+	ordered := append([]string{}, modelsForProvider(providerID)...)
+	seen := map[string]struct{}{}
+	for _, modelID := range ordered {
+		seen[modelID] = struct{}{}
+	}
+	for _, modelID := range e.openrouterModelIDs() {
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		ordered = append(ordered, modelID)
+		seen[modelID] = struct{}{}
+	}
+	return ordered
 }
 
 func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorInfo) {
@@ -380,17 +405,14 @@ func (e *Engine) resolveActiveModel(workbenchID string) (string, *errinfo.ErrorI
 	if err != nil {
 		return "", errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
 	}
-	if settingsData.UserDefaultModelID != "" {
-		canonicalID := canonicalModelID(settingsData.UserDefaultModelID)
-		if model, ok := e.findModel(canonicalID); ok {
-			if canonicalID != settingsData.UserDefaultModelID {
-				settingsData.UserDefaultModelID = canonicalID
-				if err := e.settings.Save(settingsData); err != nil {
-					return "", errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())
-				}
-			}
-			return model.ModelID, nil
+	selection, changed := e.resolveDefaultSelection(settingsData)
+	if changed {
+		if err := e.settings.Save(settingsData); err != nil {
+			return "", errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())
 		}
+	}
+	if model, ok := e.findModel(selection.ModelID); ok {
+		return model.ModelID, nil
 	}
 	return ModelOpenAIID, nil
 }
@@ -423,4 +445,109 @@ func (e *Engine) setWorkbenchDefaultModel(workbenchID, modelID string) *errinfo.
 		return errinfo.FileWriteFailed(errinfo.PhaseWorkbench, err.Error())
 	}
 	return nil
+}
+
+type defaultSelection struct {
+	ProviderID string
+	ModelID    string
+}
+
+func providerIDForModelID(modelID string) string {
+	modelID = canonicalModelID(modelID)
+	parts := strings.SplitN(modelID, ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	switch parts[0] {
+	case ProviderOpenAI,
+		ProviderOpenAICodex,
+		ProviderAnthropic,
+		ProviderAnthropicClaude,
+		ProviderGoogle,
+		ProviderMistral,
+		ProviderOpenRouter:
+		return parts[0]
+	default:
+		return ""
+	}
+}
+
+func (e *Engine) defaultModelForProvider(providerID string) string {
+	switch providerID {
+	case ProviderOpenAI:
+		return ModelOpenAIID
+	case ProviderOpenAICodex:
+		return ModelOpenAICodexID
+	case ProviderAnthropic:
+		return ModelAnthropicSonnet46ID
+	case ProviderAnthropicClaude:
+		return ModelAnthropicClaudeSonnet46ID
+	case ProviderGoogle:
+		return ModelGoogleID
+	case ProviderMistral:
+		return ModelMistralID
+	case ProviderOpenRouter:
+		if _, ok := e.findModel(ModelOpenRouterFreeID); ok {
+			return ModelOpenRouterFreeID
+		}
+		modelIDs := e.modelsForProvider(providerID)
+		for _, modelID := range modelIDs {
+			if model, ok := e.findModel(modelID); ok && model.IsFree {
+				return model.ModelID
+			}
+		}
+		if len(modelIDs) > 0 {
+			return modelIDs[0]
+		}
+	}
+	return ModelOpenAIID
+}
+
+func (e *Engine) resolveDefaultSelection(settingsData *settings.Settings) (defaultSelection, bool) {
+	if settingsData == nil {
+		return defaultSelection{
+			ProviderID: ProviderOpenAI,
+			ModelID:    ModelOpenAIID,
+		}, false
+	}
+	changed := false
+	providerID := strings.TrimSpace(settingsData.UserDefaultProviderID)
+	modelID := canonicalModelID(settingsData.UserDefaultModelID)
+
+	if providerID == "" {
+		providerID = providerIDForModelID(modelID)
+		if providerID == "" {
+			providerID = ProviderOpenAI
+		}
+	}
+	if providerID != settingsData.UserDefaultProviderID {
+		settingsData.UserDefaultProviderID = providerID
+		changed = true
+	}
+	if modelID != settingsData.UserDefaultModelID {
+		settingsData.UserDefaultModelID = modelID
+		changed = true
+	}
+
+	model, ok := e.findModel(modelID)
+	if !ok || model.ProviderID != providerID {
+		modelID = e.defaultModelForProvider(providerID)
+		if model, ok = e.findModel(modelID); !ok || model.ProviderID != providerID {
+			providerID = ProviderOpenAI
+			modelID = ModelOpenAIID
+		}
+		changed = true
+	}
+	if settingsData.UserDefaultProviderID != providerID {
+		settingsData.UserDefaultProviderID = providerID
+		changed = true
+	}
+	if settingsData.UserDefaultModelID != modelID {
+		settingsData.UserDefaultModelID = modelID
+		changed = true
+	}
+	return defaultSelection{
+		ProviderID: providerID,
+		ModelID:    modelID,
+	}, changed
 }

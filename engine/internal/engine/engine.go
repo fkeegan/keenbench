@@ -309,11 +309,12 @@ func (e *Engine) ProvidersGetStatus(ctx context.Context, _ json.RawMessage) (any
 	for _, provider := range providers {
 		entry := settingsData.Providers[provider.id]
 		item := map[string]any{
-			"provider_id":  provider.id,
-			"display_name": provider.name,
-			"enabled":      entry.Enabled,
-			"models":       e.modelsForProvider(provider.id),
-			"auth_mode":    provider.authMode,
+			"provider_id":      provider.id,
+			"display_name":     provider.name,
+			"enabled":          entry.Enabled,
+			"models":           e.modelsForProvider(provider.id),
+			"default_model_id": e.defaultModelForProvider(provider.id),
+			"auth_mode":        provider.authMode,
 		}
 		if supportsRPIReasoningEffortProvider(provider.id) {
 			item["rpi_reasoning"] = map[string]any{
@@ -932,13 +933,13 @@ func (e *Engine) WorkbenchCreate(ctx context.Context, params json.RawMessage) (a
 	if err != nil {
 		return nil, errinfo.FileReadFailed(errinfo.PhaseSettings, err.Error())
 	}
-	defaultModel := canonicalModelID(settingsData.UserDefaultModelID)
-	if model, ok := e.findModel(defaultModel); ok {
-		defaultModel = model.ModelID
-	} else {
-		defaultModel = ModelOpenAIID
+	selection, changed := e.resolveDefaultSelection(settingsData)
+	if changed {
+		if err := e.settings.Save(settingsData); err != nil {
+			return nil, errinfo.FileWriteFailed(errinfo.PhaseSettings, err.Error())
+		}
 	}
-	wb, err := e.workbenches.Create(req.Name, defaultModel)
+	wb, err := e.workbenches.Create(req.Name, selection.ModelID)
 	if err != nil {
 		return nil, errinfo.FileWriteFailed(errinfo.PhaseWorkbench, err.Error())
 	}

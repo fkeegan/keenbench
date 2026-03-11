@@ -60,17 +60,8 @@ func (c *Client) ValidateKey(ctx context.Context, apiKey string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return llm.ErrUnauthorized
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return llm.ErrRateLimited
-	}
-	if resp.StatusCode >= 500 {
-		return llm.ErrUnavailable
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("validation failed: %s", resp.Status)
+	if err := mapOpenRouterError(resp, "OpenRouter key validation failed"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -92,17 +83,8 @@ func (c *Client) FetchModels(ctx context.Context, apiKey string) ([]OpenRouterMo
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, llm.ErrUnauthorized
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, llm.ErrRateLimited
-	}
-	if resp.StatusCode >= 500 {
-		return nil, llm.ErrUnavailable
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("fetch models failed: %s", resp.Status)
+	if err := mapOpenRouterError(resp, "OpenRouter model fetch failed"); err != nil {
+		return nil, err
 	}
 	var envelope struct {
 		Data []OpenRouterModelInfo `json:"data"`
@@ -197,18 +179,8 @@ func (c *Client) sendChatCompletion(ctx context.Context, apiKey string, payload 
 		return "", nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return "", nil, llm.ErrUnauthorized
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return "", nil, llm.ErrRateLimited
-	}
-	if resp.StatusCode >= 500 {
-		return "", nil, llm.ErrUnavailable
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errorBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		return "", nil, fmt.Errorf("openrouter error: %s - %s", resp.Status, string(errorBody))
+	if err := mapOpenRouterError(resp, "OpenRouter chat request failed"); err != nil {
+		return "", nil, err
 	}
 	var completion chatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
@@ -221,6 +193,71 @@ func (c *Client) sendChatCompletion(ctx context.Context, apiKey string, payload 
 	content := extractContent(msg.Content)
 	toolCalls := toLLMToolCalls(msg.ToolCalls)
 	return content, toolCalls, nil
+}
+
+func mapOpenRouterError(resp *http.Response, fallback string) error {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+	detail := formatOpenRouterError(resp.StatusCode, resp.Status, body, fallback)
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return llm.WrapAPIError(llm.ErrUnauthorized, resp.StatusCode, detail)
+	case http.StatusPaymentRequired:
+		return llm.WrapAPIError(llm.ErrPaymentRequired, resp.StatusCode, detail)
+	case http.StatusForbidden:
+		return llm.WrapAPIError(nil, resp.StatusCode, detail)
+	case http.StatusTooManyRequests:
+		return llm.WrapAPIError(llm.ErrRateLimited, resp.StatusCode, detail)
+	}
+	if resp.StatusCode >= 500 {
+		return llm.WrapAPIError(llm.ErrUnavailable, resp.StatusCode, detail)
+	}
+	return fmt.Errorf("%s", detail)
+}
+
+func formatOpenRouterError(statusCode int, status string, body []byte, fallback string) string {
+	message := extractOpenRouterErrorMessage(body)
+	if message == "" {
+		message = strings.TrimSpace(string(body))
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		if status != "" {
+			return fmt.Sprintf("%s (%s)", fallback, status)
+		}
+		return fallback
+	}
+	if status != "" {
+		return fmt.Sprintf("%s (%s)", message, status)
+	}
+	return message
+}
+
+func extractOpenRouterErrorMessage(body []byte) string {
+	type errorEnvelope struct {
+		Error struct {
+			Message string `json:"message"`
+			Code    any    `json:"code"`
+		} `json:"error"`
+		Message string `json:"message"`
+		Detail  string `json:"detail"`
+	}
+	var payload errorEnvelope
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	switch {
+	case strings.TrimSpace(payload.Error.Message) != "":
+		return payload.Error.Message
+	case strings.TrimSpace(payload.Message) != "":
+		return payload.Message
+	case strings.TrimSpace(payload.Detail) != "":
+		return payload.Detail
+	default:
+		return ""
+	}
 }
 
 type chatCompletionRequest struct {

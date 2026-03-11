@@ -98,6 +98,7 @@ class FakeEngine implements EngineApi {
             'enabled': true,
             'configured': true,
             'models': ['openai/gpt-4o-mini'],
+            'default_model_id': 'openai/gpt-4o-mini',
           },
           {
             'provider_id': 'mistral',
@@ -105,6 +106,7 @@ class FakeEngine implements EngineApi {
             'enabled': true,
             'configured': false,
             'models': ['mistral:mistral-large'],
+            'default_model_id': 'mistral:mistral-large',
           },
           {
             'provider_id': 'openrouter',
@@ -112,6 +114,7 @@ class FakeEngine implements EngineApi {
             'enabled': true,
             'configured': false,
             'models': [],
+            'default_model_id': 'openrouter:openrouter/free',
           },
         ],
       };
@@ -126,6 +129,7 @@ class FakeEngine implements EngineApi {
             'context_tokens_estimate': 128000,
             'supports_file_read': true,
             'supports_file_write': true,
+            'is_free': false,
           },
           {
             'model_id': 'mistral:mistral-large',
@@ -134,6 +138,7 @@ class FakeEngine implements EngineApi {
             'context_tokens_estimate': 128000,
             'supports_file_read': true,
             'supports_file_write': true,
+            'is_free': false,
           },
         ],
       };

@@ -2,6 +2,7 @@ package openrouter
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -22,6 +23,7 @@ func (m *mockRT) RoundTrip(req *http.Request) (*http.Response, error) {
 func response(status int, body string) *http.Response {
 	return &http.Response{
 		StatusCode: status,
+		Status:     http.StatusText(status),
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     make(http.Header),
 	}
@@ -85,8 +87,46 @@ func TestValidateKeyUnauthorized(t *testing.T) {
 			},
 		}},
 	}
-	if err := client.ValidateKey(context.Background(), "sk-test"); err != llm.ErrUnauthorized {
+	if err := client.ValidateKey(context.Background(), "sk-test"); !errors.Is(err, llm.ErrUnauthorized) {
 		t.Fatalf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
+func TestValidateKeyUnauthorizedPreservesDetail(t *testing.T) {
+	client := &Client{
+		baseURL: "https://openrouter.ai/api/v1",
+		client: &http.Client{Transport: &mockRT{
+			roundTrip: func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusUnauthorized, `{"error":{"message":"Invalid API key"}}`), nil
+			},
+		}},
+	}
+	err := client.ValidateKey(context.Background(), "sk-test")
+	if !errors.Is(err, llm.ErrUnauthorized) {
+		t.Fatalf("expected wrapped ErrUnauthorized, got %v", err)
+	}
+	if got := llm.Detail(err); got == "" || !strings.Contains(got, "Invalid API key") {
+		t.Fatalf("expected detail to include upstream message, got %q", got)
+	}
+}
+
+func TestChatPaymentRequired(t *testing.T) {
+	client := &Client{
+		baseURL: "https://openrouter.ai/api/v1",
+		client: &http.Client{Transport: &mockRT{
+			roundTrip: func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusPaymentRequired, `{"error":{"message":"Insufficient credits"}}`), nil
+			},
+		}},
+	}
+	_, err := client.Chat(context.Background(), "sk-test", "openrouter/free", []llm.Message{
+		{Role: "user", Content: "hello"},
+	})
+	if !errors.Is(err, llm.ErrPaymentRequired) {
+		t.Fatalf("expected wrapped ErrPaymentRequired, got %v", err)
+	}
+	if got := llm.Detail(err); got == "" || !strings.Contains(got, "Insufficient credits") {
+		t.Fatalf("expected detail to include credits message, got %q", got)
 	}
 }
 

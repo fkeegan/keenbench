@@ -20,9 +20,10 @@ const (
 	ModelAnthropicClaudeSonnet46ID = "anthropic-claude:claude-sonnet-4-6"
 	ModelAnthropicClaudeOpus46ID   = "anthropic-claude:claude-opus-4-6"
 	// ModelAnthropicID is kept as a compatibility alias for older internal references.
-	ModelAnthropicID = ModelAnthropicSonnet46ID
-	ModelGoogleID    = "google:gemini-3-pro"
-	ModelMistralID   = "mistral:mistral-large"
+	ModelAnthropicID      = ModelAnthropicSonnet46ID
+	ModelGoogleID         = "google:gemini-3-pro"
+	ModelMistralID        = "mistral:mistral-large"
+	ModelOpenRouterFreeID = "openrouter:openrouter/free"
 )
 
 const modelAnthropicLegacyOpus45ID = "anthropic:claude-opus-4.5"
@@ -36,6 +37,7 @@ type ModelInfo struct {
 	SupportsFileWrite bool   `json:"supports_file_write"`
 	CanBeSecondary    bool   `json:"can_be_secondary"`
 	RequiresKey       bool   `json:"requires_key"`
+	IsFree            bool   `json:"is_free"`
 }
 
 var modelRegistry = map[string]ModelInfo{
@@ -119,6 +121,17 @@ var modelRegistry = map[string]ModelInfo{
 		CanBeSecondary:    true,
 		RequiresKey:       true,
 	},
+	ModelOpenRouterFreeID: {
+		ModelID:           ModelOpenRouterFreeID,
+		ProviderID:        ProviderOpenRouter,
+		DisplayName:       "OpenRouter Free",
+		ContextTokens:     200000,
+		SupportsFileRead:  true,
+		SupportsFileWrite: true,
+		CanBeSecondary:    true,
+		RequiresKey:       true,
+		IsFree:            true,
+	},
 }
 
 func listSupportedModels() []ModelInfo {
@@ -131,6 +144,7 @@ func listSupportedModels() []ModelInfo {
 		modelRegistry[ModelAnthropicClaudeOpus46ID],
 		modelRegistry[ModelGoogleID],
 		modelRegistry[ModelMistralID],
+		modelRegistry[ModelOpenRouterFreeID],
 	}
 }
 

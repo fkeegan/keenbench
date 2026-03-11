@@ -82,6 +82,8 @@ func main() {
 	register("ProvidersRefreshModels", eng.ProvidersRefreshModels)
 	register("ModelsListSupported", eng.ModelsListSupported)
 	register("ModelsGetCapabilities", eng.ModelsGetCapabilities)
+	register("UserGetDefaultSelection", eng.UserGetDefaultSelection)
+	register("UserSetDefaultSelection", eng.UserSetDefaultSelection)
 	register("UserGetDefaultModel", eng.UserGetDefaultModel)
 	register("UserSetDefaultModel", eng.UserSetDefaultModel)
 	register("UserGetConsentMode", eng.UserGetConsentMode)
